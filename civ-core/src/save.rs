@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -91,6 +91,41 @@ fn v3_to_v4(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
             let Some(b) = b.as_object_mut() else { continue };
             b.entry("grudges").or_insert(serde_json::json!([]));
             b.entry("pressed").or_insert(serde_json::json!(0.0));
+        }
+    }
+    Ok(v)
+}
+/// v4 -> v5 (farming stage). Frozen: do not edit.
+/// - five materials were appended after bronze (grain, flax, wool, iron ore, iron): per-band
+///   `stock` and `origin` grow from 18 to 23 entries (0.0 / u32::MAX);
+/// - `craft` is [18 material leanings, 3 action leanings]; the 5 new material leanings (1.0 =
+///   neutral) go in at index 18, before the action leanings;
+/// - new band fields (`sow`, `strain`, `herd`, `tame`, `settled`, `sick`, `immune`) start at 0;
+/// - the per-cell farming layers (`camp`, `tend`, `dom`, `fert`, `crop`) are absent and are built
+///   fresh on load (fertility 1, nothing tended); maps below gen 4 gain iron ore on load.
+fn v4_to_v5(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            for (key, fill) in [("stock", json!(0.0)), ("origin", json!(u32::MAX))] {
+                if let Some(a) = b.get_mut(key).and_then(|x| x.as_array_mut()) {
+                    while a.len() < 23 {
+                        a.push(fill.clone());
+                    }
+                }
+            }
+            if let Some(a) = b.get_mut("craft").and_then(|x| x.as_array_mut()) {
+                if a.len() == 21 {
+                    for _ in 0..5 {
+                        a.insert(18, json!(1.0));
+                    }
+                }
+            }
+            for k in ["sow", "strain", "herd", "tame", "settled", "sick", "immune"] {
+                b.entry(k).or_insert(json!(0.0));
+            }
         }
     }
     Ok(v)

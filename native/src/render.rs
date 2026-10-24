@@ -1,5 +1,5 @@
 //! Map rendering: a per-cell texture (terrain or an overlay) plus bands drawn as discs.
-use civ_core::map::{Biome, D_CLAY, D_COPPER, D_FLINT, D_OBSIDIAN, D_STONE, D_TIN};
+use civ_core::map::{Biome, D_CLAY, D_COPPER, D_FLINT, D_IRON, D_OBSIDIAN, D_STONE, D_TIN};
 use civ_core::materials::Item;
 use civ_core::World;
 use macroquad::prelude::*;
@@ -20,13 +20,14 @@ pub const BIOME_KEY: [(Biome, &str); 11] = [
 ];
 pub const RIVER_RGB: [f32; 3] = [0.25, 0.45, 0.75];
 /// Deposit colours, in drawing order (a later one wins when a cell has several).
-pub const DEPOSIT_KEY: [(u32, [f32; 3], &str); 6] = [
+pub const DEPOSIT_KEY: [(u32, [f32; 3], &str); 7] = [
     (D_STONE as u32, [0.55, 0.55, 0.6], "hard stone (cobbles for hammers)"),
     (D_CLAY as u32, [0.75, 0.45, 0.3], "clay (pots, kiln lining)"),
     (D_FLINT as u32, [0.95, 0.95, 0.85], "flint (sharp flakes)"),
     (D_OBSIDIAN as u32, [0.15, 0.1, 0.25], "obsidian (sharpest edges)"),
     (D_COPPER as u32, [0.15, 0.85, 0.6], "copper ore"),
     (D_TIN as u32, [0.55, 0.75, 1.0], "tin ore"),
+    (D_IRON as u32, [0.7, 0.25, 0.15], "iron ore (bog and red earth)"),
 ];
 /// Temperature overlay range (°C) and population overlay scale (ln people per cell).
 pub const TEMP_LO: f32 = -15.0;
@@ -38,7 +39,30 @@ pub const TRADE_LN_MAX: f32 = 3.0;
 /// Conflict overlay scale: ln(1 + people recently killed in fights around a cell).
 pub const CONFLICT_LN_MAX: f32 = 3.5;
 
-pub const OVERLAYS: [&str; 8] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade", "conflict"];
+pub const OVERLAYS: [&str; 9] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade", "conflict", "farming"];
+
+/// Farming overlay colours.
+pub const FARM_TENDED: [f32; 3] = [0.45, 0.75, 0.4];
+pub const FARM_FIELD: [f32; 3] = [0.85, 0.85, 0.25];
+pub const FARM_DOMESTIC: [f32; 3] = [1.0, 0.65, 0.05];
+pub const FARM_EXHAUSTED: [f32; 3] = [0.5, 0.3, 0.15];
+pub const FARM_PASTURE: [f32; 3] = [0.75, 0.55, 0.85];
+
+/// Farming overlay colour of cell `i`, or None for no farming (then shaded by crop potential).
+pub fn farm_rgb(w: &World, i: usize) -> Option<[f32; 3]> {
+    let t = w.tend.get(i).copied().unwrap_or(0.0);
+    let d = w.dom.get(i).copied().unwrap_or(0.0);
+    let f = w.fert.get(i).copied().unwrap_or(1.0);
+    if t > 0.4 {
+        let base = if d > 0.6 { FARM_DOMESTIC } else { lerp3(FARM_FIELD, FARM_DOMESTIC, (d / 0.6) * 0.5) };
+        // worn-out soil browns the field
+        Some(lerp3(FARM_EXHAUSTED, base, ((f - 0.3) / 0.5).clamp(0.0, 1.0)))
+    } else if t > 0.08 {
+        Some(lerp3([0.3, 0.42, 0.3], FARM_TENDED, ((t - 0.08) / 0.32).clamp(0.0, 1.0)))
+    } else {
+        None
+    }
+}
 
 /// Camera: centre in cell coordinates, zoom in screen pixels per cell.
 pub struct View {
@@ -106,9 +130,22 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
     // per-cell aggregates from bands
     let mut pop = vec![0u32; n];
     let mut know = vec![0u32; n];
+    let mut herd = vec![false; n];
     for b in &w.bands {
         let c = b.cell(m.w);
         pop[c] += b.pop;
+        if overlay == 8 && b.herd > 0.05 {
+            // grazing range of a herding band
+            let (bx, by) = (b.x as i32, b.y as i32);
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let (x, y) = (bx + dx, by + dy);
+                    if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h {
+                        herd[y as usize * m.w + x as usize] = true;
+                    }
+                }
+            }
+        }
         // know-how is shown over each band's home range (2 cells), not just its own cell
         let (bx, by) = (b.x as i32, b.y as i32);
         for dy in -2..=2i32 {
@@ -193,6 +230,17 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                         grey(c, 0.8)
                     }
                 }
+                8 if land => match farm_rgb(w, i) {
+                    Some(fc) => fc,
+                    None => {
+                        let p = w.crop_pot.get(i).copied().unwrap_or(0.0);
+                        let mut g = grey(c, 0.35 + 0.35 * (p / 1.3).min(1.0));
+                        if herd[i] {
+                            g = lerp3(g, FARM_PASTURE, 0.6);
+                        }
+                        g
+                    }
+                },
                 _ => c,
             };
             let o = (y * m.w + x) * 4;

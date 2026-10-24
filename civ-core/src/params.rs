@@ -68,6 +68,18 @@ pub struct Params {
     pub lethality: f32,
     /// share of a grudge still held a year later (0.92: half gone in about 8 years)
     pub grudge_memory: f32,
+    // farming (v5)
+    /// how quickly repeated camp use turns into tended ground, and tended ground into sown
+    /// fields (0 = nobody ever takes up farming)
+    pub farm_rate: f32,
+    /// food a fully cleared, domesticated, fertile field yields (multiplies crop capacity)
+    pub farm_yield: f32,
+    /// how fast cropping wears out the soil (0 = soil never tires)
+    pub soil_drain: f32,
+    /// how readily hunters begin keeping and breeding animals (0 = never)
+    pub herd_rate: f32,
+    /// strength of crowd diseases (density x sedentism x herd contact; 0 = none)
+    pub disease: f32,
 }
 impl Default for Params {
     fn default() -> Self {
@@ -93,6 +105,11 @@ impl Default for Params {
             aggression: 1.0,
             lethality: 1.0,
             grudge_memory: 0.92,
+            farm_rate: 1.0,
+            farm_yield: 1.0,
+            soil_drain: 1.0,
+            herd_rate: 1.0,
+            disease: 1.0,
         }
     }
 }

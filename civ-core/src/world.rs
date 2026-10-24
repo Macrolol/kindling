@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 
 mod conflict;
+mod farming;
+pub use farming::{crop_potential, graze_potential};
 
 pub const EVENT_CAP: usize = 40_000;
 
@@ -61,6 +63,25 @@ pub enum EventKind {
     Absorbed,
     /// first band to flee a stronger neighbour across the sea (major; recipe = cell left)
     FirstSeaRefuge,
+    // ---- farming stage (v5)
+    /// the world's first band to sow and tend fields (major)
+    FirstCultivation,
+    /// farming begun again, independently, far from any earlier start (major; recipe = origin no.)
+    FarmingOrigin,
+    /// band took up farming (learned from other, or found it near an earlier start)
+    TookUpFarming,
+    /// band gave up its fields and went back to foraging
+    AbandonedFarming,
+    /// first fully domesticated crop / fibre / fleece (major; item = raw grain / flax / wool)
+    FirstDomestic,
+    /// the world's first band to keep and breed animals (major)
+    FirstHerding,
+    /// first outbreak of a crowd disease (major)
+    FirstEpidemic,
+    /// an outbreak of crowd disease in band (other = band it caught it from, 0 = arose there)
+    Epidemic,
+    /// first band to till with an animal-drawn ard (major)
+    FirstPlough,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -68,8 +89,9 @@ impl EventKind {
         [
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
-            Absorbed, FirstSeaRefuge,
-        ][(x as usize).min(23)]
+            Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough,
+        ][(x as usize).min(32)]
     }
     pub fn major(self) -> bool {
         matches!(
@@ -82,6 +104,12 @@ impl EventKind {
                 | EventKind::FirstFight
                 | EventKind::BloodiestFight
                 | EventKind::FirstSeaRefuge
+                | EventKind::FirstCultivation
+                | EventKind::FarmingOrigin
+                | EventKind::FirstDomestic
+                | EventKind::FirstHerding
+                | EventKind::FirstEpidemic
+                | EventKind::FirstPlough
         )
     }
 }
@@ -145,6 +173,23 @@ pub struct YearStats {
     /// bands driven off (fled, or lost a fight and left)
     pub displaced: u32,
     pub absorbed: u32,
+    /// farming (v5): bands that sow fields, their people, bands keeping herds
+    pub farmers: u32,
+    pub farmer_pop: u32,
+    pub herders: u32,
+    /// cultivated cells (tend > 0.4) and those with a domesticated crop (dom > 0.6)
+    pub fields: u32,
+    pub dom_fields: u32,
+    /// mean soil fertility of cultivated cells (1 = fresh)
+    pub field_fert: f32,
+    /// share of all food eaten this year that came from fields and herds
+    pub farm_food_share: f32,
+    /// outbreaks of crowd disease, and deaths from crowd disease
+    pub epidemics: u32,
+    pub disease_deaths: u32,
+    /// people per occupied cell: farmers vs foragers
+    pub farmer_density: f32,
+    pub forager_density: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -179,6 +224,15 @@ pub struct Counters {
     pub absorbed: u64,
     pub captives: u64,
     pub max_fight_deaths: u64,
+    /// farming (v5)
+    pub farm_starts: u64,
+    pub farm_origins: u64,
+    pub took_up_farming: u64,
+    pub abandoned_farming: u64,
+    pub herds_started: u64,
+    pub herds_lost: u64,
+    pub epidemics: u64,
+    pub disease_deaths: u64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -224,6 +278,26 @@ pub struct World {
     pub trade_flow: Vec<f32>,
     /// people killed in fights around each cell recently (decays; for the conflict overlay, v4)
     pub conflict_flow: Vec<f32>,
+    // ---- farming stage, per cell (v5; older saves start them fresh on load)
+    /// memory of camp use (person-seasons, decaying)
+    pub camp: Vec<f32>,
+    /// how worked the ground is, 0..1: up to 0.4 tended wild stands, above that cleared, sown fields
+    pub tend: Vec<f32>,
+    /// domestication of the crop growing there, 0..1
+    pub dom: Vec<f32>,
+    /// soil fertility, 0..1 (1 = never cropped)
+    pub fert: Vec<f32>,
+    /// standing crop
+    pub crop: Vec<f32>,
+    /// where and when farming began independently: (tick, cell, band)
+    pub farm_starts: Vec<(u32, u32, u32)>,
+    /// world firsts with no item of their own (bit 0: ard, bit 1: herding)
+    pub farm_flags: u32,
+    /// crop potential per cell (derived from the map)
+    #[serde(skip)]
+    pub crop_pot: Vec<f32>,
+    #[serde(skip)]
+    pub graze_pot: Vec<f32>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
@@ -243,7 +317,7 @@ fn raw(m: Mat) -> Item {
 }
 
 /// Goods bands carry and can pass on (food is shared separately; wood is everywhere).
-pub const TRADE_MATS: [Mat; 12] = [
+pub const TRADE_MATS: [Mat; 17] = [
     Mat::Stone,
     Mat::Flint,
     Mat::Obsidian,
@@ -256,6 +330,11 @@ pub const TRADE_MATS: [Mat; 12] = [
     Mat::Copper,
     Mat::Tin,
     Mat::Bronze,
+    Mat::Grain,
+    Mat::Flax,
+    Mat::Wool,
+    Mat::IronOre,
+    Mat::Iron,
 ];
 
 /// What material `mi` is worth to band `b` right now, as (reason to want it, marginal worth).
@@ -296,6 +375,7 @@ impl World {
         w.occ = vec![Vec::new(); n];
         w.trade_flow = vec![0.0; n];
         w.conflict_flow = vec![0.0; n];
+        w.ensure_farm_layers();
         let mut rng = Rng::new(w.cfg.seed);
         // founders: one region anywhere people can live off the land - forest, grassland, coast,
         // cool or hot - more likely the richer it is. Where people start (what grows, what
@@ -312,7 +392,13 @@ impl World {
         let (ox, oy) = (origin % w.map.w, origin / w.map.w);
         // the founders are one people: they share habits of hand (what they are used to working,
         // which ways of working) with small differences between groups
-        let culture: Vec<f32> = (0..CRAFT_LEN).map(|_| (0.5 * rng.gauss()).exp()).collect();
+        // (drawn in the v4 order - 18 materials, 3 ways of working - then the v5 materials, so a
+        // seed's founders lean the same way they did before farming existed)
+        let mut culture: Vec<f32> = (0..21).map(|_| (0.5 * rng.gauss()).exp()).collect();
+        let extra: Vec<f32> = (21..CRAFT_LEN).map(|_| (0.5 * rng.gauss()).exp()).collect();
+        let acts = culture.split_off(18);
+        culture.extend(extra);
+        culture.extend(acts);
         for k in 0..w.cfg.founders {
             let mut pos = origin;
             for _ in 0..20 {
@@ -417,6 +503,7 @@ impl World {
         if self.trade_flow.len() != n {
             self.trade_flow = vec![0.0; n];
         }
+        self.ensure_farm_layers();
         // saves from before v3 did not keep the overlay: sketch it from the standing trade
         // partnerships (who trades with whom is saved), so it is not blank after loading
         if self.trade_flow.iter().all(|&f| f == 0.0) {
@@ -458,6 +545,7 @@ impl World {
             self.after_load();
         }
         self.regrow();
+        self.regrow_fields();
         for v in &mut self.trade_flow {
             *v *= 0.85;
         }
@@ -499,7 +587,12 @@ impl World {
             }
             let t = m.temp_season(i, s);
             let g = ((t - 3.0) / 12.0).clamp(0.0, 1.0);
-            let k = m.k_plants[i];
+            let mut k = m.k_plants[i];
+            if let Some(&td) = self.tend.get(i) {
+                if td > 0.0 {
+                    k = farming::wild_plant_cap(k, td);
+                }
+            }
             if k > 0.0 {
                 let p = &mut self.plants[i];
                 *p += r * (0.5 * g * *p * (1.0 - *p / k) + 0.03 * k * g) - 0.12 * (1.0 - g) * *p;
@@ -563,7 +656,7 @@ impl World {
             }
         }
         // hides, bones, and metal carried as blanks / ingots (made here or traded in)
-        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze] {
+        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Grain, Mat::Flax, Mat::Wool] {
             if st(mm) {
                 s.add(raw(mm));
             }
@@ -680,6 +773,7 @@ impl World {
             cells.iter().map(|&(c, wt)| wt * get(&self.game, c)).sum::<f32>(),
             cells.iter().map(|&(c, wt)| wt * get(&self.fish, c)).sum::<f32>(),
             cells.iter().map(|&(c, wt)| wt * get(&self.small, c)).sum::<f32>(),
+            if b.sow > 0.0 { cells.iter().map(|&(c, wt)| wt * get(&self.crop, c)).sum::<f32>() } else { 0.0 },
         ];
         // tool upkeep (a boat only matters by the water, a net only where there are fish)
         let mut upkeep = 0.0;
@@ -702,18 +796,22 @@ impl World {
             used.push(it);
         }
         let upkeep_l = upkeep * labour;
+        // fields and herds: tending fields and minding animals take labour every season
+        let fm = self.farm_terms(b, &cells, t);
+        let upkeep_l = upkeep_l + fm.labour * labour;
         let ks = [
             3.0 * kit.plants_m * p.forage_eff,
             2.5 * kit.game_m * p.forage_eff,
             2.5 * kit.fish_m * p.forage_eff,
             2.5 * kit.small_m * p.forage_eff,
+            3.5 * kit.farm_m * fm.plough * p.forage_eff,
         ];
         let dg = kit.digest;
         // effort goes where it pays best (food value per unit of effort)
-        let wsum: f32 = (0..4).map(|r| ys[r] * ks[r] * dg[r]).sum::<f32>().max(1e-6);
-        let harvest = |e: f32| -> [f32; 4] {
-            let mut h = [0f32; 4];
-            for r in 0..4 {
+        let wsum: f32 = (0..5).map(|r| ys[r] * ks[r] * dg[r]).sum::<f32>().max(1e-6);
+        let harvest = |e: f32| -> [f32; 5] {
+            let mut h = [0f32; 5];
+            for r in 0..5 {
                 if ys[r] > 0.01 {
                     let er = e * ys[r] * ks[r] * dg[r] / wsum;
                     h[r] = ys[r] * (1.0 - (-ks[r] * er / ys[r]).exp());
@@ -721,12 +819,15 @@ impl World {
             }
             h
         };
-        let food_of = |h: &[f32; 4]| (0..4).map(|r| h[r] * dg[r]).sum::<f32>();
+        // herd food (meat, later milk) comes in whatever the effort elsewhere
+        let food_of = |h: &[f32; 5]| (0..5).map(|r| h[r] * dg[r]).sum::<f32>() + fm.herd_food;
         let ls = self.map.local_season(ci, s);
         let winter_next = ls == 2 || (ls == 1 && self.map.tamp[ci] > 8.0);
         let vq = if kit.vessel == NONE { 0.0 } else { vessel_q(mat(kit.vessel)) };
         // laying food by for winter: some is always cached, containers let far more keep
-        let store_target = if winter_next { need * (0.15 + 0.75 * vq) } else { 0.0 };
+        // farmers who eat from a harvest must carry it through the lean seasons
+        let crop_share = if fm.fields > 0.0 { (ys[4] * ks[4] * dg[4] / wsum).min(1.0) } else { 0.0 };
+        let store_target = if winter_next { need * (0.15 + 0.75 * vq) * (1.0 + 0.8 * crop_share) } else { 0.0 };
         let target = (need + store_target - b.store * 0.5).max(need * 0.5);
         let max_e = (labour * 0.85 - upkeep_l).max(labour * 0.3);
         let e_food = if food_of(&harvest(max_e)) <= target {
@@ -747,10 +848,11 @@ impl World {
         let food = food_of(&h);
         // stored food rots faster in the warm; sealed containers and smoking slow it
         let base = 0.12 + 0.28 * (t / 25.0).clamp(0.0, 1.0);
-        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 };
+        // dry grain keeps far better than fresh food (and better still in pits and jars)
+        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share);
         let mut store = b.store * (1.0 - spoil);
         let food_ratio = if food >= need {
-            store = (store + food - need).min(pop * (0.5 + 1.5 * vq));
+            store = (store + food - need).min(pop * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled)));
             1.0
         } else {
             let take = store.min(need - food);
@@ -759,7 +861,8 @@ impl World {
         };
         let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
         let stress = ((1.0 - food_ratio) * 2.0 + 0.15 * cold).clamp(0.0, 1.0);
-        Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil }
+        let farm_food = h[4] * dg[4] + fm.herd_food;
+        Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil, farm_food, herd_food: fm.herd_food }
     }
 
     fn band_season(&mut self, b: &mut Band, rng: &mut Rng) {
@@ -778,7 +881,7 @@ impl World {
             mark_used(&self.reg, &mut b.known, &b.d.tk, it);
         }
         {
-            let stocks: [&mut Vec<f32>; 4] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small];
+            let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
             for (r, st) in stocks.into_iter().enumerate() {
                 if ec.ys[r] > 0.01 {
                     let phi = (ec.h[r] / ec.ys[r]).min(1.0);
@@ -791,6 +894,7 @@ impl World {
             }
         }
         b.store = ec.store_after;
+        self.farm_season(b, &ec, rng);
         // hides and bones from hunting (small game gives a little)
         let hunted = ec.h[1] + 0.3 * ec.h[3];
         b.stock[Mat::Hide as usize] = (b.stock[Mat::Hide as usize] + hunted * 0.01).min(1.5);
@@ -821,7 +925,7 @@ impl World {
         }
         // metal the band can smelt or alloy itself is kept as blanks / ingots; it remembers
         // where its ore came from
-        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre)] {
+        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre), (Mat::Iron, Mat::IronOre)] {
             let mi = metal as usize;
             if b.d.tk.producible.has(raw(metal)) && b.stock[mi] < 0.8 {
                 let o = b.origin[ore as usize];
@@ -839,12 +943,13 @@ impl World {
             let present = match mm {
                 Mat::Wood => self.map.k_wood[ci] > 2.0,
                 Mat::Fibre => self.map.k_fibre[ci] > 2.0,
-                Mat::Copper | Mat::Tin | Mat::Bronze => b.d.tk.producible.has(raw(mm)),
+                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => b.d.tk.producible.has(raw(mm)),
+                Mat::Flax | Mat::Wool => false, // grown / shorn: topped up in `farm_season`
                 mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
             };
             // metal is durable and re-worked (blunt tools are re-hammered, scrap re-melted),
             // so it wears away far slower than stone, hide or fibre
-            let metal = matches!(mm, Mat::Copper | Mat::Tin | Mat::Bronze);
+            let metal = mm.is_metal();
             let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
                 use_ += if metal { 0.02 } else { 0.06 };
@@ -857,9 +962,13 @@ impl World {
         }
         // ---------------- demography (births / deaths; splits happen later)
         let fed = ((food_ratio - 0.75) / 0.25).clamp(0.0, 1.0);
-        let births = rng.poisson(pop * p.birth_rate * fed * (0.8 + 0.4 * spare));
+        // settled people with soft weaning foods (porridge, milk) space births closer
+        let farm_share = (ec.farm_food / ec.food.max(1e-3)).clamp(0.0, 1.0);
+        let sed = 1.0 + 0.6 * b.settled * farm_share;
+        let births = rng.poisson(pop * p.birth_rate * fed * (0.8 + 0.4 * spare) * sed);
         let deaths = rng.poisson(pop * p.death_rate + pop * p.starve_rate * (1.0 - food_ratio).powf(1.5));
         b.pop = (b.pop + births).saturating_sub(deaths);
+        self.disease_season(b, rng);
         // ---------------- fire keeping
         let can_make_fire = b.d.tk.producible.has(item(Form::Fire, Mat::Wood));
         if can_make_fire {
@@ -970,6 +1079,12 @@ impl World {
         add(Fibre, 1.0 * f(3));
         add(Wood, 0.8 * f(3));
         add(Hide, 0.5 * f(3));
+        // field work: grain to cook and grind, flax to spin, stone for querns and sickles
+        add(Grain, 1.5 * f(4));
+        add(Flax, 0.8 * f(4));
+        add(Stone, 0.4 * f(4));
+        add(Clay, 0.5 * f(4));
+        add(Wool, 0.8 * b.herd.min(1.0));
         let cold = (b.d.cold * 2.0).clamp(0.0, 1.5);
         add(Hide, 1.5 * cold);
         add(Bone, 0.6 * cold);
@@ -993,6 +1108,7 @@ impl World {
         // glassy obsidian
         add(CopperOre, 0.8);
         add(TinOre, 0.5);
+        add(IronOre, 0.4); // red and yellow ochre
         add(Obsidian, 0.5);
         let carried = 0.3 + 0.6 * b.curiosity;
         for (mi, v) in a.iter_mut().enumerate() {
@@ -1176,6 +1292,7 @@ impl World {
                 + 2.5 * kit.game_m * dg[1] * self.game[j]
                 + 2.5 * kit.fish_m * dg[2] * self.fish[j]
                 + 2.5 * kit.small_m * dg[3] * sm(j)
+                + if b.sow > 0.0 { 3.5 * kit.farm_m * dg[4] * 0.6 * self.farm_prospect(b, j) } else { 0.0 }
         };
         let (x, y) = (c % m.w, c / m.w);
         let mut nb = 0.0f32;
@@ -1440,6 +1557,8 @@ impl World {
         let mut best = cur;
         // a band recently driven off or menaced holds its ground less
         let inertia = 1.0 + (self.params.move_inertia - 1.0) * (1.0 - b.pressed);
+        // people with houses, stores and fields leave them only for much better ground
+        let inertia = inertia * (1.0 + 1.5 * b.settled * b.d.farm_share);
         b.pressed *= 0.8;
         let mut best_s = self.cell_score(b, cur) * inertia;
         let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| (c * m.w + a, 1.0)).collect();
@@ -1476,6 +1595,7 @@ impl World {
         if best != cur {
             b.x = (best % m.w) as u16;
             b.y = (best / m.w) as u16;
+            b.settled *= 0.5;
             if let Some((c, sea)) = by_sea {
                 if c == best {
                     self.counters.voyages += 1;
@@ -1559,11 +1679,14 @@ impl World {
             if !rng.chance(pc) || bands[a].pop == 0 || bands[c].pop == 0 {
                 continue;
             }
+            self.spread_disease(bands, a, c, rng);
             if self.confront(bands, a, c, d, rng) {
                 continue;
             }
             self.exchange(bands, a, c, rng);
             self.exchange(bands, c, a, rng);
+            self.share_farming(bands, a, c, rng);
+            self.share_farming(bands, c, a, rng);
             self.trade(bands, a, c, d, rng);
         }
         // partners keep visiting each other after they drift apart: a standing relationship
@@ -1695,6 +1818,7 @@ impl World {
     fn pass_good(&mut self, bands: &mut [Band], from: usize, to: usize, mi: usize, q: f32, d: i32) -> f32 {
         let w = self.map.w;
         let o = bands[from].origin[mi];
+        let strain = bands[from].strain;
         bands[from].stock[mi] -= q;
         let (fc, fid) = (bands[from].cell(w), bands[from].id);
         let t = &mut bands[to];
@@ -1702,6 +1826,9 @@ impl World {
             t.origin[mi] = if o == u32::MAX { fc as u32 } else { o };
         }
         t.stock[mi] = (t.stock[mi] + q).min(1.5);
+        if ALL_MATS[mi] == Mat::Grain && strain > t.strain {
+            t.strain = 0.95 * strain; // seed grain carries its strain
+        }
         let (tc, tid) = (t.cell(w), t.id);
         self.year_acc.trades += 1;
         self.year_acc.trade_volume += q;
@@ -1847,6 +1974,12 @@ impl World {
                 // old wrongs are remembered, less sharply, by the daughters
                 grudges: b.grudges.iter().map(|g| Grudge { w: 0.6 * g.w, ..*g }).filter(|g| g.w >= 0.05).collect(),
                 born: self.tick,
+                sow: b.sow * 0.9,
+                strain: b.strain,
+                herd: b.herd,
+                tame: b.tame,
+                immune: b.immune,
+                sick: b.sick,
                 ..Default::default()
             };
             if let Some(sea) = sailed {
@@ -1978,7 +2111,7 @@ impl World {
             b.partners.retain(|p| p.strength >= 0.05 && ids.contains(&p.id));
             links += b.partners.len() as u32;
             let c = b.cell(w);
-            for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre] {
+            for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre, Mat::Iron, Mat::Grain] {
                 let mi = m as usize;
                 let o = b.origin.get(mi).copied().unwrap_or(u32::MAX);
                 if b.stock.get(mi).copied().unwrap_or(0.0) > 0.1 && o != u32::MAX {
@@ -1992,6 +2125,37 @@ impl World {
             }
         }
         self.fade_grudges();
+        // farming
+        let (mut farmers, mut farmer_pop, mut herders) = (0u32, 0u32, 0u32);
+        let (mut ff, mut fall) = (0.0f32, 0.0f32);
+        let mut fcells = std::collections::HashSet::new();
+        let mut gcells = std::collections::HashSet::new();
+        let mut gpop = 0u32;
+        for b in &self.bands {
+            if b.sow > 0.0 {
+                farmers += 1;
+                farmer_pop += b.pop;
+                fcells.insert(b.cell(w));
+            } else {
+                gpop += b.pop;
+                gcells.insert(b.cell(w));
+            }
+            if b.herd > 0.0 {
+                herders += 1;
+            }
+            ff += b.d.farm_food;
+            fall += b.d.food;
+        }
+        let (mut fields, mut dom_fields, mut fsum) = (0u32, 0u32, 0.0f32);
+        for i in 0..self.tend.len() {
+            if self.tend[i] > 0.4 {
+                fields += 1;
+                fsum += self.fert[i];
+                if self.dom[i] > 0.6 {
+                    dom_fields += 1;
+                }
+            }
+        }
         let acc = std::mem::take(&mut self.year_acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
@@ -2005,6 +2169,15 @@ impl World {
             partnerships: links / 2,
             goods_dist_mean: if gn > 0 { gd / gn as f32 } else { 0.0 },
             goods_dist_max: gmax,
+            farmers,
+            farmer_pop,
+            herders,
+            fields,
+            dom_fields,
+            field_fert: if fields > 0 { fsum / fields as f32 } else { 0.0 },
+            farm_food_share: if fall > 0.0 { ff / fall } else { 0.0 },
+            farmer_density: if fcells.is_empty() { 0.0 } else { farmer_pop as f32 / fcells.len() as f32 },
+            forager_density: if gcells.is_empty() { 0.0 } else { gpop as f32 / gcells.len() as f32 },
             ..acc
         });
     }
@@ -2071,6 +2244,35 @@ impl World {
             EventKind::Tribute => format!("Y{yr}: band {} bought peace from band {} with food and goods", e.band, e.other),
             EventKind::Absorbed => format!("Y{yr}: the last {} of band {} were taken in by band {}, who beat them", e.recipe, e.band, e.other),
             EventKind::FirstSeaRefuge => format!("Y{yr}: band {}, driven off by band {}, is the first to escape a stronger neighbour by sea, landing at ({cx},{cy})", e.band, e.other),
+            EventKind::FirstCultivation => format!("Y{yr}: band {} at ({cx},{cy}) is the first to clear and sow fields, from wild stands it had long tended", e.band),
+            EventKind::FarmingOrigin => format!("Y{yr}: band {} at ({cx},{cy}) begins farming on its own, far from any other fields (origin #{})", e.band, e.recipe),
+            EventKind::TookUpFarming => {
+                if e.other == 0 {
+                    format!("Y{yr}: band {} took up farming near other fields", e.band)
+                } else {
+                    format!("Y{yr}: band {} learned to farm from band {}", e.band, e.other)
+                }
+            }
+            EventKind::AbandonedFarming => format!("Y{yr}: band {} gave up its fields at ({cx},{cy}) and went back to foraging", e.band),
+            EventKind::FirstDomestic => {
+                let what = match mat(e.item) {
+                    Mat::Grain => "the first fully domesticated grain (it no longer sheds its seed)",
+                    Mat::Flax => "the first to grow flax as a fibre crop",
+                    Mat::Wool => "the first to shear woolly sheep",
+                    _ => "the first with a domesticated crop",
+                };
+                format!("Y{yr}: band {} at ({cx},{cy}) has {what}", e.band)
+            }
+            EventKind::FirstHerding => format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep and breed animals", e.band),
+            EventKind::FirstEpidemic => format!("Y{yr}: the first epidemic: crowd sickness breaks out in band {} at ({cx},{cy})", e.band),
+            EventKind::Epidemic => {
+                if e.other == 0 {
+                    format!("Y{yr}: sickness breaks out in band {} at ({cx},{cy})", e.band)
+                } else {
+                    format!("Y{yr}: band {} caught a sickness from band {}", e.band, e.other)
+                }
+            }
+            EventKind::FirstPlough => format!("Y{yr}: band {} at ({cx},{cy}) is the first to till with an ard drawn by oxen", e.band),
         }
     }
 }
@@ -2080,8 +2282,8 @@ impl World {
 pub struct Econ {
     pub cells: Vec<(usize, f32)>,
     /// standing stock in range [plants, game, fish, small game] and the harvest of each
-    pub ys: [f32; 4],
-    pub h: [f32; 4],
+    pub ys: [f32; 5],
+    pub h: [f32; 5],
     pub food: f32,
     pub need: f32,
     pub cold: f32,
@@ -2093,6 +2295,9 @@ pub struct Econ {
     pub spare: f32,
     pub stress: f32,
     pub spoil: f32,
+    /// food from fields and herds, and from the herd alone
+    pub farm_food: f32,
+    pub herd_food: f32,
 }
 impl Econ {
     pub fn apply(&self, d: &mut crate::band::Derived) {
@@ -2105,5 +2310,7 @@ impl Econ {
         d.needed = self.needed;
         d.food = self.food;
         d.harvest = self.h;
+        d.farm_food = self.farm_food;
+        d.farm_share = (self.farm_food / self.food.max(1e-3)).clamp(0.0, 1.0);
     }
 }

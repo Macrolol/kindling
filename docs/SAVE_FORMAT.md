@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 2`.
+Current: `FORMAT_VERSION = 5`.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -43,6 +43,21 @@ Current: `FORMAT_VERSION = 2`.
     fields, `params.aggression` / `lethality` / `grudge_memory` (defaults 1.0 / 1.0 / 0.92), and
     the `EventKind` values 17 Fight, 18 FirstFight, 19 BloodiestFight, 20 Fled, 21 Tribute,
     22 Absorbed, 23 FirstSeaRefuge (for Fight-type events `recipe` holds the number killed).
-- Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave`, `v2_seed7_y60.civsave` and
-  `v3_seed7_y60.civsave` (written by the v1, v2 and v3 builds) are loaded by
-  `v1_fixture_loads_and_runs`, `v2_fixture_loads_and_runs` and `v3_fixture_loads_and_runs`.
+- **v5** (farming stage). Migration `v4_to_v5`:
+  - five materials appended after bronze (grain, flax, wool, iron ore, iron): `bands[].stock` and
+    `bands[].origin` padded from 18 to 23 entries (`0.0` / `u32::MAX`). Item ids are
+    `form * 32 + mat`, so existing item ids do not move;
+  - `bands[].craft` is [18 material leanings, 3 action leanings]: five neutral `1.0` material
+    leanings are inserted at index 18, before the action leanings (21 -> 26 entries);
+  - new band fields `sow`, `strain`, `herd`, `tame`, `settled`, `sick`, `immune`: `0.0`.
+  - Additive v5 fields: the per-cell farming layers `world.camp`, `tend`, `dom`, `fert`, `crop`
+    (absent in older saves and built fresh on load: fertility 1, nothing tended),
+    `world.farm_starts`, `world.farm_flags`, farming / disease `counters` and `YearStats` fields,
+    `params.farm_rate` / `farm_yield` / `soil_drain` / `herd_rate` / `disease` (all default 1.0),
+    and the `EventKind` values 24 FirstCultivation, 25 FarmingOrigin, 26 TookUpFarming,
+    27 AbandonedFarming, 28 FirstDomestic, 29 FirstHerding, 30 FirstEpidemic, 31 Epidemic,
+    32 FirstPlough. `crop_pot` / `graze_pot` are derived and never saved.
+  - Map generator 4 (`map.gen_version` 4) adds bog and laterite iron ore. Maps below gen 4 gain
+    iron ore on load (`Map::upgrade_legacy`); no other geology changes.
+- Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
+  the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

@@ -61,6 +61,39 @@ pub struct Summary {
     /// share of land cells per biome (percent), in Biome order
     pub biome_pct: Vec<(String, f32)>,
     pub trade: TradeSummary,
+    pub farming: FarmSummary,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FarmSummary {
+    /// year of the first sown fields anywhere
+    pub first_cultivation: Option<f32>,
+    /// independent starts: (year, biome, temp) - far from any other fields, no seed carried in
+    pub origins: Vec<(f32, String)>,
+    pub first_domestic_grain: Option<f32>,
+    pub first_herding: Option<f32>,
+    pub first_plough: Option<f32>,
+    pub first_epidemic: Option<f32>,
+    pub took_up: u64,
+    pub abandoned: u64,
+    pub epidemics: u64,
+    pub disease_deaths: u64,
+    /// at the end
+    pub farmers: u32,
+    pub farmer_pop: u32,
+    pub forager_bands: u32,
+    pub forager_pop: u32,
+    pub herders: u32,
+    pub fields: u32,
+    pub dom_fields: u32,
+    pub field_fert: f32,
+    pub farm_food_share: f32,
+    pub peak_farm_food_share: f32,
+    pub farmer_density: f32,
+    pub forager_density: f32,
+    /// landmasses with farmers / with foragers at the end
+    pub landmasses_farming: u32,
+    pub landmasses_foraging: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -107,11 +140,13 @@ pub struct LandmassSummary {
     pub gap: Option<u32>,
 }
 
-pub const STAGES: [&str; 7] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze"];
+pub const STAGES: [&str; 8] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze", "iron"];
 
 fn stage_of(items: &[Item]) -> usize {
     let has = |f: &dyn Fn(Item) -> bool| items.iter().any(|&i| f(i));
-    if has(&|i| mat(i) == Mat::Bronze) {
+    if has(&|i| mat(i) == Mat::Iron) {
+        7
+    } else if has(&|i| mat(i) == Mat::Bronze) {
         6
     } else if has(&|i| mat(i) == Mat::Copper) {
         5
@@ -323,6 +358,60 @@ pub fn summarize(w: &World) -> Summary {
             trade.first_traded.push((e.tick as f32 / 4.0, crate::materials::mat(e.item).props().name.to_string()));
         }
     }
+    let mut farming = FarmSummary::default();
+    {
+        use crate::world::EventKind as K;
+        let yr = |t: u32| t as f32 / 4.0;
+        for e in &w.chronicle {
+            let k = e.kind;
+            if k == K::FirstCultivation as u8 || k == K::FarmingOrigin as u8 {
+                let c = e.cell as usize;
+                if k == K::FirstCultivation as u8 {
+                    farming.first_cultivation = Some(yr(e.tick));
+                }
+                farming.origins.push((yr(e.tick), format!("{:?} {:.0}C", m.biome_at(c), m.temp[c])));
+            } else if k == K::FirstDomestic as u8 && mat(e.item) == Mat::Grain {
+                farming.first_domestic_grain = Some(yr(e.tick));
+            } else if k == K::FirstHerding as u8 {
+                farming.first_herding = Some(yr(e.tick));
+            } else if k == K::FirstPlough as u8 {
+                farming.first_plough = Some(yr(e.tick));
+            } else if k == K::FirstEpidemic as u8 {
+                farming.first_epidemic = Some(yr(e.tick));
+            }
+        }
+        let c = &w.counters;
+        farming.took_up = c.took_up_farming;
+        farming.abandoned = c.abandoned_farming;
+        farming.epidemics = c.epidemics;
+        farming.disease_deaths = c.disease_deaths;
+        let mut lf = std::collections::HashSet::new();
+        let mut lg = std::collections::HashSet::new();
+        for b in &w.bands {
+            let l = m.landmass_of(b.cell(mw));
+            if b.sow > 0.0 {
+                lf.insert(l);
+            } else {
+                farming.forager_bands += 1;
+                farming.forager_pop += b.pop;
+                lg.insert(l);
+            }
+        }
+        farming.landmasses_farming = lf.len() as u32;
+        farming.landmasses_foraging = lg.len() as u32;
+        if let Some(h) = last {
+            farming.farmers = h.farmers;
+            farming.farmer_pop = h.farmer_pop;
+            farming.herders = h.herders;
+            farming.fields = h.fields;
+            farming.dom_fields = h.dom_fields;
+            farming.field_fert = h.field_fert;
+            farming.farm_food_share = h.farm_food_share;
+            farming.farmer_density = h.farmer_density;
+            farming.forager_density = h.forager_density;
+        }
+        farming.peak_farm_food_share = w.history.iter().map(|h| h.farm_food_share).fold(0.0, f32::max);
+    }
     let biome_pct = bc.into_iter().map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32)).collect();
     Summary {
         seed: w.cfg.seed,
@@ -372,6 +461,7 @@ pub fn summarize(w: &World) -> Summary {
         islands_reached,
         biome_pct,
         trade,
+        farming,
     }
 }
 

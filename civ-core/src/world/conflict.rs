@@ -78,7 +78,8 @@ impl World {
         let cell = bands[c].cell(self.map.w) as u32;
         // the side being pressed: run, pay, or stand
         let grudge_c = bands[c].grudge_vs(&bands[a]);
-        if r > 1.4 && rng.chance(0.5) {
+        // people with fields, houses and stores to lose stand their ground more often
+        if r > 1.4 && rng.chance(0.5 * (1.0 - 0.6 * bands[c].settled)) {
             // flee: leave the ground (and whatever store cannot be carried)
             let left = 0.3 * bands[c].store;
             bands[c].store -= left;
@@ -153,11 +154,24 @@ impl World {
         bands[win].store += take;
         for &m in TRADE_MATS.iter() {
             let mi = m as usize;
-            if bands[lose].stock[mi] > 0.2 && (bands[win].d.uses & (1 << mi) != 0) {
+            // (grain is food whoever takes it, and seed for anyone who farms)
+            if bands[lose].stock[mi] > 0.2 && (bands[win].d.uses & (1 << mi) != 0 || m == Mat::Grain) {
                 let q = 0.5 * bands[lose].stock[mi];
                 bands[lose].stock[mi] -= q;
                 bands[win].stock[mi] = (bands[win].stock[mi] + q).min(1.5);
+                if m == Mat::Grain && bands[lose].strain > bands[win].strain {
+                    bands[win].strain = 0.9 * bands[lose].strain;
+                }
             }
+        }
+        // herds are driven off with the winners
+        if bands[lose].herd > 0.0 && bands[win].pop > 0 {
+            let animals = 0.3 * bands[lose].herd * bands[lose].pop as f32;
+            bands[lose].herd *= 0.7;
+            let (wh, wp) = (bands[win].herd, bands[win].pop as f32);
+            let nh = wh + animals / wp.max(1.0);
+            bands[win].tame = (wh * bands[win].tame + (animals / wp.max(1.0)) * bands[lose].tame) / nh.max(1e-6);
+            bands[win].herd = nh;
         }
         // whatever ties there were are broken; both remember
         let (wid, lid) = (bands[win].id, bands[lose].id);
@@ -294,6 +308,7 @@ impl World {
         }
         let from = cur as u32;
         b.x = (best.0 % self.map.w) as u16;
+        b.settled *= 0.3; // fields and houses left behind
         b.y = (best.0 / self.map.w) as u16;
         let mut by_sea = 0;
         if let Some(s) = sea {

@@ -231,7 +231,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
         egui::Window::new("Help").default_pos([400.0, 200.0]).show(ctx, |ui| {
             ui.label(
                 "Drag to pan, wheel to zoom, click a band to inspect it.\n\
-                 Space pause · +/- speed · 1–8 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
+                 Space pause · +/- speed · 1–9 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
                  Discs are bands (size ~ people, colour = founding lineage, orange ring = keeps a fire).\n\
                  Nothing is scripted: each band experiments with what it has; physics of the materials\n\
                  decides what works. Know-how spreads by teaching between neighbours and is forgotten\n\
@@ -288,6 +288,33 @@ fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiSta
             if gs.is_empty() { "none".into() } else { gs.join(", ") },
             if b.pressed > 0.05 { format!(" · pressed by neighbours {:.0}%", 100.0 * b.pressed) } else { String::new() }
         ));
+    }
+    {
+        let ci = b.cell(w.map.w);
+        let mut parts = vec![];
+        if b.sow > 0.0 {
+            parts.push(format!(
+                "farms ({:.0}% of food from fields and herds, grain {:.0}% domesticated)",
+                100.0 * b.d.farm_share,
+                100.0 * b.strain
+            ));
+        } else {
+            parts.push("forages".to_string());
+        }
+        if b.herd > 0.0 {
+            parts.push(format!("herd {:.2}/person, tameness {:.0}%", b.herd, 100.0 * b.tame));
+        }
+        parts.push(format!("settled {:.0}%", 100.0 * b.settled));
+        if b.sick > 0.05 {
+            parts.push(format!("SICK {:.0}%", 100.0 * b.sick));
+        }
+        if b.immune > 0.05 {
+            parts.push(format!("immunity {:.0}%", 100.0 * b.immune));
+        }
+        let t = w.tend.get(ci).copied().unwrap_or(0.0);
+        let f = w.fert.get(ci).copied().unwrap_or(1.0);
+        parts.push(format!("here: tended {:.0}%, soil {:.0}%", 100.0 * t, 100.0 * f));
+        ui.label(parts.join(" · "));
     }
     ui.checkbox(&mut st.follow, "follow");
     ui.separator();
@@ -567,6 +594,23 @@ fn legend(ctx: &egui::Context, st: &UiState, w: &World) {
                     }
                     let c = &w.counters;
                     ui.label(format!("All time: {} fights, {} killed, {} bands driven off ({} by sea), {} captives taken.", c.fights, c.conflict_deaths, c.displaced, c.fled_by_sea, c.captives));
+                }
+                8 => {
+                    ui.label("Farming. Bands that camp in the same place year after year tend the wild grasses and seeds around them; some go on to clear and sow fields, and grain kept for seed slowly becomes a domestic crop. Harvests wear out the soil unless it rests, is flooded by a river, or gets manure from herds.");
+                    swatch(ui, c32(FARM_TENDED), "tended wild stands (weeding, scattering seed)");
+                    swatch(ui, c32(FARM_FIELD), "cultivated fields (wild-type grain)");
+                    swatch(ui, c32(FARM_DOMESTIC), "fields of domesticated grain");
+                    swatch(ui, c32(FARM_EXHAUSTED), "exhausted soil (browner = more worn out)");
+                    swatch(ui, c32(FARM_PASTURE), "grazing range of herding bands");
+                    swatch(ui, c32([0.55, 0.55, 0.55]), "grey = no farming; lighter grey = better farmland");
+                    if let Some(h) = w.history.last() {
+                        ui.label(format!(
+                            "Last year: {} farming bands ({} people) and {} herding bands; {} field cells ({} domesticated), mean soil fertility {:.0}%; {:.0}% of all food from fields and herds. {} epidemics, {} died of disease.",
+                            h.farmers, h.farmer_pop, h.herders, h.fields, h.dom_fields, h.field_fert * 100.0, h.farm_food_share * 100.0, h.epidemics, h.disease_deaths
+                        ));
+                    }
+                    let c = &w.counters;
+                    ui.label(format!("All time: farming began independently {} times; {} bands took it up, {} gave it up; {} epidemics.", c.farm_origins, c.took_up_farming, c.abandoned_farming, c.epidemics));
                 }
                 _ => {
                     ui.label("Average temperature over the year. Seasons swing above and below this; cold places need fire and clothing.");

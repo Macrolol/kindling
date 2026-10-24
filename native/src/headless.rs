@@ -106,6 +106,28 @@ pub fn run(a: &Args) {
                 w.counters.lost_at_sea, cf.displaced, cf.fled_by_sea, cf.absorbed, cf.captives, cf.fights_by_century, cf.lineages, cf.top_lineage_pct, cf.pop_by_century
             );
         }
+        if !a.json {
+            let g = &s.farming;
+            let yo = |y: Option<f32>| y.map(|y| format!("Y{y:.0}")).unwrap_or("never".into());
+            let og: Vec<String> = g.origins.iter().map(|(y, b)| format!("Y{y:.0} {b}")).collect();
+            let fc: Vec<String> = w
+                .history
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| (k + 1) % 100 == 0)
+                .map(|(_, h)| format!("{}/{} {:.0}%", h.farmer_pop, h.pop, 100.0 * h.farm_food_share))
+                .collect();
+            println!(
+                "    farming: first fields {} | independent origins {} [{}] | domestic grain {} | herding {} | plough {} | first epidemic {} | took up {} gave up {} | epidemics {} disease deaths {}",
+                yo(g.first_cultivation), g.origins.len(), og.join("; "), yo(g.first_domestic_grain), yo(g.first_herding), yo(g.first_plough),
+                yo(g.first_epidemic), g.took_up, g.abandoned, g.epidemics, g.disease_deaths
+            );
+            println!(
+                "    farming now: {} farming bands ({} people) vs {} foraging bands ({} people) | landmasses farming {} foraging {} | {} herding | fields {} ({} domestic) soil {:.0}% | food from farming {:.0}% (peak {:.0}%) | people/occupied cell farmers {:.0} foragers {:.0} | by century farmer pop/pop food% [{}]",
+                g.farmers, g.farmer_pop, g.forager_bands, g.forager_pop, g.landmasses_farming, g.landmasses_foraging, g.herders, g.fields, g.dom_fields,
+                100.0 * g.field_fert, 100.0 * g.farm_food_share, 100.0 * g.peak_farm_food_share, g.farmer_density, g.forager_density, fc.join(", ")
+            );
+        }
         confl.push(cf);
         orders.push(s.firsts.iter().map(|f| f.item).collect());
         sums.push(s);
@@ -161,6 +183,30 @@ pub fn run(a: &Args) {
             if n + m > 0 {
                 println!("  stage {st:<14} reached (highest ever) {n:>3}   holding now {m:>3}");
             }
+        }
+        {
+            let n = sums.len();
+            let farmed = sums.iter().filter(|s| s.farming.first_cultivation.is_some()).count();
+            let mut fy: Vec<f32> = sums.iter().filter_map(|s| s.farming.first_cultivation).collect();
+            fy.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let origins: usize = sums.iter().map(|s| s.farming.origins.len()).sum();
+            let farming_now = sums.iter().filter(|s| s.farming.farmers > 0).count();
+            let both = sums.iter().filter(|s| s.farming.farmers > 0 && s.farming.forager_pop > 0).count();
+            let dom = sums.iter().filter(|s| s.farming.first_domestic_grain.is_some()).count();
+            let herd = sums.iter().filter(|s| s.farming.first_herding.is_some()).count();
+            let epi = sums.iter().filter(|s| s.farming.epidemics > 0).count();
+            let fp: u32 = sums.iter().map(|s| s.farming.farmer_pop).sum();
+            let tp: u32 = sums.iter().map(|s| s.pop).sum();
+            let dd: u64 = sums.iter().map(|s| s.farming.disease_deaths).sum();
+            let fd: Vec<String> = sums.iter().map(|s| format!("s{} {:.0}/{:.0}", s.seed, s.farming.farmer_density, s.farming.forager_density)).collect();
+            println!(
+                "  farming: fields in {farmed}/{n} seeds (first-field years {:?}), {origins} independent origins in all | farming at end {farming_now}/{n}, with foragers alongside {both}/{n} | domestic grain {dom}/{n} | herding {herd}/{n} | epidemics {epi}/{n} ({dd} disease deaths) | farmers {:.0}% of all people at end",
+                fy.iter().map(|y| y.round() as i32).collect::<Vec<_>>(),
+                100.0 * fp as f32 / tp.max(1) as f32
+            );
+            println!("  people per occupied cell at end, farmers/foragers: {}", fd.join(", "));
+            let pop_sum: u32 = tp;
+            println!("  total population at end (sum over seeds): {pop_sum}");
         }
         let alive = sums.iter().filter(|s| s.pop > 0).count();
         println!("  alive at end: {alive}/{}", sums.len());

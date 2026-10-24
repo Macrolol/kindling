@@ -5,7 +5,7 @@
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
 
-pub const NMAT: usize = 18;
+pub const NMAT: usize = 23;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
 /// products of physics (charcoal, ceramic, metals).
 pub const NRAW: usize = 13;
@@ -31,6 +31,17 @@ pub enum Mat {
     Copper,
     Tin,
     Bronze,
+    // v5 (farming stage): appended so every older index is unchanged
+    /// threshed seed of a cultivated cereal: food that keeps; also the carried crop strain
+    Grain,
+    /// bast fibre from a cultivated flax-like plant
+    Flax,
+    /// fleece from tamed herd animals
+    Wool,
+    /// bog / laterite iron ore (limonite, haematite)
+    IronOre,
+    /// bloomery iron
+    Iron,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wood,
@@ -51,6 +62,11 @@ pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Copper,
     Mat::Tin,
     Mat::Bronze,
+    Mat::Grain,
+    Mat::Flax,
+    Mat::Wool,
+    Mat::IronOre,
+    Mat::Iron,
 ];
 
 /// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
@@ -133,10 +149,15 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 0.5, tough: 1.0, food: 6.0, fibrous: 2.0, ..p("wild plants") },
     Props { hard: 0.2, tough: 1.0, food: 8.0, ..p("fish") },
     Props { hard: 1.0, tough: 1.0, fuel_t: 950.0, ..p("charcoal") },
-    Props { hard: 5.5, tough: 2.0, sharp: 1.0, refractory: 7.0, ..p("ceramic") },
+    Props { hard: 5.5, tough: 2.0, sharp: 1.0, refractory: 9.0, ..p("ceramic") },
     Props { hard: 3.0, tough: 9.0, sharp: 6.0, malleable: 9.0, melt: 1085.0, ..p("copper") },
     Props { hard: 1.5, tough: 5.0, sharp: 1.5, malleable: 8.0, melt: 232.0, ..p("tin") },
     Props { hard: 5.0, tough: 9.0, sharp: 7.5, malleable: 6.0, melt: 950.0, ..p("bronze") },
+    Props { hard: 1.0, tough: 1.0, food: 7.0, ..p("grain") },
+    Props { hard: 0.5, tough: 4.5, workable: 6.0, fibrous: 9.5, ..p("flax") },
+    Props { hard: 0.3, tough: 4.0, workable: 6.0, fibrous: 8.0, seal: 2.0, ..p("wool") },
+    Props { hard: 5.0, tough: 4.0, fracture: 1.0, reduce_t: 1300.0, reduces_to: Some(Mat::Iron), refractory: 2.0, ..p("iron ore") },
+    Props { hard: 5.5, tough: 9.0, sharp: 7.0, malleable: 6.0, melt: 1538.0, ..p("iron") },
 ];
 
 impl Mat {
@@ -152,6 +173,9 @@ impl Mat {
     }
     pub fn is_food(self) -> bool {
         self.props().food >= 5.0
+    }
+    pub fn is_metal(self) -> bool {
+        matches!(self, Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron)
     }
 }
 
@@ -241,11 +265,12 @@ pub fn item_name(i: Item) -> String {
     match form(i) {
         Form::Raw => match m {
             Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} (metal)"),
+            Mat::Iron => "iron bloom".into(),
             _ => n.to_string(),
         },
         Form::Hammer => format!("{n} hammerstone"),
         Form::Edge => match m {
-            Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} knife"),
+            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => format!("{n} knife"),
             _ => format!("{n} blade"),
         },
         Form::Point => format!("{n} point"),
@@ -255,7 +280,8 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n} cord"),
         },
         Form::Vessel => match m {
-            Mat::Fibre => "woven basket".into(),
+            Mat::Fibre | Mat::Flax => "woven basket".into(),
+            Mat::Wool => "woollen bag".into(),
             Mat::Hide => "hide bag".into(),
             Mat::Clay => "unfired clay pot".into(),
             Mat::Ceramic => "fired pottery".into(),
@@ -266,13 +292,20 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n}-tipped spear"),
         },
         Form::Axe => format!("{n} axe"),
-        Form::Garment => format!("{n} clothing"),
+        Form::Garment => match m {
+            Mat::Flax => "linen clothing".into(),
+            Mat::Wool => "woollen clothing".into(),
+            _ => format!("{n} clothing"),
+        },
         Form::Cooked => format!("cooked {n}"),
         Form::Fire => match m {
             Mat::Wood => "fire".into(),
             _ => format!("{n} fire"),
         },
-        Form::Kiln => format!("{n}-lined kiln"),
+        Form::Kiln => match m {
+            Mat::Ceramic => "fired-brick kiln".into(),
+            _ => format!("{n}-lined kiln"),
+        },
         Form::Boat => match m {
             Mat::Wood => "dugout canoe".into(),
             Mat::Hide => "skin boat".into(),
@@ -325,7 +358,8 @@ pub fn vessel_q(m: Mat) -> f32 {
     match m {
         Mat::Ceramic => 1.0,
         Mat::Hide => 0.6,
-        Mat::Fibre => 0.5,
+        Mat::Fibre | Mat::Flax => 0.5,
+        Mat::Wool => 0.4,
         Mat::Clay => 0.25,
         _ => 0.3,
     }
@@ -342,6 +376,9 @@ pub fn mesh_q(m: Mat) -> f32 {
 }
 /// Warmth of clothing.
 pub fn garment_q(m: Mat) -> f32 {
+    if m == Mat::Flax {
+        return 0.55; // linen: strong and light, but not warm
+    }
     let p = m.props();
     ((p.tough + p.fibrous) / 12.0).clamp(0.0, 1.0)
 }

@@ -221,6 +221,16 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if n == 3 && raw(Mat::Hide) && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         return o(item(Form::Garment, Mat::Hide), 0.35);
     }
+    // weaving / sewing cloth: a long, strong, inedible fibre (flax, wool; not brittle wild
+    // plant fibre, which only makes cord) + thread + a needle
+    if n == 3 && count(Form::Cord) == 1 && count(Form::Point) == 1 {
+        if let Some(fb) = items.iter().copied().find(|&i| {
+            let p = mat(i).props();
+            form(i) == Form::Raw && mat(i) != Mat::Hide && p.fibrous >= 8.0 && p.tough >= 4.0 && p.food < 1.0
+        }) {
+            return o(item(Form::Garment, mat(fb)), 0.25);
+        }
+    }
     // friction fire: rub a shaft against dry wood (tinder helps)
     if items.contains(&item(Form::Shaft, Mat::Wood)) && raw(Mat::Wood) && (n == 2 || raw(Mat::Fibre)) {
         let tinder = if raw(Mat::Fibre) { 0.15 } else { 0.0 };
@@ -238,6 +248,10 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             // (a closed chamber: easy to pile stones, harder to seal; clay seals best)
             if ofm == Form::Raw && om.props().refractory >= 4.0 && om.props().fuel_t == 0.0 {
                 return o(item(Form::Kiln, om), 0.015 * om.props().refractory);
+            }
+            // a chamber built of already-fired pieces (sherds, bricks) holds far more heat
+            if ofm == Form::Vessel && om.props().refractory >= 8.0 && om.props().fires_to.is_none() {
+                return o(item(Form::Kiln, om), 0.004 * om.props().refractory);
             }
         }
     }
@@ -280,7 +294,8 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
             // smelting
             if let Some(to) = p.reduces_to {
                 if reducing && temp >= p.reduce_t {
-                    return o(item(Form::Raw, to), 0.12);
+                    // iron only just reduces at the best kiln heat: most charges come out as slag
+                    return o(item(Form::Raw, to), if to == Mat::Iron { 0.02 } else { 0.12 });
                 }
             }
         }

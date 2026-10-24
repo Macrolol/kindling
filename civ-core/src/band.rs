@@ -44,6 +44,23 @@ pub struct Band {
     /// recent pressure from stronger neighbours, 0..1: being driven off makes a band readier
     /// to move on, or to put to sea (v4)
     pub pressed: f32,
+    // ---- farming stage (v5)
+    /// know-how of sowing and tending fields, 0..1 (0 = forages only). Found where a band keeps
+    /// coming back to ground it already tends, taught to neighbours, fades when not practised.
+    pub sow: f32,
+    /// how far the crop this band carries and sows has been domesticated, 0..1 (seed grain is
+    /// in `stock[Grain]`; lose the seed and the strain is gone)
+    pub strain: f32,
+    /// tamed herd animals per person (0 = none)
+    pub herd: f32,
+    /// how tame / bred-for-use the herd is, 0..1
+    pub tame: f32,
+    /// how long the band has stayed put, 0..1 (sedentism)
+    pub settled: f32,
+    /// current outbreak of crowd disease, 0..1
+    pub sick: f32,
+    /// resistance left by past outbreaks, 0..1 (fades as new generations are born)
+    pub immune: f32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -94,14 +111,18 @@ pub struct Kit {
     pub trap: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
+    /// cooking known for grain (v5)
+    pub cooked_grain: Item,
     /// gathering efficiency per resource
     pub plants_m: f32,
     pub game_m: f32,
     pub fish_m: f32,
     pub small_m: f32,
-    /// food value per unit harvested [plants, game, fish, small game]: cooking makes more of the
+    /// field work efficiency (digging stick, sickle, axe for clearing)
+    pub farm_m: f32,
+    /// food value per unit harvested [plants, game, fish, small game, crops]: cooking makes more of the
     /// same harvest digestible (gelatinised starch, softened meat), so it adds calories, not speed
-    pub digest: [f32; 4],
+    pub digest: [f32; 5],
     /// smoking / drying over a fire slows spoilage of stored meat and fish
     pub smoke: bool,
     /// seaworthiness of the best boat (0 = none)
@@ -126,11 +147,13 @@ impl Default for Kit {
             net: NONE,
             trap: NONE,
             cooked: [NONE; 3],
+            cooked_grain: NONE,
             plants_m: 1.0,
             game_m: 1.0,
             fish_m: 1.0,
             small_m: 0.35,
-            digest: [1.0; 4],
+            farm_m: 0.5,
+            digest: [1.0; 5],
             smoke: false,
             boat_q: 0.0,
             protect: 0.0,
@@ -138,16 +161,16 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 17] {
+    pub fn used_items(&self) -> [Item; 18] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
-            self.boat, self.net, self.trap,
+            self.boat, self.net, self.trap, self.cooked_grain,
         ]
     }
-    /// mean food value per unit across the four food kinds (for display)
+    /// mean food value per unit across the four wild food kinds (for display)
     pub fn digest_mean(&self) -> f32 {
-        self.digest.iter().sum::<f32>() / 4.0
+        self.digest[..4].iter().sum::<f32>() / 4.0
     }
 }
 
@@ -165,7 +188,10 @@ pub struct Derived {
     pub upkeep: f32,
     /// food eaten this season (person-seasons) and the harvest [plants, game, fish, small game]
     pub food: f32,
-    pub harvest: [f32; 4],
+    pub harvest: [f32; 5],
+    /// food from fields and herds this season, and its share of all food
+    pub farm_food: f32,
+    pub farm_share: f32,
     pub experiments: u32,
     /// raw materials (bitmask) that the tools in use need
     pub needed: u32,
@@ -311,6 +337,7 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
                 Mat::Plants => k.cooked[0] = it,
                 Mat::Meat => k.cooked[1] = it,
                 Mat::Fish => k.cooked[2] = it,
+                Mat::Grain => k.cooked_grain = it,
                 _ => {}
             },
             _ => {}
@@ -347,7 +374,11 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     k.small_m = 0.35 + 0.4 * hunt_q + 1.6 * trapq + 0.4 * netq;
     // cooking makes more of each food digestible (boiling in pots helps plants most)
     let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
-    k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2)];
+    // grain: boiled into porridge (pots help) or ground on a quern stone and baked
+    let grain = if k.cooked_grain != NONE { 1.3 + 0.15 * ceramic + 0.1 * hammer } else { 1.0 + 0.1 * hammer };
+    k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2), grain];
+    // field work: digging stick to plant, a sharp edge as a sickle, an axe to clear ground
+    k.farm_m = 0.5 + 0.3 * dig + 0.35 * cut + 0.2 * axe;
     k.smoke = fire > 0.0 && (k.cooked[1] != NONE || k.cooked[2] != NONE);
     let _ = kiln;
     let gq = q(k.garment, &garment_q);

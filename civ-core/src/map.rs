@@ -73,13 +73,16 @@ pub const D_OBSIDIAN: u8 = 4;
 pub const D_CLAY: u8 = 8;
 pub const D_COPPER: u8 = 16;
 pub const D_TIN: u8 = 32;
-pub const DEPOSITS: [(u8, Mat); 6] = [
+/// bog / laterite / ironstone iron ore (map generator 4)
+pub const D_IRON: u8 = 64;
+pub const DEPOSITS: [(u8, Mat); 7] = [
     (D_STONE, Mat::Stone),
     (D_FLINT, Mat::Flint),
     (D_OBSIDIAN, Mat::Obsidian),
     (D_CLAY, Mat::Clay),
     (D_COPPER, Mat::CopperOre),
     (D_TIN, Mat::TinOre),
+    (D_IRON, Mat::IronOre),
 ];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -133,7 +136,7 @@ fn lat_s_default() -> f32 {
 fn gen_v1() -> u32 {
     1
 }
-pub const GEN_VERSION: u32 = 3; // 3: placer tin in streams below tin lodes
+pub const GEN_VERSION: u32 = 4; // 3: placer tin in streams below tin lodes; 4: iron ore
 
 // ---------------------------------------------------------------- noise
 fn lattice(seed: u64, x: i64, y: i64) -> f32 {
@@ -257,6 +260,36 @@ impl Map {
         if self.gen_version < 2 {
             self.add_shelf_fish();
             self.gen_version = 2;
+        }
+        if self.gen_version < 4 {
+            self.add_iron();
+            self.gen_version = 4;
+        }
+    }
+    /// Iron ore is common but useless until a fire is hot enough: bog ore in cool wet lowlands,
+    /// lateritic crusts in the wet-dry tropics, ironstone in sedimentary uplands. Deterministic
+    /// from the map, so older maps gain it on load without changing anything else.
+    fn add_iron(&mut self) {
+        let (w, h) = (self.w, self.h);
+        let sc = 1.0 / 160.0;
+        let seed = self.seed;
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if !self.is_land(i) || self.deposits.len() <= i {
+                    continue;
+                }
+                let (fx, fy) = (x as f32 * sc, y as f32 * sc);
+                let nz = fbm(seed ^ 0x1e0e, fx * 13.0, fy * 13.0, 3);
+                let hgt = self.height[i];
+                let b = self.biome_at(i);
+                let bog = self.rain[i] > 0.7 && hgt < 350.0 && matches!(b, Biome::Taiga | Biome::TempForest | Biome::Tundra) && nz > 0.05;
+                let laterite = matches!(b, Biome::Savanna | Biome::TropForest) && nz > 0.25;
+                let ironstone = hgt > 250.0 && hgt < 2000.0 && nz > 0.45;
+                if bog || laterite || ironstone {
+                    self.deposits[i] |= D_IRON;
+                }
+            }
         }
     }
     /// Fish on the shallow sea near coasts (reachable only by boat).
@@ -649,6 +682,7 @@ impl Map {
                 }
             }
         }
+        m.add_iron();
         // ---- renewable capacities
         m.k_plants = vec![0.0; n];
         m.k_game = vec![0.0; n];
