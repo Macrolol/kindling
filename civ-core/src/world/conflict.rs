@@ -63,7 +63,7 @@ impl World {
         self.year_acc.confrontations += 1;
         self.counters.confrontations += 1;
         let pa = Self::power(&bands[a]);
-        let pc = Self::power(&bands[c]) * 1.25; // on their own ground, ready
+        let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled); // on their own ground, ready (behind house walls and field banks, more so)
         let r = pa / pc.max(1.0);
         // the pressing side weighs the odds against how badly it wants this
         let resolve = r * (0.6 + 0.5 * t) * rng.range(0.7, 1.3);
@@ -79,7 +79,7 @@ impl World {
         // the side being pressed: run, pay, or stand
         let grudge_c = bands[c].grudge_vs(&bands[a]);
         // people with fields, houses and stores to lose stand their ground more often
-        if r > 1.4 && rng.chance(0.5 * (1.0 - 0.6 * bands[c].settled)) {
+        if r > 1.4 && rng.chance(0.5 * (1.0 - 0.3 * bands[c].settled)) {
             // flee: leave the ground (and whatever store cannot be carried)
             let left = 0.3 * bands[c].store;
             bands[c].store -= left;
@@ -128,6 +128,9 @@ impl World {
         // losers lose more; better weapons on the other side kill more
         let fl = (p.lethality * rng.range(0.05, 0.16) * (0.6 + qw)).min(0.45);
         let fw = (p.lethality * rng.range(0.01, 0.05) * (0.6 + ql)).min(0.2);
+        // defenders in a settled village have walls, banks and houses to fall back behind
+        let shelter = |k: usize| if k == c { 1.0 - 0.4 * bands[k].settled } else { 1.0 };
+        let (fl, fw) = (fl * shelter(lose), fw * shelter(win));
         let dl = ((bands[lose].pop as f32 * fl).round() as u32).max(1).min(bands[lose].pop);
         let dw = ((bands[win].pop as f32 * fw).round() as u32).min(bands[win].pop.saturating_sub(1));
         for (k, dead) in [(lose, dl), (win, dw)] {
@@ -315,6 +318,7 @@ impl World {
             self.counters.voyages += 1;
             self.counters.fled_by_sea += 1;
             self.sea_toll(b, s, rng);
+            self.note_crossing(from as usize, b);
             self.forget_reached_shore(b);
             by_sea = 1;
             if self.counters.fled_by_sea == 1 {

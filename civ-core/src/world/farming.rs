@@ -49,6 +49,27 @@ pub fn crop_potential(m: &Map, i: usize) -> f32 {
     base * season * water * warm * if m.river[i] { 1.3 } else { 1.0 }
 }
 
+/// Bit flags for where the wild ancestors of crops and herd animals live (derived from the map,
+/// not saved). Big-seeded wild grasses that can be brought into cultivation and wild animals
+/// placid and social enough to be kept grow only in some patches of the world; outside them a
+/// band can still farm or herd, but only with seed or animals passed on by others.
+pub const WILD_GRAIN: u8 = 1;
+pub const WILD_HERD: u8 = 2;
+pub fn wild_progenitors(m: &Map, i: usize) -> u8 {
+    if !m.is_land(i) {
+        return 0;
+    }
+    let (x, y) = ((i % m.w) as f32, (i / m.w) as f32);
+    let mut f = 0;
+    if crop_potential(m, i) > 0.3 && crate::map::fbm(m.seed ^ 0x6a41_9e37, x / 22.0, y / 22.0, 3) > 0.28 {
+        f |= WILD_GRAIN;
+    }
+    if graze_potential(m, i) >= 0.4 && crate::map::fbm(m.seed ^ 0x1f3d_5c81, x / 22.0, y / 22.0, 3) > 0.25 {
+        f |= WILD_HERD;
+    }
+    f
+}
+
 /// How well a cell carries grazing herds (0..1).
 pub fn graze_potential(m: &Map, i: usize) -> f32 {
     if !m.is_land(i) {
@@ -105,9 +126,10 @@ impl World {
         if self.fert.len() != n {
             self.fert = vec![1.0; n];
         }
-        if self.crop_pot.len() != n {
+        if self.crop_pot.len() != n || self.wild.len() != n {
             self.crop_pot = (0..n).map(|i| crop_potential(&self.map, i)).collect();
             self.graze_pot = (0..n).map(|i| graze_potential(&self.map, i)).collect();
+            self.wild = (0..n).map(|i| wild_progenitors(&self.map, i)).collect();
         }
     }
 
@@ -262,12 +284,13 @@ impl World {
         // ---- starting to farm (organic: tended stands + digging stick + push to do more)
         if b.sow <= 0.0 {
             let seed = b.strain > 0.0 && b.stock[Mat::Grain as usize] > 0.05;
-            if pot > 0.2 && kit.dig != NONE && (self.tend[ci] > 0.25 || seed) {
+            let wild = self.wild[ci] & WILD_GRAIN != 0;
+            if pot > 0.2 && kit.dig != NONE && ((wild && self.tend[ci] > 0.25) || seed) {
                 let crowd = self.crowd(ci, b) as f32 / (pop + 10.0);
                 // nobody takes on field work unless foraging is getting hard (hunger, crowding)
                 let push = (b.d.stress + crowd).min(1.5);
                 let ch = if seed {
-                    p.farm_rate * 0.02 * pot * b.curiosity * (0.3 + push)
+                    p.farm_rate * 0.005 * pot * b.curiosity * (0.2 + push)
                 } else {
                     p.farm_rate * 0.0006 * self.tend[ci] * pot * b.curiosity * push * push
                 };
@@ -289,12 +312,12 @@ impl World {
             }
         } else {
             // ---- practice: farming that pays deepens; farming that does not fades
-            if crop_share > 0.08 {
+            if crop_share > 0.15 && pot > 0.2 {
                 b.sow = (b.sow + 0.02 * (1.0 - b.sow)).min(1.0);
-            } else if pot > 0.12 {
-                b.sow -= 0.004;
+            } else if pot > 0.2 {
+                b.sow -= 0.006;
             } else {
-                b.sow -= 0.02;
+                b.sow -= 0.03; // poor ground for grain: the know-how lapses within a generation
             }
             // ---- harvest: selection for non-shattering grain, soil drawn down
             if ec.ys[4] > 0.01 {
@@ -367,7 +390,7 @@ impl World {
         if b.herd <= 0.0 {
             let game_share = ((ec.h[1] * dg[1]) / food).clamp(0.0, 1.0);
             // keeping animals takes people who stay near them (settled, or tied to fields)
-            if kit.cord != NONE && game_share > 0.12 && gp > 0.3 && self.game[ci] > 5.0 && (b.settled > 0.2 || b.sow > 0.0) {
+            if kit.cord != NONE && self.wild[ci] & WILD_HERD != 0 && game_share > 0.12 && gp > 0.45 && self.game[ci] > 5.0 && (b.settled > 0.2 || b.sow > 0.0) {
                 let ch = p.herd_rate * 0.001 * game_share * gp * b.curiosity * (0.5 + b.settled + b.d.stress);
                 if rng.chance(ch) {
                     b.herd = 0.05;
@@ -382,8 +405,12 @@ impl World {
         } else {
             let fields = if b.sow > 0.0 { 0.3 * (self.tend[ci] - 0.4).max(0.0) } else { 0.0 };
             // open grazing carries a herd; woodland hardly does
-            let hk = (0.9 * (gp - 0.25).max(0.0) / 0.75 + fields).max(0.02);
-            b.herd += 0.1 * b.herd * (1.0 - b.herd / hk);
+            let hk = 0.9 * (gp - 0.25).max(0.0) / 0.75 + fields;
+            if hk < 0.03 {
+                b.herd *= 0.9; // nothing to graze: the animals are eaten or wander off
+            } else {
+                b.herd += 0.1 * b.herd * (1.0 - b.herd / hk);
+            }
             if ec.food_ratio < 0.85 {
                 b.herd *= 0.85; // breeding stock eaten
             }
@@ -425,18 +452,18 @@ impl World {
         let pop = b.pop as f32;
         let hz = 1.0 + 1.5 * b.herd.min(1.0);
         let hs = 1.2 * (b.settled - 0.15).max(0.0) + 0.3 * b.herd.min(1.0);
-        let endemic = p.disease * 0.002 * (dens / 100.0).powf(1.5) * (0.1 + b.settled) * hz * (1.0 - 0.5 * b.immune);
+        let endemic = p.disease * 0.001 * (dens / 100.0).powf(1.5) * (0.1 + b.settled) * hz * (1.0 - 0.5 * b.immune);
         let mut dead = rng.poisson(pop * endemic);
         if b.sick < 0.05 {
             // outbreaks need crowds that stay put (or live with animals)
-            let ch = p.disease * 0.006 * (dens / 80.0 - 0.5).max(0.0) * hs * (1.0 - b.immune);
+            let ch = p.disease * 0.003 * (dens / 80.0 - 0.5).max(0.0) * hs * (1.0 - b.immune);
             if rng.chance(ch) {
                 b.sick = rng.range(0.6, 1.0);
                 self.start_epidemic(b.id, ci, 0);
             }
         }
         if b.sick >= 0.05 {
-            dead += rng.poisson(pop * 0.08 * b.sick * (1.0 - 0.7 * b.immune));
+            dead += rng.poisson(pop * 0.06 * b.sick * (1.0 - 0.7 * b.immune));
             b.immune = (b.immune + 0.4 * b.sick * (1.0 - b.immune)).min(1.0);
             b.sick *= 0.5;
             if b.sick < 0.05 {
@@ -475,7 +502,15 @@ impl World {
     pub(super) fn share_farming(&mut self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng) {
         let dc = bands[dst].cell(self.map.w);
         let (ssow, sstrain, sgrain) = (bands[src].sow, bands[src].strain, bands[src].stock[Mat::Grain as usize]);
-        if ssow > 0.3 && bands[dst].sow <= 0.0 && self.crop_pot.get(dc).copied().unwrap_or(0.0) > 0.15 && bands[dst].d.kit.dig != NONE && rng.chance(0.15 * ssow) {
+        let dpot = self.crop_pot.get(dc).copied().unwrap_or(0.0);
+        // seeing it done is not enough: people take up field work only on good ground, and
+        // mostly when foraging is getting hard for them
+        let push = if ssow > 0.3 && bands[dst].sow <= 0.0 && dpot > 0.25 {
+            (bands[dst].d.stress + self.crowd(dc, &bands[dst]) as f32 / (bands[dst].pop as f32 + 10.0)).min(1.5)
+        } else {
+            0.0
+        };
+        if push > 0.0 && bands[dst].d.kit.dig != NONE && rng.chance(0.03 * ssow * dpot * push) {
             let d = &mut bands[dst];
             d.sow = 0.25;
             if sgrain > 0.3 && sstrain > d.strain {
@@ -488,7 +523,7 @@ impl World {
             self.push_event(EventKind::TookUpFarming, did, sid, dc as u32, NONE, u32::MAX);
         }
         let (sh, st) = (bands[src].herd, bands[src].tame);
-        if sh > 0.3 && bands[dst].herd <= 0.0 && bands[dst].d.kit.cord != NONE && self.graze_pot.get(dc).copied().unwrap_or(0.0) > 0.45 && rng.chance(0.015) {
+        if sh > 0.3 && bands[dst].herd <= 0.0 && bands[dst].d.kit.cord != NONE && self.graze_pot.get(dc).copied().unwrap_or(0.0) > 0.6 && rng.chance(0.004) {
             bands[dst].herd = 0.05;
             bands[dst].tame = 0.9 * st;
             self.counters.herds_started += 1;

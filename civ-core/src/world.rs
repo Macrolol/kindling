@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 
 mod conflict;
-mod farming;
+/// Most meetings a band has time for in one season (v5).
+const MAX_MEETINGS: u8 = 4;
+pub mod farming;
 pub use farming::{crop_potential, graze_potential};
 
 pub const EVENT_CAP: usize = 40_000;
@@ -190,6 +192,9 @@ pub struct YearStats {
     /// people per occupied cell: farmers vs foragers
     pub farmer_density: f32,
     pub forager_density: f32,
+    /// lineages (descent from a founding band) still alive, and the largest one's share of people (%)
+    pub lineages: u32,
+    pub top_lineage_pct: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -212,6 +217,17 @@ pub struct Counters {
     pub drift_returns: u64,
     /// bands that sighted a far shore from their coast
     pub sightings: u64,
+    /// (v5) scouting trips by experienced seafarers: sent, came home with news of a far shore,
+    /// lost at sea
+    pub scouting: u64,
+    pub scout_finds: u64,
+    pub scouts_lost: u64,
+    /// (v5) bands (or drifted parties) that came ashore alive on a landmass other than the one
+    /// they set out from
+    pub crossings: u64,
+    /// (v5, diagnostic) band pairs within meeting range, summed over seasons
+    pub pairs_seen: u64,
+    pub meetings: u64,
     /// conflict (v4)
     pub confrontations: u64,
     pub avoided: u64,
@@ -298,6 +314,9 @@ pub struct World {
     pub crop_pot: Vec<f32>,
     #[serde(skip)]
     pub graze_pot: Vec<f32>,
+    /// where wild crop / herd ancestors live (`farming::WILD_*` bits; derived, not saved)
+    #[serde(skip)]
+    pub wild: Vec<u8>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
@@ -308,6 +327,9 @@ pub struct World {
     pending: Vec<Band>,
     #[serde(skip)]
     rng: Option<Rng>,
+    /// optional per-phase wall-clock timing (seconds), for perf work; native only, never saved
+    #[serde(skip)]
+    pub prof: Option<Box<Prof>>,
     #[serde(skip)]
     year_acc: YearStats,
 }
@@ -540,6 +562,9 @@ impl World {
 
     // ------------------------------------------------------------------ step
     pub fn step(&mut self) {
+        if self.prof.is_some() {
+            return self.step_profiled();
+        }
         let mut rng = self.rng.take().unwrap_or(Rng(self.rng_state));
         if self.occ.len() != self.map.w * self.map.h {
             self.after_load();
@@ -865,6 +890,50 @@ impl World {
         Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil, farm_food, herd_food: fm.herd_food }
     }
 
+    /// `step`, with each phase timed into `self.prof`
+    fn step_profiled(&mut self) {
+        let mut pr = Prof::default();
+        let mut rng = self.rng.take().unwrap_or(Rng(self.rng_state));
+        if self.occ.len() != self.map.w * self.map.h {
+            self.after_load();
+        }
+        let mut t = Tick::now();
+        self.regrow();
+        self.regrow_fields();
+        for v in &mut self.trade_flow {
+            *v *= 0.85;
+        }
+        for v in &mut self.conflict_flow {
+            *v *= 0.93;
+        }
+        self.build_occupancy();
+        pr.t[0] += t.lap();
+        let mut bands = std::mem::take(&mut self.bands);
+        for bi in 0..bands.len() {
+            self.band_season(&mut bands[bi], &mut rng);
+        }
+        pr.t[1] += t.lap();
+        self.contacts(&mut bands, &mut rng);
+        pr.t[2] += t.lap();
+        self.demography(&mut bands, &mut rng);
+        pr.t[3] += t.lap();
+        self.bands = bands;
+        self.track_landfall();
+        self.track_knowledge();
+        self.tick += 1;
+        if self.tick % 4 == 0 {
+            self.year_stats();
+        }
+        pr.t[4] += t.lap();
+        self.rng_state = rng.0;
+        self.rng = Some(rng);
+        if let Some(p) = self.prof.as_mut() {
+            for k in 0..5 {
+                p.t[k] += pr.t[k];
+            }
+        }
+    }
+
     fn band_season(&mut self, b: &mut Band, rng: &mut Rng) {
         let p = self.params;
         let w = self.map.w;
@@ -876,7 +945,9 @@ impl World {
         }
         self.refresh_toolkit(b);
         let pop = b.pop.max(1) as f32;
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         let ec = self.economy(b, s);
+        self.prof_lap(&mut tk, 5);
         for &it in &ec.used {
             mark_used(&self.reg, &mut b.known, &b.d.tk, it);
         }
@@ -894,7 +965,9 @@ impl World {
             }
         }
         b.store = ec.store_after;
+        self.prof_lap(&mut tk, 9);
         self.farm_season(b, &ec, rng);
+        self.prof_lap(&mut tk, 6);
         // hides and bones from hunting (small game gives a little)
         let hunted = ec.h[1] + 0.3 * ec.h[3];
         b.stock[Mat::Hide as usize] = (b.stock[Mat::Hide as usize] + hunted * 0.01).min(1.5);
@@ -994,6 +1067,7 @@ impl World {
                 }
             }
         }
+        self.prof_lap(&mut tk, 9);
         // ---------------- experiments
         self.refresh_toolkit(b);
         let lam = p.invent_rate * b.curiosity * (0.15 + spare + p.stress_invent * stress) * (pop / 25.0).sqrt();
@@ -1009,6 +1083,7 @@ impl World {
         for c in &mut b.craft {
             *c = 1.0 + (*c - 1.0) * 0.998;
         }
+        self.prof_lap(&mut tk, 7);
         // ---------------- the sea: drift and far shores
         self.sea_season(b, rng);
         // ---------------- practice / forgetting
@@ -1035,9 +1110,18 @@ impl World {
                 self.push_event(EventKind::Forgot, b.id, 0, ci as u32, it, r);
             }
         }
+        self.prof_lap(&mut tk, 9);
         // ---------------- movement
         self.refresh_toolkit(b);
         self.maybe_move(b, rng);
+        self.prof_lap(&mut tk, 8);
+    }
+
+    #[inline]
+    fn prof_lap(&mut self, tk: &mut Option<Tick>, i: usize) {
+        if let (Some(t), Some(p)) = (tk.as_mut(), self.prof.as_mut()) {
+            p.t[i] += t.lap();
+        }
     }
 
     /// One experiment: pick a primitive action and things at hand, see what physics says.
@@ -1347,7 +1431,20 @@ impl World {
     /// Chance that people in a boat of quality `q` come through `sea` cells of open water.
     /// Better boats (higher q) are both faster and safer; a raft on a long crossing often is not.
     pub fn sea_survival(q: f32, sea: f32) -> f32 {
-        (-0.025 * sea * (1.4 - q).max(0.3).powi(2)).exp()
+        Self::sea_survival_x(q, 0.0, false, sea)
+    }
+    /// ... for people with seafaring experience `xp` (0..1), and with food put by for the trip
+    pub fn sea_survival_x(q: f32, xp: f32, prepared: bool, sea: f32) -> f32 {
+        let prep = if prepared { 0.7 } else { 1.0 };
+        (-0.025 * sea * prep * (1.4 - q - 0.25 * xp).max(0.3).powi(2)).exp()
+    }
+    /// How far out over open water a band can go (cells): the boat, and how well they handle it.
+    pub fn sea_range(q: f32, xp: f32) -> f32 {
+        if q <= 0.0 {
+            0.0
+        } else {
+            2.0 + 10.0 * q + 8.0 * xp * q
+        }
     }
 
     /// A trip out over open water: pick a heading from a coastal camp and paddle until land shows
@@ -1360,7 +1457,7 @@ impl World {
         if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
             return None;
         }
-        let range = 2.0 + 10.0 * kit.boat_q;
+        let range = Self::sea_range(kit.boat_q, b.seacraft);
         let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
         let ang = match aim {
             Some(t) => {
@@ -1400,7 +1497,10 @@ impl World {
     /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
     /// Returns the number lost.
     fn sea_toll(&mut self, b: &mut Band, sea: f32, rng: &mut Rng) -> u32 {
-        if rng.chance(Self::sea_survival(b.d.kit.boat_q, sea)) {
+        let prepared = b.store >= 0.5 * b.pop as f32;
+        if rng.chance(Self::sea_survival_x(b.d.kit.boat_q, b.seacraft, prepared, sea)) {
+            // a crossing made is a lesson learned
+            b.seacraft = (b.seacraft + 0.05 * (1.0 - b.seacraft)).min(1.0);
             return 0;
         }
         let lost = ((b.pop as f32 * rng.range(0.3, 1.05)) as u32).min(b.pop);
@@ -1418,18 +1518,24 @@ impl World {
     fn sea_season(&mut self, b: &mut Band, rng: &mut Rng) {
         let m = &self.map;
         let ci = b.cell(m.w);
+        b.seacraft *= 0.998; // what is not practised is lost, generation by generation
         if !self.coastal(ci) {
             return;
         }
         let q = b.d.kit.boat_q;
         let h = b.d.harvest;
         let fish_share = h[2] / h.iter().sum::<f32>().max(1e-3);
+        if q > 0.0 && fish_share > 0.1 {
+            // a life on the water: currents, weather signs, how far a boat can be pushed
+            b.seacraft = (b.seacraft + 0.01 * fish_share * q * (1.0 - b.seacraft)).min(1.0);
+        }
+        let xp = b.seacraft;
         let own_lm = m.landmass_of(ci);
         // a look out to sea, about once a year
         if b.far_shore.is_none() && rng.chance(0.25) {
             let mut sight = 3.0 + (m.height.get(ci).copied().unwrap_or(0.0) / 500.0).clamp(0.0, 3.0);
             if q > 0.0 && fish_share > 0.1 {
-                sight += 1.0 + 3.0 * q; // seen from out on the fishing grounds
+                sight += 1.0 + 3.0 * q + 3.0 * xp * q; // seen from out on the fishing grounds
             }
             let a0 = rng.f32() * std::f32::consts::TAU;
             'rays: for k in 0..16 {
@@ -1463,11 +1569,32 @@ impl World {
                 }
             }
         }
+        // scouting: seasoned seafarers with good boats sometimes send a party out to look for
+        // land beyond the horizon; most find nothing, some do not come back
+        if b.far_shore.is_none() && q > 0.5 && xp > 0.3 && b.pop >= 20 && rng.chance(0.01 * xp) {
+            self.counters.scouting += 1;
+            let found = self.voyage(b, rng, None);
+            let sea = found.map(|f| f.1).unwrap_or(Self::sea_range(q, xp));
+            if !rng.chance(Self::sea_survival_x(q, xp, true, 2.0 * sea)) {
+                let party = 5.min(b.pop / 4);
+                b.pop -= party;
+                self.counters.scouts_lost += 1;
+                self.counters.sea_disasters += 1;
+                self.counters.lost_at_sea += party as u64;
+                self.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
+            } else if let Some((c, sea)) = found {
+                if sea >= 1.4 && self.map.landmass_of(c) != own_lm {
+                    b.far_shore = Some(c as u32);
+                    self.counters.scout_finds += 1;
+                }
+            }
+        }
+        let m = &self.map;
         // drift: only people who fish from boats are out there to be blown away
         if q <= 0.0 || fish_share < 0.1 || b.pop < 15 {
             return;
         }
-        let pd = 0.006 * fish_share * (1.0 - 0.5 * q);
+        let pd = 0.006 * fish_share * (1.0 - 0.5 * q) * (1.0 - 0.6 * xp);
         if !rng.chance(pd) {
             return;
         }
@@ -1496,7 +1623,7 @@ impl World {
             }
             t += 0.7;
         }
-        let survive = landing.is_some() && rng.chance(Self::sea_survival(0.7 * q, sea));
+        let survive = landing.is_some() && rng.chance(Self::sea_survival_x(0.7 * q, xp, false, sea));
         if !survive {
             b.pop -= party;
             self.counters.sea_disasters += 1;
@@ -1519,6 +1646,9 @@ impl World {
         }
         // they stay where they came ashore, with what they carry in their heads and hands
         self.counters.drift_landings += 1;
+        if far_lm {
+            self.counters.crossings += 1;
+        }
         b.pop -= party;
         let id = self.next_id;
         self.next_id += 1;
@@ -1538,6 +1668,7 @@ impl World {
             pop: party,
             store: 0.5,
             curiosity: b.curiosity,
+            seacraft: b.seacraft,
             flame: b.flame && rng.chance(0.3),
             known,
             stock: b.stock.iter().map(|v| v * 0.3).collect(),
@@ -1600,9 +1731,17 @@ impl World {
                 if c == best {
                     self.counters.voyages += 1;
                     self.sea_toll(b, sea, rng);
+                    self.note_crossing(cur, b);
                     self.forget_reached_shore(b);
                 }
             }
+        }
+    }
+
+    /// Count a band that came ashore alive on another landmass than the one it left from.
+    pub(crate) fn note_crossing(&mut self, from: usize, b: &Band) {
+        if b.pop > 0 && self.map.landmass_of(from) != self.map.landmass_of(b.cell(self.map.w)) {
+            self.counters.crossings += 1;
         }
     }
 
@@ -1646,6 +1785,7 @@ impl World {
         let w = self.map.w as i32;
         let h = self.map.h as i32;
         let r = p.teach_radius as i32;
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         // rebuild occupancy after movement
         for v in &mut self.occ {
             v.clear();
@@ -1673,12 +1813,30 @@ impl World {
                 }
             }
         }
+        self.prof_lap(&mut tk, 10);
+        let npairs = pairs.len() as u64;
+        self.counters.pairs_seen += npairs;
+        // who would meet this season, then in random order: a band only has time for a few
+        // meetings a season, so in crowded country most neighbours go unvisited
+        let mut met: Vec<(usize, usize, i32)> = Vec::new();
         for (a, c, d) in pairs {
             let kin = if bands[a].lineage == bands[c].lineage { 1.3 } else { 1.0 };
             let pc = p.teach_rate * kin / (1.0 + d as f32);
-            if !rng.chance(pc) || bands[a].pop == 0 || bands[c].pop == 0 {
+            if rng.chance(pc) {
+                met.push((a, c, d));
+            }
+        }
+        for i in (1..met.len()).rev() {
+            met.swap(i, rng.below(i + 1));
+        }
+        let mut busy = vec![0u8; bands.len()];
+        for (a, c, d) in met {
+            if bands[a].pop == 0 || bands[c].pop == 0 || busy[a] >= MAX_MEETINGS || busy[c] >= MAX_MEETINGS {
                 continue;
             }
+            busy[a] += 1;
+            busy[c] += 1;
+            self.counters.meetings += 1;
             self.spread_disease(bands, a, c, rng);
             if self.confront(bands, a, c, d, rng) {
                 continue;
@@ -1689,6 +1847,7 @@ impl World {
             self.share_farming(bands, c, a, rng);
             self.trade(bands, a, c, d, rng);
         }
+        self.prof_lap(&mut tk, 11);
         // partners keep visiting each other after they drift apart: a standing relationship
         // reaches further than chance meetings (much further by boat)
         let idx: std::collections::HashMap<u32, usize> = bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
@@ -1726,6 +1885,7 @@ impl World {
             }
             self.trade(bands, a, c, d, rng);
         }
+        self.prof_lap(&mut tk, 12);
     }
 
     /// Two bands that meet swap what each has spare for what the other values more, pass food to
@@ -1980,6 +2140,7 @@ impl World {
                 tame: b.tame,
                 immune: b.immune,
                 sick: b.sick,
+                seacraft: b.seacraft,
                 ..Default::default()
             };
             if let Some(sea) = sailed {
@@ -1987,6 +2148,9 @@ impl World {
                 d.d.kit.boat_q = b.d.kit.boat_q;
                 self.counters.voyages += 1;
                 self.sea_toll(&mut d, sea, rng);
+                if d.pop >= 4 {
+                    self.note_crossing(bands[k].cell(self.map.w), &d);
+                }
                 self.forget_reached_shore(&mut d);
             }
             let bm = &mut bands[k];
@@ -2156,6 +2320,12 @@ impl World {
                 }
             }
         }
+        let mut lin: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        for b in &self.bands {
+            *lin.entry(b.lineage).or_default() += b.pop;
+        }
+        let tp = self.total_pop();
+        let top_lineage_pct = if tp > 0 { 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tp as f32 } else { 0.0 };
         let acc = std::mem::take(&mut self.year_acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
@@ -2178,6 +2348,8 @@ impl World {
             farm_food_share: if fall > 0.0 { ff / fall } else { 0.0 },
             farmer_density: if fcells.is_empty() { 0.0 } else { farmer_pop as f32 / fcells.len() as f32 },
             forager_density: if gcells.is_empty() { 0.0 } else { gpop as f32 / gcells.len() as f32 },
+            lineages: lin.len() as u32,
+            top_lineage_pct,
             ..acc
         });
     }
@@ -2312,5 +2484,46 @@ impl Econ {
         d.harvest = self.h;
         d.farm_food = self.farm_food;
         d.farm_share = (self.farm_food / self.food.max(1e-3)).clamp(0.0, 1.0);
+    }
+}
+
+/// Per-phase timing totals (seconds): 0 regrow+occupancy, 1 band seasons (all), 2 contacts,
+/// 3 demography, 4 bookkeeping+stats; within band seasons: 5 economy, 6 farming+disease,
+/// 7 experiments, 8 movement, 9 the rest (materials, demography, sea, forgetting); within
+/// contacts: 10 finding neighbours, 11 meetings, 12 partner visits
+#[derive(Clone, Debug, Default)]
+pub struct Prof {
+    pub t: [f64; 13],
+}
+impl Prof {
+    pub const NAMES: [&'static str; 13] = [
+        "regrow+occ", "band seasons", "contacts", "demography", "stats", "  economy", "  farming", "  experiments", "  movement", "  other",
+        "  finding neighbours", "  meetings", "  partner visits",
+    ];
+}
+
+/// A stopwatch that does nothing on the web build (no clock there)
+pub struct Tick {
+    #[cfg(not(target_arch = "wasm32"))]
+    t: std::time::Instant,
+}
+impl Tick {
+    pub fn now() -> Tick {
+        Tick {
+            #[cfg(not(target_arch = "wasm32"))]
+            t: std::time::Instant::now(),
+        }
+    }
+    /// seconds since the last lap
+    pub fn lap(&mut self) -> f64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let n = std::time::Instant::now();
+            let d = (n - self.t).as_secs_f64();
+            self.t = n;
+            d
+        }
+        #[cfg(target_arch = "wasm32")]
+        0.0
     }
 }

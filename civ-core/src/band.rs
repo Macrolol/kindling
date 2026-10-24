@@ -61,6 +61,9 @@ pub struct Band {
     pub sick: f32,
     /// resistance left by past outbreaks, 0..1 (fades as new generations are born)
     pub immune: f32,
+    /// seafaring experience, 0..1: built up by fishing from boats and by crossings, inherited by
+    /// daughter bands, fades ashore. Longer range, fewer losses, scouting trips (v5)
+    pub seacraft: f32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,

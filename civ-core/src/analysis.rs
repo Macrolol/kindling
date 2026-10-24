@@ -122,6 +122,14 @@ pub struct SeaSummary {
     pub drift_landings: u64,
     pub drift_returns: u64,
     pub sightings: u64,
+    /// (v5) scouting trips, ones that brought back news of a far shore, ones lost
+    pub scouting: u64,
+    pub scout_finds: u64,
+    pub scouts_lost: u64,
+    /// (v5) bands / parties that came ashore alive on another landmass
+    pub crossings: u64,
+    /// mean seafaring experience of bands with boats at the end
+    pub seacraft_mean: f32,
     /// bands with boats at the end
     pub bands_with_boats: u32,
     /// year the first boat was made (None = never)
@@ -452,6 +460,14 @@ pub fn summarize(w: &World) -> Summary {
             drift_landings: w.counters.drift_landings,
             drift_returns: w.counters.drift_returns,
             sightings: w.counters.sightings,
+            scouting: w.counters.scouting,
+            scout_finds: w.counters.scout_finds,
+            scouts_lost: w.counters.scouts_lost,
+            crossings: w.counters.crossings,
+            seacraft_mean: {
+                let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
+                if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }
+            },
             bands_with_boats: w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).count() as u32,
             first_boat: w.firsts.iter().filter(|f| form(f.item) == Form::Boat).map(|f| f.tick as f32 / 4.0).reduce(f32::min),
         },
