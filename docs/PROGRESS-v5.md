@@ -16,5 +16,5 @@ Updated 2026-10-24 16:55 EDT.
 
 ## Next
 1. Sea: slightly easier (target 4-6/10) and fewer deaths per voyage: range grows more with experience, capsizes near shore mostly survive.
-2. Beta save fixture from /tmp/kindling-q7 + load test.
+2. DONE: beta fixture + test; fixed save round-trip drift (bands[].carry).
 3. Final 10x500 + 2x1500, tests, builds, Page, screenshot.

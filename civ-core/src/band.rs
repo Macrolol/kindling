@@ -68,8 +68,9 @@ pub struct Band {
     pub inventions: u32,
     pub learned: u32,
     pub forgotten: u32,
-    // ---- derived each season (not saved)
-    #[serde(skip)]
+    // ---- derived each season; the parts the next season reads before recomputing them are
+    // saved as `carry` (v5, additive: absent in older saves and beta saves, which start fresh)
+    #[serde(rename = "carry", serialize_with = "ser_carry", deserialize_with = "de_carry")]
     pub d: Derived,
 }
 
@@ -175,6 +176,71 @@ impl Kit {
     pub fn digest_mean(&self) -> f32 {
         self.digest[..4].iter().sum::<f32>() / 4.0
     }
+}
+
+/// What of last season's `Derived` state carries into the next season (food, stress, harvest
+/// mix, trade demand): saved so a reloaded world runs on exactly as the original would.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct Carry {
+    food_ratio: f32,
+    spare: f32,
+    stress: f32,
+    cold: f32,
+    need: f32,
+    upkeep: f32,
+    food: f32,
+    harvest: [f32; 5],
+    farm_food: f32,
+    farm_share: f32,
+    experiments: u32,
+    needed: u32,
+    uses: u32,
+    demand: Vec<f32>,
+}
+
+fn ser_carry<S: serde::Serializer>(d: &Derived, s: S) -> Result<S::Ok, S::Error> {
+    Carry {
+        food_ratio: d.food_ratio,
+        spare: d.spare,
+        stress: d.stress,
+        cold: d.cold,
+        need: d.need,
+        upkeep: d.upkeep,
+        food: d.food,
+        harvest: d.harvest,
+        farm_food: d.farm_food,
+        farm_share: d.farm_share,
+        experiments: d.experiments,
+        needed: d.needed,
+        uses: d.uses,
+        demand: d.demand.to_vec(),
+    }
+    .serialize(s)
+}
+
+fn de_carry<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Derived, D::Error> {
+    let c = Carry::deserialize(de)?;
+    let mut d = Derived {
+        food_ratio: c.food_ratio,
+        spare: c.spare,
+        stress: c.stress,
+        cold: c.cold,
+        need: c.need,
+        upkeep: c.upkeep,
+        food: c.food,
+        harvest: c.harvest,
+        farm_food: c.farm_food,
+        farm_share: c.farm_share,
+        experiments: c.experiments,
+        needed: c.needed,
+        uses: c.uses,
+        ..Default::default()
+    };
+    for (i, v) in c.demand.into_iter().take(NMAT).enumerate() {
+        d.demand[i] = v;
+    }
+    Ok(d)
 }
 
 #[derive(Clone, Debug, Default)]

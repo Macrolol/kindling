@@ -59,5 +59,12 @@ Current: `FORMAT_VERSION = 5`.
     32 FirstPlough. `crop_pot` / `graze_pot` are derived and never saved.
   - Map generator 4 (`map.gen_version` 4) adds bog and laterite iron ore. Maps below gen 4 gain
     iron ore on load (`Map::upgrade_legacy`); no other geology changes.
+  - Additive (after the farming beta): `bands[].carry`, the part of last season's derived band
+    state that the next season reads first (food ratio, stress, harvest mix, farm share, trade
+    demand ...). Without it a reloaded world drifted from the original after a few seasons;
+    saves without it (v1-v4, and the farming beta) load with it zeroed, as before.
+  - The farming beta build (`dist/kindling-farming-beta-linux-x86_64`) already writes format 5;
+    its saves load unchanged (fixture `v5beta_seed4_y180_64x40.civsave`, test
+    `v5beta_fixture_loads_and_runs`). The wild-progenitor layer is derived and rebuilt on load.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

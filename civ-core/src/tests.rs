@@ -94,6 +94,38 @@ fn v4_fixture_loads_and_runs() {
     assert_eq!(w.state_hash(), w2.state_hash());
 }
 
+/// A save written by the farming beta (`dist/kindling-farming-beta-linux-x86_64`, the q7 build
+/// Michael ran long sims with) is already format 5: it must load as-is (no migration), rebuild
+/// the derived wild-progenitor layer, keep its farming state, run on and round-trip.
+#[test]
+fn v5beta_fixture_loads_and_runs() {
+    let bytes = include_bytes!("../tests/fixtures/v5beta_seed4_y180_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("beta save loads");
+    assert_eq!(info.format_version, 5);
+    assert_eq!(info.migrated_from, None);
+    assert!(w.total_pop() > 0);
+    let n = w.map.w * w.map.h;
+    assert_eq!(w.tend.len(), n);
+    assert!(w.tend.iter().any(|&t| t > 0.0), "beta tending survives the load");
+    for b in &w.bands {
+        assert_eq!(b.stock.len(), NMAT);
+        assert_eq!(b.craft.len(), crate::band::CRAFT_LEN);
+    }
+    let pop0 = w.total_pop();
+    let t0 = w.tick;
+    for _ in 0..80 {
+        w.step();
+    }
+    assert_eq!(w.tick, t0 + 80);
+    assert_eq!(w.wild.len(), n, "wild progenitor layer rebuilt");
+    assert!(w.total_pop() > pop0 / 2);
+    let again = w.save_bytes(None, "test", "test").expect("saves");
+    let (mut w2, _, _) = World::load_bytes(&again).expect("reloads");
+    w.step();
+    w2.step();
+    assert_eq!(w.state_hash(), w2.state_hash());
+}
+
 /// A save written by the v3 build (before conflict) must load through v3->v4, start with no
 /// grudges and an empty conflict overlay, and keep running (fights may now happen).
 #[test]
