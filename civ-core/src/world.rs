@@ -1436,14 +1436,14 @@ impl World {
     /// ... for people with seafaring experience `xp` (0..1), and with food put by for the trip
     pub fn sea_survival_x(q: f32, xp: f32, prepared: bool, sea: f32) -> f32 {
         let prep = if prepared { 0.7 } else { 1.0 };
-        (-0.025 * sea * prep * (1.4 - q - 0.25 * xp).max(0.3).powi(2)).exp()
+        (-0.02 * sea * prep * (1.4 - q - 0.25 * xp).max(0.3).powi(2)).exp()
     }
     /// How far out over open water a band can go (cells): the boat, and how well they handle it.
     pub fn sea_range(q: f32, xp: f32) -> f32 {
         if q <= 0.0 {
             0.0
         } else {
-            2.0 + 10.0 * q + 8.0 * xp * q
+            2.0 + 10.0 * q + 12.0 * xp * q
         }
     }
 
@@ -1503,7 +1503,9 @@ impl World {
             b.seacraft = (b.seacraft + 0.05 * (1.0 - b.seacraft)).min(1.0);
             return 0;
         }
-        let lost = ((b.pop as f32 * rng.range(0.3, 1.05)) as u32).min(b.pop);
+        // swamped within sight of land, many struggle ashore; far out, few do
+        let near = (sea / 6.0).clamp(0.2, 1.0);
+        let lost = ((b.pop as f32 * rng.range(0.3, 1.05) * near) as u32).min(b.pop);
         b.pop -= lost;
         self.counters.sea_disasters += 1;
         self.counters.lost_at_sea += lost as u64;
