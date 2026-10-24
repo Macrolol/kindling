@@ -21,6 +21,10 @@ Updated 2026-10-24 16:55 EDT.
 - Seed 2: flat ~35k Y100-Y300 (small landmass, no farming), then farming + crossing -> 79k.
 - Time 730s total vs v4 531s under load ~10 (pop 1.57x v4).
 
+## 1500y
+- s1 (docs/results-v5-seed1-1500y.txt, 650s): pop 125-148k Y400-Y1500, steady; farmers 46-57% of people, foragers persist (28k at Y1500); conflict 0.409%/yr, disease 0.262%/yr; largest lineage 23-27%; iron from Y205.
+- s7: running (/tmp/long7.txt, PID 344861).
+
 ## Next
-1. 2 seeds x 1500y (s1, s7), sequential.
+1. Wait for s7 1500y.
 2. Tests, builds (linux/windows/web), screenshot, Page, report.
