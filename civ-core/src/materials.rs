@@ -1,0 +1,319 @@
+//! Materials, forms and items. This file is the world's fixed "chemistry": every material has
+//! physical properties, and every useful quality of an artefact is computed from the properties
+//! of the material it is made of. Nothing here says what a band can do or in which order: that is
+//! decided by `physics::apply` (what happens when a primitive action is applied to things) and by
+//! which materials a band can reach.
+use serde::{Deserialize, Serialize};
+
+pub const NMAT: usize = 18;
+/// Materials that can be gathered from the world (indices below this). The rest only exist as
+/// products of physics (charcoal, ceramic, metals).
+pub const NRAW: usize = 13;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Mat {
+    Wood = 0,
+    Stone,
+    Flint,
+    Obsidian,
+    Clay,
+    CopperOre,
+    TinOre,
+    Fibre,
+    Hide,
+    Bone,
+    Meat,
+    Plants,
+    Fish,
+    Charcoal,
+    Ceramic,
+    Copper,
+    Tin,
+    Bronze,
+}
+pub const ALL_MATS: [Mat; NMAT] = [
+    Mat::Wood,
+    Mat::Stone,
+    Mat::Flint,
+    Mat::Obsidian,
+    Mat::Clay,
+    Mat::CopperOre,
+    Mat::TinOre,
+    Mat::Fibre,
+    Mat::Hide,
+    Mat::Bone,
+    Mat::Meat,
+    Mat::Plants,
+    Mat::Fish,
+    Mat::Charcoal,
+    Mat::Ceramic,
+    Mat::Copper,
+    Mat::Tin,
+    Mat::Bronze,
+];
+
+/// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
+/// materials (Mohs hardness, fracture behaviour, melting / reduction temperatures).
+#[derive(Clone, Copy, Debug)]
+pub struct Props {
+    pub name: &'static str,
+    /// scratch hardness (Mohs-like)
+    pub hard: f32,
+    /// resistance to breaking / chipping
+    pub tough: f32,
+    /// conchoidal fracture: how well it flakes into sharp edges when struck
+    pub fracture: f32,
+    /// how sharp an edge of it can be (edge acuity)
+    pub sharp: f32,
+    /// ease of carving / scraping with an edge
+    pub workable: f32,
+    /// plasticity when wet (clay)
+    pub plastic: f32,
+    /// fibrous / flexible (can be twisted or cut into cord)
+    pub fibrous: f32,
+    /// can be hammered into shape without breaking (metals)
+    pub malleable: f32,
+    /// fire temperature it can sustain as fuel (deg C, 0 = not a fuel)
+    pub fuel_t: f32,
+    /// food energy (0 = inedible)
+    pub food: f32,
+    /// heating in a reducing (charcoal, enclosed) fire at >= this temperature yields `reduces_to`
+    pub reduce_t: f32,
+    pub reduces_to: Option<Mat>,
+    /// heating at >= this temperature turns it into `fires_to` (clay -> ceramic)
+    pub fire_t: f32,
+    pub fires_to: Option<Mat>,
+    /// melting point (deg C, 0 = does not melt usefully)
+    pub melt: f32,
+    /// resists heat / holds heat in (kiln lining)
+    pub refractory: f32,
+}
+
+const fn p(name: &'static str) -> Props {
+    Props {
+        name,
+        hard: 0.0,
+        tough: 0.0,
+        fracture: 0.0,
+        sharp: 0.0,
+        workable: 0.0,
+        plastic: 0.0,
+        fibrous: 0.0,
+        malleable: 0.0,
+        fuel_t: 0.0,
+        food: 0.0,
+        reduce_t: 0.0,
+        reduces_to: None,
+        fire_t: 0.0,
+        fires_to: None,
+        melt: 0.0,
+        refractory: 0.0,
+    }
+}
+
+pub static PROPS: [Props; NMAT] = [
+    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, ..p("wood") },
+    Props { hard: 6.0, tough: 7.0, fracture: 3.5, sharp: 3.0, workable: 1.0, refractory: 4.0, ..p("stone") },
+    Props { hard: 7.0, tough: 3.5, fracture: 9.0, sharp: 8.0, workable: 0.5, refractory: 3.0, ..p("flint") },
+    Props { hard: 5.5, tough: 1.5, fracture: 10.0, sharp: 10.0, workable: 0.5, ..p("obsidian") },
+    Props { hard: 1.0, tough: 1.0, plastic: 9.0, workable: 8.0, fire_t: 600.0, fires_to: Some(Mat::Ceramic), refractory: 8.0, ..p("clay") },
+    Props { hard: 3.8, tough: 3.0, fracture: 1.0, reduce_t: 1150.0, reduces_to: Some(Mat::Copper), refractory: 2.0, ..p("copper ore") },
+    Props { hard: 6.5, tough: 4.0, fracture: 1.0, reduce_t: 1050.0, reduces_to: Some(Mat::Tin), refractory: 2.0, ..p("tin ore") },
+    Props { hard: 0.5, tough: 3.0, workable: 6.0, fibrous: 9.0, fuel_t: 400.0, ..p("plant fibre") },
+    Props { hard: 1.0, tough: 6.0, workable: 6.0, fibrous: 6.0, food: 0.5, ..p("hide") },
+    Props { hard: 4.0, tough: 5.0, fracture: 2.5, sharp: 4.5, workable: 5.0, ..p("bone") },
+    Props { hard: 0.2, tough: 1.0, food: 9.0, ..p("meat") },
+    Props { hard: 0.5, tough: 1.0, food: 6.0, fibrous: 2.0, ..p("wild plants") },
+    Props { hard: 0.2, tough: 1.0, food: 8.0, ..p("fish") },
+    Props { hard: 1.0, tough: 1.0, fuel_t: 950.0, ..p("charcoal") },
+    Props { hard: 5.5, tough: 2.0, sharp: 1.0, refractory: 7.0, ..p("ceramic") },
+    Props { hard: 3.0, tough: 9.0, sharp: 6.0, malleable: 9.0, melt: 1085.0, ..p("copper") },
+    Props { hard: 1.5, tough: 5.0, sharp: 1.5, malleable: 8.0, melt: 232.0, ..p("tin") },
+    Props { hard: 5.0, tough: 9.0, sharp: 7.5, malleable: 6.0, melt: 950.0, ..p("bronze") },
+];
+
+impl Mat {
+    #[inline]
+    pub fn props(self) -> &'static Props {
+        &PROPS[self as usize]
+    }
+    pub fn from_u8(x: u8) -> Mat {
+        ALL_MATS[(x as usize).min(NMAT - 1)]
+    }
+    pub fn name(self) -> &'static str {
+        self.props().name
+    }
+    pub fn is_food(self) -> bool {
+        self.props().food >= 5.0
+    }
+}
+
+pub const NFORM: usize = 13;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Form {
+    /// the material as found (or a smelted lump / ingot for metals)
+    Raw = 0,
+    /// a hand-sized pounding stone
+    Hammer,
+    /// a flake / blade / knife: something that cuts
+    Edge,
+    /// an awl, borer or projectile point
+    Point,
+    /// a straight handle / stick
+    Shaft,
+    /// string, thong, binding
+    Cord,
+    /// a container (basket, bag, pot)
+    Vessel,
+    /// a point or sharpened end on a long shaft
+    Spear,
+    /// a heavy edge hafted on a handle
+    Axe,
+    /// sewn clothing
+    Garment,
+    /// cooked food
+    Cooked,
+    /// a fire fuelled by the material
+    Fire,
+    /// an enclosed fire chamber lined with the material
+    Kiln,
+}
+pub const ALL_FORMS: [Form; NFORM] = [
+    Form::Raw,
+    Form::Hammer,
+    Form::Edge,
+    Form::Point,
+    Form::Shaft,
+    Form::Cord,
+    Form::Vessel,
+    Form::Spear,
+    Form::Axe,
+    Form::Garment,
+    Form::Cooked,
+    Form::Fire,
+    Form::Kiln,
+];
+
+/// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
+pub type Item = u16;
+pub const NONE: Item = u16::MAX;
+pub const NITEMS: usize = NFORM * 32;
+
+#[inline]
+pub const fn item(f: Form, m: Mat) -> Item {
+    (f as u16) * 32 + m as u16
+}
+#[inline]
+pub fn form(i: Item) -> Form {
+    ALL_FORMS[((i / 32) as usize).min(NFORM - 1)]
+}
+#[inline]
+pub fn mat(i: Item) -> Mat {
+    Mat::from_u8((i % 32) as u8)
+}
+pub fn valid_item(i: Item) -> bool {
+    i != NONE && ((i / 32) as usize) < NFORM && ((i % 32) as usize) < NMAT
+}
+
+pub fn item_name(i: Item) -> String {
+    if i == NONE {
+        return "bare hands".into();
+    }
+    let m = mat(i);
+    let n = m.name();
+    match form(i) {
+        Form::Raw => match m {
+            Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} (metal)"),
+            _ => n.to_string(),
+        },
+        Form::Hammer => format!("{n} hammerstone"),
+        Form::Edge => match m {
+            Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} knife"),
+            _ => format!("{n} blade"),
+        },
+        Form::Point => format!("{n} point"),
+        Form::Shaft => format!("{n} shaft"),
+        Form::Cord => match m {
+            Mat::Hide => "hide thong".into(),
+            _ => format!("{n} cord"),
+        },
+        Form::Vessel => match m {
+            Mat::Fibre => "woven basket".into(),
+            Mat::Hide => "hide bag".into(),
+            Mat::Clay => "unfired clay pot".into(),
+            Mat::Ceramic => "fired pottery".into(),
+            _ => format!("{n} vessel"),
+        },
+        Form::Spear => match m {
+            Mat::Wood => "sharpened-stick spear".into(),
+            _ => format!("{n}-tipped spear"),
+        },
+        Form::Axe => format!("{n} axe"),
+        Form::Garment => format!("{n} clothing"),
+        Form::Cooked => format!("cooked {n}"),
+        Form::Fire => match m {
+            Mat::Wood => "fire".into(),
+            _ => format!("{n} fire"),
+        },
+        Form::Kiln => format!("{n}-lined kiln"),
+    }
+}
+
+/// Fixed-size bitset over all item ids.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ItemSet(pub [u64; 7]);
+impl ItemSet {
+    #[inline]
+    pub fn has(&self, i: Item) -> bool {
+        i == NONE || (self.0[(i / 64) as usize] >> (i % 64)) & 1 == 1
+    }
+    #[inline]
+    pub fn add(&mut self, i: Item) {
+        if i != NONE {
+            self.0[(i / 64) as usize] |= 1 << (i % 64);
+        }
+    }
+    pub fn count(&self) -> u32 {
+        self.0.iter().map(|w| w.count_ones()).sum()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = Item> + '_ {
+        (0..(NITEMS as u16)).filter(move |&i| self.has(i))
+    }
+}
+
+// ---------------------------------------------------------------- qualities from properties
+/// Cutting quality of an edge / point / spear / axe head made of `m`, 0..~1.
+pub fn cut_q(m: Mat) -> f32 {
+    let p = m.props();
+    ((0.6 * p.sharp + 0.4 * p.hard) / 10.0).clamp(0.0, 1.0)
+}
+/// Durability 0..1: tough or re-sharpenable (malleable) materials last longer.
+pub fn durability(m: Mat) -> f32 {
+    let p = m.props();
+    ((p.tough + 0.5 * p.malleable) / 12.0).clamp(0.05, 1.0)
+}
+/// Container quality (storage / carrying) by material.
+pub fn vessel_q(m: Mat) -> f32 {
+    match m {
+        Mat::Ceramic => 1.0,
+        Mat::Hide => 0.6,
+        Mat::Fibre => 0.5,
+        Mat::Clay => 0.25,
+        _ => 0.3,
+    }
+}
+/// Warmth of clothing.
+pub fn garment_q(m: Mat) -> f32 {
+    let p = m.props();
+    ((p.tough + p.fibrous) / 12.0).clamp(0.0, 1.0)
+}
+/// Temperature a fire of `fuel` reaches in the open, plus the gain of a kiln lined with `lining`.
+pub fn fire_temp(fuel: Mat, lining: Option<Mat>) -> f32 {
+    let base = fuel.props().fuel_t;
+    let k = lining
+        .map(|l| 40.0 * l.props().refractory)
+        .unwrap_or(0.0);
+    base + k
+}
