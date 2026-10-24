@@ -384,6 +384,15 @@ fn stats(ui: &mut egui::Ui, w: &World, st: &mut UiState) {
         (&tr, egui::Color32::LIGHT_GREEN),
         (&fg, egui::Color32::LIGHT_RED),
     ]);
+    // lineage shares (v5 series; older saves have zeros for the years before they loaded)
+    let top: Vec<f32> = h.iter().map(|y| y.top_lineage_pct).collect();
+    let nlin: Vec<f32> = h.iter().map(|y| y.lineages as f32).collect();
+    if top.iter().any(|&v| v > 0.0) {
+        chart(ui, "largest lineage % of people (violet), lineages alive (grey)", &[
+            (&top, egui::Color32::from_rgb(190, 140, 255)),
+            (&nlin, egui::Color32::GRAY),
+        ]);
+    }
     let c = &w.counters;
     ui.label(format!(
         "experiments {} · inventions {} · lessons {} · forgotten {} · splits {} · bands died {}",

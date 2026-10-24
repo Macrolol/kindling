@@ -80,6 +80,12 @@ fn main() {
         println!("   landmass {:>3} {:>6} cells | arrived {} | now {} bands {} people", id, sz, if t == u32::MAX { "never".into() } else { format!("Y{:.0}", t as f32 / 4.0) }, nb, np);
     }
 
+    // largest lineage share by century (yearly series, recorded from v5 on)
+    let lt: Vec<String> = w.history.chunks(100).map(|c| {
+        let v: Vec<f32> = c.iter().map(|y| y.top_lineage_pct).filter(|&p| p > 0.0).collect();
+        if v.is_empty() { "-".into() } else { format!("{:.0}%/{}", v.iter().sum::<f32>() / v.len() as f32, c.last().map(|y| y.lineages).unwrap_or(0)) }
+    }).collect();
+    println!("\n-- largest lineage share / lineages alive, by century: {}", lt.join(" "));
     // lineages and grudges now
     let mut lin: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
     for b in &w.bands {
