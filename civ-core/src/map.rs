@@ -177,6 +177,24 @@ impl Map {
     pub fn is_land(&self, i: usize) -> bool {
         self.height[i] >= 0.0
     }
+    /// Can people start at (x, y)? Sea, ice and off-map cells: no. Cold, dry or foodless land:
+    /// yes, with a warning.
+    pub fn start_check(&self, x: usize, y: usize) -> crate::params::StartCheck {
+        use crate::params::StartCheck;
+        if x >= self.w || y >= self.h {
+            return StartCheck::Uninhabitable;
+        }
+        let i = y * self.w + x;
+        if !self.is_land(i) || matches!(self.biome_at(i), Biome::Ice) {
+            return StartCheck::Uninhabitable;
+        }
+        let food = self.k_plants[i] + self.k_game[i] + 0.5 * self.k_fish[i];
+        if self.temp[i] <= 3.0 || self.temp[i] >= 30.0 || food <= 38.0 {
+            return StartCheck::Poor;
+        }
+        StartCheck::Ok
+    }
+
     pub fn biome_at(&self, i: usize) -> Biome {
         Biome::from_u8(self.biome[i])
     }

@@ -8,13 +8,15 @@ use crate::band::{make_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
-use crate::params::{Config, ParamChange, Params};
+use crate::params::{Config, ParamChange, Params, StartCheck};
 use crate::physics::{self, Action, Ctx, Inputs};
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 
 mod conflict;
+mod fx;
+use fx::{Fx, Layer, Op};
 /// Most meetings a band has time for in one season (v5).
 const MAX_MEETINGS: u8 = 4;
 pub mod farming;
@@ -411,7 +413,18 @@ impl World {
         }
         let cw: Vec<f32> = cands.iter().map(|&i| (food(i) - 35.0).max(1.0).sqrt()).collect();
         let origin = cands[rng.weighted(&cw).unwrap_or(0)];
-        let (ox, oy) = (origin % w.map.w, origin / w.map.w);
+        // chosen starts (the start picker / --start): keep only those on habitable land
+        let starts: Vec<usize> = w
+            .cfg
+            .starts
+            .iter()
+            .filter(|&&(x, y)| w.map.start_check(x as usize, y as usize) != StartCheck::Uninhabitable)
+            .map(|&(x, y)| y as usize * w.map.w + x as usize)
+            .collect();
+        let chosen = !starts.is_empty();
+        if chosen && starts.len() > w.cfg.founders {
+            w.cfg.founders = starts.len();
+        }
         // the founders are one people: they share habits of hand (what they are used to working,
         // which ways of working) with small differences between groups
         // (drawn in the v4 order - 18 materials, 3 ways of working - then the v5 materials, so a
@@ -422,8 +435,12 @@ impl World {
         culture.extend(extra);
         culture.extend(acts);
         for k in 0..w.cfg.founders {
+            // the start: the random homeland, the shared chosen area, or this lineage's own cell
+            let origin = if chosen { starts[k % starts.len()] } else { origin };
+            let (ox, oy) = (origin % w.map.w, origin / w.map.w);
+            let alone = chosen && starts.len() >= w.cfg.founders;
             let mut pos = origin;
-            for _ in 0..20 {
+            for _ in 0..if alone { 0 } else { 20 } {
                 let x = (ox as i32 + rng.below(7) as i32 - 3).clamp(0, w.map.w as i32 - 1) as usize;
                 let y = (oy as i32 + rng.below(7) as i32 - 3).clamp(0, w.map.h as i32 - 1) as usize;
                 let i = y * w.map.w + x;
@@ -450,8 +467,7 @@ impl World {
                 craft: culture.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 ..Default::default()
             };
-            let _ = k;
-            w.push_event(EventKind::Founded, id, 0, pos as u32, NONE, u32::MAX);
+            w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
         }
         w.rng_state = rng.0;
@@ -562,28 +578,25 @@ impl World {
 
     // ------------------------------------------------------------------ step
     pub fn step(&mut self) {
-        if self.prof.is_some() {
-            return self.step_profiled();
-        }
         let mut rng = self.rng.take().unwrap_or(Rng(self.rng_state));
         if self.occ.len() != self.map.w * self.map.h {
             self.after_load();
         }
+        let mut pr = [0f64; 5];
+        let mut t = Tick::now();
         self.regrow();
         self.regrow_fields();
-        for v in &mut self.trade_flow {
-            *v *= 0.85;
-        }
-        for v in &mut self.conflict_flow {
-            *v *= 0.93;
-        }
+        fx::par_scale(&mut self.trade_flow, 0.85);
+        fx::par_scale(&mut self.conflict_flow, 0.93);
         self.build_occupancy();
+        pr[0] += t.lap();
         let mut bands = std::mem::take(&mut self.bands);
-        for bi in 0..bands.len() {
-            self.band_season(&mut bands[bi], &mut rng);
-        }
+        self.bands_season(&mut bands, &mut rng);
+        pr[1] += t.lap();
         self.contacts(&mut bands, &mut rng);
+        pr[2] += t.lap();
         self.demography(&mut bands, &mut rng);
+        pr[3] += t.lap();
         self.bands = bands;
         self.track_landfall();
         self.track_knowledge();
@@ -591,57 +604,110 @@ impl World {
         if self.tick % 4 == 0 {
             self.year_stats();
         }
+        pr[4] += t.lap();
         self.rng_state = rng.0;
         self.rng = Some(rng);
+        if let Some(p) = self.prof.as_mut() {
+            for k in 0..5 {
+                p.t[k] += pr[k];
+            }
+        }
+    }
+
+    /// Every band's season, in three phases: (1) in parallel, each band works out its economy
+    /// from the stocks as they stood at the start of the season; (2) the harvests are taken from
+    /// the land, band by band; (3) in parallel, the rest of each band's season (farming,
+    /// materials, births and deaths, disease, fire, experiments, the sea, forgetting, moving),
+    /// with its effects on the shared world buffered and applied afterwards in band order.
+    fn bands_season(&mut self, bands: &mut [Band], rng: &mut Rng) {
+        let s = self.season();
+        let ecs: Vec<(Econ, f64)> = {
+            let me = &*self;
+            fx::par_map(bands, |b| me.band_econ(b, s))
+        };
+        if let Some(p) = self.prof.as_mut() {
+            p.t[5] += ecs.iter().map(|e| e.1).sum::<f64>();
+        }
+        let ecs: Vec<Econ> = ecs.into_iter().map(|e| e.0).collect();
+        {
+            let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
+            for (r, st) in stocks.into_iter().enumerate() {
+                for ec in &ecs {
+                    if ec.ys[r] > 0.01 {
+                        let phi = (ec.h[r] / ec.ys[r]).min(1.0);
+                        for &(c, wt) in &ec.cells {
+                            if let Some(v) = st.get_mut(c) {
+                                *v -= phi * wt * *v;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let key = rng.next_u64();
+        let tick = self.tick as u64;
+        let fxs: Vec<Fx> = {
+            let me = &*self;
+            let mut work: Vec<(&mut Band, Econ)> = bands.iter_mut().zip(ecs).collect();
+            fx::par_map(&mut work, |(b, ec)| {
+                let mut fx = Fx::default();
+                let mut r = Rng::new(key ^ (b.id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (tick << 40));
+                me.band_season(b, ec, &mut r, &mut fx);
+                fx
+            })
+        };
+        for (b, f) in bands.iter_mut().zip(fxs) {
+            self.apply_fx(f, Some(b));
+        }
+    }
+
+    /// Phase 1 of a band's season (read-only on the world).
+    fn band_econ(&self, b: &mut Band, s: u32) -> (Econ, f64) {
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
+        b.fit_vectors();
+        for k in &mut b.known {
+            k.used = false;
+        }
+        self.refresh_toolkit(b);
+        let ec = self.economy(b, s);
+        for &it in &ec.used {
+            mark_used(&self.reg, &mut b.known, &b.d.tk, it);
+        }
+        b.store = ec.store_after;
+        let dt = tk.as_mut().map(|t| t.lap()).unwrap_or(0.0);
+        (ec, dt)
     }
 
     fn regrow(&mut self) {
         let s = self.season();
         let r = self.params.regen;
         let m = &self.map;
-        for i in 0..m.w * m.h {
-            if !m.is_land(i) {
-                // sea fish
-                let k = m.k_fish[i];
-                if k > 0.0 {
-                    let p = &mut self.fish[i];
-                    *p += r * (0.3 * *p * (1.0 - *p / k) + 0.02 * k);
-                    *p = p.clamp(0.0, k);
-                }
-                continue;
+        let n = m.w * m.h;
+        let tend = &self.tend;
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            const CH: usize = 4096;
+            if n >= 65536 && self.plants.len() == n && self.game.len() == n && self.fish.len() == n && self.small.len() == n {
+                self.plants
+                    .par_chunks_mut(CH)
+                    .zip(self.game.par_chunks_mut(CH))
+                    .zip(self.fish.par_chunks_mut(CH))
+                    .zip(self.small.par_chunks_mut(CH))
+                    .enumerate()
+                    .for_each(|(ci, (((pl, ga), fi), sm))| {
+                        for j in 0..pl.len() {
+                            regrow_cell(m, tend, s, r, ci * CH + j, &mut pl[j], &mut ga[j], &mut fi[j], &mut sm[j]);
+                        }
+                    });
+                return;
             }
-            let t = m.temp_season(i, s);
-            let g = ((t - 3.0) / 12.0).clamp(0.0, 1.0);
-            let mut k = m.k_plants[i];
-            if let Some(&td) = self.tend.get(i) {
-                if td > 0.0 {
-                    k = farming::wild_plant_cap(k, td);
-                }
-            }
-            if k > 0.0 {
-                let p = &mut self.plants[i];
-                *p += r * (0.5 * g * *p * (1.0 - *p / k) + 0.03 * k * g) - 0.12 * (1.0 - g) * *p;
-                *p = p.clamp(0.0, k);
-            }
-            let k = m.k_game[i];
-            if k > 0.0 {
-                let p = &mut self.game[i];
-                *p += r * (0.12 * *p * (1.0 - *p / k) + 0.01 * k);
-                *p = p.clamp(0.0, k);
-            }
-            let k = m.k_fish[i];
-            if k > 0.0 {
-                let p = &mut self.fish[i];
-                *p += r * (0.3 * *p * (1.0 - *p / k) + 0.02 * k);
-                *p = p.clamp(0.0, k);
-            }
-            // small game breeds fast but suffers in hard winters
-            let k = m.k_small.get(i).copied().unwrap_or(0.0);
-            if k > 0.0 {
-                let p = &mut self.small[i];
-                *p += r * (0.45 * g.max(0.2) * *p * (1.0 - *p / k) + 0.02 * k);
-                *p = p.clamp(0.0, k);
-            }
+        }
+        for i in 0..n {
+            let (pl, ga, fi, sm) = (&mut self.plants[i], &mut self.game[i], &mut self.fish[i], self.small.get_mut(i));
+            let mut dummy = 0.0;
+            let sm = sm.unwrap_or(&mut dummy);
+            regrow_cell(m, tend, s, r, i, pl, ga, fi, sm);
         }
     }
 
@@ -650,7 +716,8 @@ impl World {
             v.clear();
         }
         let w = self.map.w;
-        self.occ_pop = vec![0; self.occ.len()];
+        self.occ_pop.clear();
+        self.occ_pop.resize(self.occ.len(), 0);
         for (k, b) in self.bands.iter().enumerate() {
             self.occ[b.cell(w)].push(k as u32);
             self.occ_pop[b.cell(w)] += b.pop;
@@ -890,84 +957,16 @@ impl World {
         Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil, farm_food, herd_food: fm.herd_food }
     }
 
-    /// `step`, with each phase timed into `self.prof`
-    fn step_profiled(&mut self) {
-        let mut pr = Prof::default();
-        let mut rng = self.rng.take().unwrap_or(Rng(self.rng_state));
-        if self.occ.len() != self.map.w * self.map.h {
-            self.after_load();
-        }
-        let mut t = Tick::now();
-        self.regrow();
-        self.regrow_fields();
-        for v in &mut self.trade_flow {
-            *v *= 0.85;
-        }
-        for v in &mut self.conflict_flow {
-            *v *= 0.93;
-        }
-        self.build_occupancy();
-        pr.t[0] += t.lap();
-        let mut bands = std::mem::take(&mut self.bands);
-        for bi in 0..bands.len() {
-            self.band_season(&mut bands[bi], &mut rng);
-        }
-        pr.t[1] += t.lap();
-        self.contacts(&mut bands, &mut rng);
-        pr.t[2] += t.lap();
-        self.demography(&mut bands, &mut rng);
-        pr.t[3] += t.lap();
-        self.bands = bands;
-        self.track_landfall();
-        self.track_knowledge();
-        self.tick += 1;
-        if self.tick % 4 == 0 {
-            self.year_stats();
-        }
-        pr.t[4] += t.lap();
-        self.rng_state = rng.0;
-        self.rng = Some(rng);
-        if let Some(p) = self.prof.as_mut() {
-            for k in 0..5 {
-                p.t[k] += pr.t[k];
-            }
-        }
-    }
-
-    fn band_season(&mut self, b: &mut Band, rng: &mut Rng) {
+    /// Phase 3 of a band's season: reads the world, writes the band, buffers the rest in `fx`.
+    fn band_season(&self, b: &mut Band, ec: &Econ, rng: &mut Rng, fx: &mut Fx) {
         let p = self.params;
         let w = self.map.w;
         let ci = b.cell(w);
         let s = self.season();
-        b.fit_vectors();
-        for k in &mut b.known {
-            k.used = false;
-        }
-        self.refresh_toolkit(b);
         let pop = b.pop.max(1) as f32;
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
-        let ec = self.economy(b, s);
-        self.prof_lap(&mut tk, 5);
-        for &it in &ec.used {
-            mark_used(&self.reg, &mut b.known, &b.d.tk, it);
-        }
-        {
-            let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
-            for (r, st) in stocks.into_iter().enumerate() {
-                if ec.ys[r] > 0.01 {
-                    let phi = (ec.h[r] / ec.ys[r]).min(1.0);
-                    for &(c, wt) in &ec.cells {
-                        if let Some(v) = st.get_mut(c) {
-                            *v -= phi * wt * *v;
-                        }
-                    }
-                }
-            }
-        }
-        b.store = ec.store_after;
-        self.prof_lap(&mut tk, 9);
-        self.farm_season(b, &ec, rng);
-        self.prof_lap(&mut tk, 6);
+        self.farm_season(b, ec, rng, fx);
+        fx.lap(&mut tk, 6);
         // hides and bones from hunting (small game gives a little)
         let hunted = ec.h[1] + 0.3 * ec.h[3];
         b.stock[Mat::Hide as usize] = (b.stock[Mat::Hide as usize] + hunted * 0.01).min(1.5);
@@ -1041,14 +1040,14 @@ impl World {
         let births = rng.poisson(pop * p.birth_rate * fed * (0.8 + 0.4 * spare) * sed);
         let deaths = rng.poisson(pop * p.death_rate + pop * p.starve_rate * (1.0 - food_ratio).powf(1.5));
         b.pop = (b.pop + births).saturating_sub(deaths);
-        self.disease_season(b, rng);
+        self.disease_season(b, rng, fx);
         // ---------------- fire keeping
         let can_make_fire = b.d.tk.producible.has(item(Form::Fire, Mat::Wood));
         if can_make_fire {
             b.flame = true;
         } else if b.flame && rng.chance(p.flame_loss) {
             b.flame = false;
-            self.push_event(EventKind::FireLost, b.id, 0, ci as u32, NONE, u32::MAX);
+            fx.push_event(EventKind::FireLost, b.id, 0, ci as u32, NONE, u32::MAX);
         }
         let dry = (1.0 - self.map.rain[ci]).clamp(0.0, 1.0);
         let ls = self.map.local_season(ci, s);
@@ -1058,16 +1057,10 @@ impl World {
             if rng.chance(pf) && rng.chance((0.3 * b.curiosity).min(0.9)) {
                 b.flame = true;
                 let fire = item(Form::Fire, Mat::Wood);
-                let first = !self.firsts.iter().any(|f| f.item == fire);
-                if first {
-                    self.firsts.push(First { item: fire, tick: self.tick, band: b.id, cell: ci as u32, recipe: u32::MAX });
-                    self.push_event(EventKind::FirstFire, b.id, 0, ci as u32, fire, u32::MAX);
-                } else {
-                    self.push_event(EventKind::FireCaptured, b.id, 0, ci as u32, fire, u32::MAX);
-                }
+                fx.first(fire, b.id, ci as u32, u32::MAX, EventKind::FirstFire, Some(EventKind::FireCaptured));
             }
         }
-        self.prof_lap(&mut tk, 9);
+        fx.lap(&mut tk, 9);
         // ---------------- experiments
         self.refresh_toolkit(b);
         let lam = p.invent_rate * b.curiosity * (0.15 + spare + p.stress_invent * stress) * (pop / 25.0).sqrt();
@@ -1076,16 +1069,16 @@ impl World {
         if n > 0 {
             let att = self.attention(b);
             for _ in 0..n {
-                self.experiment(b, rng, dry_s, &att);
+                self.experiment(b, rng, dry_s, &att, fx);
             }
         }
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
             *c = 1.0 + (*c - 1.0) * 0.998;
         }
-        self.prof_lap(&mut tk, 7);
+        fx.lap(&mut tk, 7);
         // ---------------- the sea: drift and far shores
-        self.sea_season(b, rng);
+        self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
         let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt());
         let mut forgot: Vec<u32> = Vec::new();
@@ -1103,18 +1096,18 @@ impl World {
             b.known.retain(|k| k.skill >= 0.04);
             b.d.known_ver += 1;
             b.forgotten += forgot.len() as u32;
-            self.counters.forgets += forgot.len() as u64;
-            self.year_acc.forgets += forgot.len() as u32;
+            fx.counters.forgets += forgot.len() as u64;
+            fx.acc.forgets += forgot.len() as u32;
             for r in forgot {
                 let it = self.reg.recipes[r as usize].output;
-                self.push_event(EventKind::Forgot, b.id, 0, ci as u32, it, r);
+                fx.push_event(EventKind::Forgot, b.id, 0, ci as u32, it, r);
             }
         }
-        self.prof_lap(&mut tk, 9);
+        fx.lap(&mut tk, 9);
         // ---------------- movement
         self.refresh_toolkit(b);
-        self.maybe_move(b, rng);
-        self.prof_lap(&mut tk, 8);
+        self.maybe_move(b, rng, fx);
+        fx.lap(&mut tk, 8);
     }
 
     #[inline]
@@ -1228,9 +1221,9 @@ impl World {
         }
     }
 
-    fn experiment(&mut self, b: &mut Band, rng: &mut Rng, dryness: f32, att: &[f32; NMAT]) {
-        self.counters.experiments += 1;
-        self.year_acc.experiments += 1;
+    fn experiment(&self, b: &mut Band, rng: &mut Rng, dryness: f32, att: &[f32; NMAT], fx: &mut Fx) {
+        fx.counters.experiments += 1;
+        fx.acc.experiments += 1;
         let pool: Vec<Item> = b
             .d
             .tk
@@ -1328,39 +1321,18 @@ impl World {
         if b.d.tk.producible.has(out.out) || !rng.chance(out.p) {
             return;
         }
-        let ci = b.cell(self.map.w) as u32;
-        let rid = match self.reg.find(action, &inputs) {
-            Some(r) => r,
-            None => self.reg.insert(Recipe {
-                action: action as u8,
-                inputs,
-                output: out.out,
-                p: out.p,
-                first_tick: self.tick,
-                first_band: b.id,
-                first_cell: ci,
-                inventions: 0,
-                transfers: 0,
-            }),
-        };
-        if b.knows(rid) {
+        if fx.invented.contains(&out.out) {
             return;
         }
-        self.reg.recipes[rid as usize].inventions += 1;
-        Self::reinforce_craft(b, &self.reg.recipes[rid as usize], 1.35);
-        b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, kin: true, used: true });
-        b.d.known_ver += 1;
-        b.inventions += 1;
-        self.counters.inventions += 1;
-        self.year_acc.inventions += 1;
-        let first = !self.firsts.iter().any(|f| f.item == out.out);
-        if first {
-            self.firsts.push(First { item: out.out, tick: self.tick, band: b.id, cell: ci, recipe: rid });
-            self.push_event(EventKind::FirstInvention, b.id, 0, ci, out.out, rid);
-        } else {
-            self.push_event(EventKind::Invention, b.id, 0, ci, out.out, rid);
+        let ci = b.cell(self.map.w) as u32;
+        // (registered and learned when the season's effects are applied)
+        if let Some(rid) = self.reg.find(action, &inputs) {
+            if b.knows(rid) {
+                return;
+            }
         }
-        self.refresh_toolkit(b);
+        fx.invented.push(out.out);
+        fx.ops.push(Op::Invent { action, inputs, out: out.out, p: out.p, cell: ci });
     }
 
     fn cell_score(&self, b: &Band, c: usize) -> f32 {
@@ -1496,7 +1468,7 @@ impl World {
 
     /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
     /// Returns the number lost.
-    fn sea_toll(&mut self, b: &mut Band, sea: f32, rng: &mut Rng) -> u32 {
+    fn sea_toll(&self, b: &mut Band, sea: f32, rng: &mut Rng, fx: &mut Fx) -> u32 {
         let prepared = b.store >= 0.5 * b.pop as f32;
         if rng.chance(Self::sea_survival_x(b.d.kit.boat_q, b.seacraft, prepared, sea)) {
             // a crossing made is a lesson learned
@@ -1507,9 +1479,9 @@ impl World {
         let near = (sea / 6.0).clamp(0.2, 1.0);
         let lost = ((b.pop as f32 * rng.range(0.3, 1.05) * near) as u32).min(b.pop);
         b.pop -= lost;
-        self.counters.sea_disasters += 1;
-        self.counters.lost_at_sea += lost as u64;
-        self.push_event(EventKind::LostAtSea, b.id, lost, b.cell(self.map.w) as u32, NONE, u32::MAX);
+        fx.counters.sea_disasters += 1;
+        fx.counters.lost_at_sea += lost as u64;
+        fx.push_event(EventKind::LostAtSea, b.id, lost, b.cell(self.map.w) as u32, NONE, u32::MAX);
         lost
     }
 
@@ -1517,7 +1489,7 @@ impl World {
     /// people may make out land on the horizon; and fishing parties are sometimes blown out to sea
     /// - most drown or wash back, some come ashore somewhere new, a few find their way home with
     /// news of it.
-    fn sea_season(&mut self, b: &mut Band, rng: &mut Rng) {
+    fn sea_season(&self, b: &mut Band, rng: &mut Rng, fx: &mut Fx) {
         let m = &self.map;
         let ci = b.cell(m.w);
         b.seacraft *= 0.998; // what is not practised is lost, generation by generation
@@ -1555,7 +1527,7 @@ impl World {
                     if m.is_land(c) {
                         if sea >= 1.4 && m.landmass_of(c) != own_lm {
                             b.far_shore = Some(c as u32);
-                            self.counters.sightings += 1;
+                            fx.counters.sightings += 1;
                             break 'rays;
                         }
                         if sea > 0.0 || t > 2.0 {
@@ -1574,20 +1546,20 @@ impl World {
         // scouting: seasoned seafarers with good boats sometimes send a party out to look for
         // land beyond the horizon; most find nothing, some do not come back
         if b.far_shore.is_none() && q > 0.5 && xp > 0.3 && b.pop >= 20 && rng.chance(0.01 * xp) {
-            self.counters.scouting += 1;
+            fx.counters.scouting += 1;
             let found = self.voyage(b, rng, None);
             let sea = found.map(|f| f.1).unwrap_or(Self::sea_range(q, xp));
             if !rng.chance(Self::sea_survival_x(q, xp, true, 2.0 * sea)) {
                 let party = 5.min(b.pop / 4);
                 b.pop -= party;
-                self.counters.scouts_lost += 1;
-                self.counters.sea_disasters += 1;
-                self.counters.lost_at_sea += party as u64;
-                self.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
+                fx.counters.scouts_lost += 1;
+                fx.counters.sea_disasters += 1;
+                fx.counters.lost_at_sea += party as u64;
+                fx.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
             } else if let Some((c, sea)) = found {
                 if sea >= 1.4 && self.map.landmass_of(c) != own_lm {
                     b.far_shore = Some(c as u32);
-                    self.counters.scout_finds += 1;
+                    fx.counters.scout_finds += 1;
                 }
             }
         }
@@ -1600,7 +1572,7 @@ impl World {
         if !rng.chance(pd) {
             return;
         }
-        self.counters.drifts += 1;
+        fx.counters.drifts += 1;
         let party = (5 + rng.below(7) as u32).min(b.pop / 3);
         let blown = 3.0 + 15.0 * rng.f32();
         let ang = rng.f32() * std::f32::consts::TAU;
@@ -1628,9 +1600,9 @@ impl World {
         let survive = landing.is_some() && rng.chance(Self::sea_survival_x(0.7 * q, xp, false, sea));
         if !survive {
             b.pop -= party;
-            self.counters.sea_disasters += 1;
-            self.counters.lost_at_sea += party as u64;
-            self.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
+            fx.counters.sea_disasters += 1;
+            fx.counters.lost_at_sea += party as u64;
+            fx.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
             return;
         }
         let c = landing.unwrap();
@@ -1640,20 +1612,19 @@ impl World {
         let far_lm = self.map.landmass_of(c) != own_lm;
         if rng.chance(0.3 + 0.4 * q) {
             // they make it home and tell of what they saw
-            self.counters.drift_returns += 1;
+            fx.counters.drift_returns += 1;
             if far_lm {
                 b.far_shore = Some(c as u32);
             }
             return;
         }
         // they stay where they came ashore, with what they carry in their heads and hands
-        self.counters.drift_landings += 1;
+        fx.counters.drift_landings += 1;
         if far_lm {
-            self.counters.crossings += 1;
+            fx.counters.crossings += 1;
         }
         b.pop -= party;
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = 0; // assigned when applied
         let known: Vec<Known> = b
             .known
             .iter()
@@ -1679,11 +1650,10 @@ impl World {
             born: self.tick,
             ..Default::default()
         };
-        self.push_event(EventKind::Drifted, b.id, id, c as u32, NONE, u32::MAX);
-        self.pending.push(nb);
+        fx.ops.push(Op::Drift(Box::new(nb), b.id, c as u32));
     }
 
-    fn maybe_move(&mut self, b: &mut Band, rng: &mut Rng) {
+    fn maybe_move(&self, b: &mut Band, rng: &mut Rng, fx: &mut Fx) {
         let m = &self.map;
         let (x, y) = (b.x as usize, b.y as usize);
         let cur = b.cell(m.w);
@@ -1731,9 +1701,9 @@ impl World {
             b.settled *= 0.5;
             if let Some((c, sea)) = by_sea {
                 if c == best {
-                    self.counters.voyages += 1;
-                    self.sea_toll(b, sea, rng);
-                    self.note_crossing(cur, b);
+                    fx.counters.voyages += 1;
+                    self.sea_toll(b, sea, rng, fx);
+                    self.note_crossing(cur, b, fx);
                     self.forget_reached_shore(b);
                 }
             }
@@ -1741,9 +1711,9 @@ impl World {
     }
 
     /// Count a band that came ashore alive on another landmass than the one it left from.
-    pub(crate) fn note_crossing(&mut self, from: usize, b: &Band) {
+    pub(crate) fn note_crossing(&self, from: usize, b: &Band, fx: &mut Fx) {
         if b.pop > 0 && self.map.landmass_of(from) != self.map.landmass_of(b.cell(self.map.w)) {
-            self.counters.crossings += 1;
+            fx.counters.crossings += 1;
         }
     }
 
@@ -1792,46 +1762,56 @@ impl World {
         for v in &mut self.occ {
             v.clear();
         }
-        self.occ_pop = vec![0; self.occ.len()];
+        self.occ_pop.clear();
+        self.occ_pop.resize(self.occ.len(), 0);
         for (k, b) in bands.iter().enumerate() {
             self.occ[b.cell(w as usize)].push(k as u32);
             self.occ_pop[b.cell(w as usize)] += b.pop;
         }
-        let mut pairs: Vec<(usize, usize, i32)> = Vec::new();
-        for (a, b) in bands.iter().enumerate() {
-            let (x, y) = (b.x as i32, b.y as i32);
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let (nx, ny) = (x + dx, y + dy);
-                    if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                        continue;
-                    }
-                    for &k in &self.occ[(ny * w + nx) as usize] {
-                        let k = k as usize;
-                        if k > a {
-                            pairs.push((a, k, dx.abs().max(dy.abs())));
+        // who would meet this season (each band's neighbours drawn on its own random stream,
+        // so the neighbourhoods can be searched in parallel), then in random order: a band only
+        // has time for a few meetings a season, so in crowded country most neighbours go unvisited
+        let key0 = rng.next_u64();
+        let per: Vec<(u64, Vec<(usize, usize, i32)>)> = {
+            let occ = &self.occ;
+            let bs = &*bands;
+            fx::par_collect(bands.len(), |a| {
+                let b = &bs[a];
+                let mut r2 = Rng::new(key0 ^ (b.id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                let (x, y) = (b.x as i32, b.y as i32);
+                let mut seen = 0u64;
+                let mut out = Vec::new();
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if nx < 0 || ny < 0 || nx >= w || ny >= h {
+                            continue;
+                        }
+                        for &k in &occ[(ny * w + nx) as usize] {
+                            let k = k as usize;
+                            if k > a {
+                                seen += 1;
+                                let d = dx.abs().max(dy.abs());
+                                let kin = if b.lineage == bs[k].lineage { 1.3 } else { 1.0 };
+                                let pc = p.teach_rate * kin / (1.0 + d as f32);
+                                if r2.chance(pc) {
+                                    out.push((a, k, d));
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
+                (seen, out)
+            })
+        };
+        self.counters.pairs_seen += per.iter().map(|x| x.0).sum::<u64>();
+        let mut met: Vec<(usize, usize, i32)> = per.into_iter().flat_map(|x| x.1).collect();
         self.prof_lap(&mut tk, 10);
-        let npairs = pairs.len() as u64;
-        self.counters.pairs_seen += npairs;
-        // who would meet this season, then in random order: a band only has time for a few
-        // meetings a season, so in crowded country most neighbours go unvisited
-        let mut met: Vec<(usize, usize, i32)> = Vec::new();
-        for (a, c, d) in pairs {
-            let kin = if bands[a].lineage == bands[c].lineage { 1.3 } else { 1.0 };
-            let pc = p.teach_rate * kin / (1.0 + d as f32);
-            if rng.chance(pc) {
-                met.push((a, c, d));
-            }
-        }
         for i in (1..met.len()).rev() {
             met.swap(i, rng.below(i + 1));
         }
         let mut busy = vec![0u8; bands.len()];
+        let mut todo: Vec<(usize, usize, i32)> = Vec::with_capacity(met.len());
         for (a, c, d) in met {
             if bands[a].pop == 0 || bands[c].pop == 0 || busy[a] >= MAX_MEETINGS || busy[c] >= MAX_MEETINGS {
                 continue;
@@ -1839,16 +1819,10 @@ impl World {
             busy[a] += 1;
             busy[c] += 1;
             self.counters.meetings += 1;
-            self.spread_disease(bands, a, c, rng);
-            if self.confront(bands, a, c, d, rng) {
-                continue;
-            }
-            self.exchange(bands, a, c, rng);
-            self.exchange(bands, c, a, rng);
-            self.share_farming(bands, a, c, rng);
-            self.share_farming(bands, c, a, rng);
-            self.trade(bands, a, c, d, rng);
+            todo.push((a, c, d));
         }
+        let key = rng.next_u64();
+        self.run_meetings(bands, &todo, key, true);
         self.prof_lap(&mut tk, 11);
         // partners keep visiting each other after they drift apart: a standing relationship
         // reaches further than chance meetings (much further by boat)
@@ -1877,23 +1851,81 @@ impl World {
                 }
             }
         }
-        for (a, c, d) in far {
-            if bands[a].pop == 0 || bands[c].pop == 0 {
-                continue;
-            }
-            if rng.chance(0.5) {
-                self.exchange(bands, a, c, rng);
-                self.exchange(bands, c, a, rng);
-            }
-            self.trade(bands, a, c, d, rng);
-        }
+        let key = rng.next_u64();
+        self.run_meetings(bands, &far, key, false);
         self.prof_lap(&mut tk, 12);
+    }
+
+    /// Run a season's meetings. They are split into rounds in which no band meets twice; the
+    /// meetings of a round run in parallel (each on its own pair of bands, with its own random
+    /// stream) and their effects on the world are applied in meeting order after the round.
+    fn run_meetings(&mut self, bands: &mut [Band], list: &[(usize, usize, i32)], key: u64, full: bool) {
+        if list.is_empty() {
+            return;
+        }
+        let mut last = vec![0u32; bands.len()];
+        let mut rounds: Vec<Vec<(usize, usize, i32, u32)>> = Vec::new();
+        for (k, &(a, c, d)) in list.iter().enumerate() {
+            let r = last[a].max(last[c]);
+            last[a] = r + 1;
+            last[c] = r + 1;
+            if rounds.len() <= r as usize {
+                rounds.push(Vec::new());
+            }
+            rounds[r as usize].push((a, c, d, k as u32));
+        }
+        for round in rounds {
+            let mut pairs: Vec<([Band; 2], i32, u32)> =
+                round.iter().map(|&(a, c, d, k)| ([std::mem::take(&mut bands[a]), std::mem::take(&mut bands[c])], d, k)).collect();
+            let fxs: Vec<Fx> = {
+                let me = &*self;
+                fx::par_map(&mut pairs, |(two, d, k)| {
+                    let mut fx = Fx::default();
+                    let mut r = Rng::new(key ^ (*k as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93));
+                    me.meeting(two, *d, &mut r, &mut fx, full);
+                    fx
+                })
+            };
+            for (&(a, c, _, _), (two, _, _)) in round.iter().zip(pairs) {
+                let [x, y] = two;
+                bands[a] = x;
+                bands[c] = y;
+            }
+            for f in fxs {
+                self.apply_fx(f, None);
+            }
+        }
+    }
+
+    /// One meeting between two bands (index 0 and 1 of `two`), `d` cells apart. `full`: a
+    /// chance meeting of neighbours (disease, conflict, teaching, farming, trade); otherwise a
+    /// visit between distant partners (teaching and trade).
+    fn meeting(&self, two: &mut [Band; 2], d: i32, rng: &mut Rng, fx: &mut Fx, full: bool) {
+        let bands: &mut [Band] = &mut two[..];
+        let (a, c) = (0, 1);
+        if bands[a].pop == 0 || bands[c].pop == 0 {
+            return;
+        }
+        if full {
+            self.spread_disease(bands, a, c, rng, fx);
+            if self.confront(bands, a, c, d, rng, fx) {
+                return;
+            }
+            self.exchange(bands, a, c, rng, fx);
+            self.exchange(bands, c, a, rng, fx);
+            self.share_farming(bands, a, c, rng, fx);
+            self.share_farming(bands, c, a, rng, fx);
+        } else if rng.chance(0.5) {
+            self.exchange(bands, a, c, rng, fx);
+            self.exchange(bands, c, a, rng, fx);
+        }
+        self.trade(bands, a, c, d, rng, fx);
     }
 
     /// Two bands that meet swap what each has spare for what the other values more, pass food to
     /// the hungry, and hear about what each other wants. Nothing has a set price: worth is each
     /// band's own need and shortage (see `want`).
-    fn trade(&mut self, bands: &mut [Band], a: usize, c: usize, d: i32, rng: &mut Rng) {
+    fn trade(&self, bands: &mut [Band], a: usize, c: usize, d: i32, rng: &mut Rng, fx: &mut Fx) {
         let tick = self.tick;
         // news of wants travels with every meeting, so goods can pass down a chain of bands
         for (x, y) in [(a, c), (c, a)] {
@@ -1933,8 +1965,8 @@ impl World {
         match (ok(ac, 0.05), ok(ca, 0.05)) {
             (Some(x), Some(y)) => {
                 // barter: both come out ahead by their own reckoning
-                moved += self.pass_good(bands, a, c, x.0, x.2, d);
-                moved += self.pass_good(bands, c, a, y.0, y.2, d);
+                moved += self.pass_good(bands, a, c, x.0, x.2, d, fx);
+                moved += self.pass_good(bands, c, a, y.0, y.2, d, fx);
             }
             (Some(x), None) | (None, Some(x)) => {
                 let (from, to) = if ok(ac, 0.05).is_some() { (a, c) } else { (c, a) };
@@ -1942,7 +1974,7 @@ impl World {
                 let (fr, tr) = (&bands[from], &bands[to]);
                 let can_pay = tr.d.food_ratio >= 1.0 && tr.store > 0.4 * tr.d.need && fr.store < 0.6 * fr.d.need.max(1.0);
                 if x.1 > 0.15 && (can_pay || (close && rng.chance(0.5))) {
-                    moved += self.pass_good(bands, from, to, x.0, x.2, d);
+                    moved += self.pass_good(bands, from, to, x.0, x.2, d, fx);
                     if can_pay {
                         let f = 0.08 * bands[to].d.need;
                         bands[to].store -= f;
@@ -1961,7 +1993,7 @@ impl World {
                     if give > 0.0 {
                         bands[x].store -= give;
                         bands[y].store += give;
-                        self.year_acc.food_shared += give;
+                        fx.acc.food_shared += give;
                         moved += 0.01;
                     }
                 }
@@ -1977,7 +2009,7 @@ impl World {
     }
 
     /// Move `q` of material `mi` from one band to another; returns the amount moved.
-    fn pass_good(&mut self, bands: &mut [Band], from: usize, to: usize, mi: usize, q: f32, d: i32) -> f32 {
+    fn pass_good(&self, bands: &mut [Band], from: usize, to: usize, mi: usize, q: f32, d: i32, fx: &mut Fx) -> f32 {
         let w = self.map.w;
         let o = bands[from].origin[mi];
         let strain = bands[from].strain;
@@ -1992,29 +2024,19 @@ impl World {
             t.strain = 0.95 * strain; // seed grain carries its strain
         }
         let (tc, tid) = (t.cell(w), t.id);
-        self.year_acc.trades += 1;
-        self.year_acc.trade_volume += q;
-        self.year_acc.trade_dist += d as f32;
+        fx.acc.trades += 1;
+        fx.acc.trade_volume += q;
+        fx.acc.trade_dist += d as f32;
         if self.traded_first & (1 << mi) == 0 {
-            self.traded_first |= 1 << mi;
-            self.push_event(EventKind::FirstTraded, fid, tid, tc as u32, raw(ALL_MATS[mi]), u32::MAX);
+            fx.ops.push(Op::TradedFirst { mi, from: fid, to: tid, cell: tc as u32 });
         }
         // the overlay: mark the cells along the way
-        if self.trade_flow.len() == w * self.map.h {
-            let (x0, y0) = ((fc % w) as f32, (fc / w) as f32);
-            let (x1, y1) = ((tc % w) as f32, (tc / w) as f32);
-            let steps = d.max(1);
-            for k in 0..=steps {
-                let t = k as f32 / steps as f32;
-                let (x, y) = ((x0 + (x1 - x0) * t).round() as usize, (y0 + (y1 - y0) * t).round() as usize);
-                self.trade_flow[y * w + x] += q;
-            }
-        }
+        fx.ops.push(Op::TradeLine { from: fc as u32, to: tc as u32, d, q });
         q
     }
 
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
-    fn exchange(&mut self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng) {
+    fn exchange(&self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         // fire can be shared
         if bands[src].flame && !bands[dst].flame && rng.chance(0.5) {
             bands[dst].flame = true;
@@ -2051,10 +2073,10 @@ impl World {
         d.d.known_ver += 1;
         d.learned += 1;
         let (did, dc) = (d.id, d.cell(self.map.w) as u32);
-        self.reg.recipes[rid as usize].transfers += 1;
-        self.counters.transfers += 1;
-        self.year_acc.transfers += 1;
-        self.push_event(EventKind::Learned, did, srcid, dc, out, rid);
+        fx.ops.push(Op::RecipeTransfer(rid));
+        fx.counters.transfers += 1;
+        fx.acc.transfers += 1;
+        fx.push_event(EventKind::Learned, did, srcid, dc, out, rid);
         let tk_dirty = &mut bands[dst];
         self.refresh_toolkit(tk_dirty);
     }
@@ -2149,10 +2171,12 @@ impl World {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
                 self.counters.voyages += 1;
-                self.sea_toll(&mut d, sea, rng);
+                let mut fx = Fx::default();
+                self.sea_toll(&mut d, sea, rng, &mut fx);
                 if d.pop >= 4 {
-                    self.note_crossing(bands[k].cell(self.map.w), &d);
+                    self.note_crossing(bands[k].cell(self.map.w), &d, &mut fx);
                 }
+                self.apply_fx(fx, None);
                 self.forget_reached_shore(&mut d);
             }
             let bm = &mut bands[k];
@@ -2166,15 +2190,39 @@ impl World {
             self.push_event(EventKind::Split, bm.id, id, best.0 as u32, NONE, u32::MAX);
             newb.push(d);
         }
-        // tiny bands merge with a neighbour or vanish
+        // tiny bands merge with a neighbour or vanish (the neighbour: the first band in the list
+        // of 4+ people within one cell; found through the occupancy grid rather than a scan of
+        // every band)
+        let mut grid: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        let has_tiny = bands.iter().any(|b| b.pop > 0 && b.pop < 4);
+        if has_tiny {
+            for (j, b) in bands.iter().enumerate().take(n0) {
+                if b.pop >= 4 {
+                    grid.entry(b.cell(w)).or_default().push(j);
+                }
+            }
+        }
         for k in 0..n0 {
             if bands[k].pop >= 4 || bands[k].pop == 0 {
                 continue; // (0: already absorbed by a stronger band this season)
             }
             let (x, y) = (bands[k].x as i32, bands[k].y as i32);
-            let target = (0..n0).find(|&j| {
-                j != k && bands[j].pop >= 4 && (bands[j].x as i32 - x).abs() <= 1 && (bands[j].y as i32 - y).abs() <= 1
-            });
+            let mut target: Option<usize> = None;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                        continue;
+                    }
+                    if let Some(v) = grid.get(&(ny as usize * w + nx as usize)) {
+                        for &j in v {
+                            if j != k && bands[j].pop >= 4 && target.map_or(true, |t| j < t) {
+                                target = Some(j);
+                            }
+                        }
+                    }
+                }
+            }
             let (id, cell) = (bands[k].id, bands[k].cell(w) as u32);
             if let Some(j) = target {
                 let moved: Vec<Known> = bands[k].known.clone();
@@ -2208,12 +2256,18 @@ impl World {
         let w = self.map.w;
         let n = self.map.w * self.map.h;
         let tick = self.tick;
-        for b in &self.bands {
+        let fire = item(Form::Fire, Mat::Wood);
+        for b in &mut self.bands {
             let c = b.cell(w);
             let mut av = b.d.tk.producible;
             if b.flame {
-                av.add(item(Form::Fire, Mat::Wood));
+                av.add(fire);
             }
+            let key = (c as u32, av);
+            if b.d.kn_key == Some(key) {
+                continue;
+            }
+            b.d.kn_key = Some(key);
             for it in av.iter() {
                 let v = self.cell_first.entry(it).or_insert_with(|| vec![u32::MAX; n]);
                 if v[c] == u32::MAX {
@@ -2398,6 +2452,7 @@ impl World {
             EventKind::Split => format!("Y{yr}: band {} split; band {} moved to ({cx},{cy})", e.band, e.other),
             EventKind::Merged => format!("Y{yr}: band {} dwindled and joined band {}", e.band, e.other),
             EventKind::Died => format!("Y{yr}: band {} died out at ({cx},{cy})", e.band),
+            EventKind::Founded if e.other == 1 => format!("Y{yr}: band {} founded at ({cx},{cy}) (chosen start)", e.band),
             EventKind::Founded => format!("Y{yr}: band {} founded at ({cx},{cy})", e.band),
             EventKind::Landfall => {
                 let sz = self.map.landmass_size.get(e.other as usize).copied().unwrap_or(0);
@@ -2527,5 +2582,48 @@ impl Tick {
         }
         #[cfg(target_arch = "wasm32")]
         0.0
+    }
+}
+
+/// One cell's seasonal regrowth of wild food (plants, game, fish, small game).
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn regrow_cell(m: &Map, tend: &[f32], s: u32, r: f32, i: usize, pl: &mut f32, ga: &mut f32, fi: &mut f32, sm: &mut f32) {
+    if !m.is_land(i) {
+        // sea fish
+        let k = m.k_fish[i];
+        if k > 0.0 {
+            *fi += r * (0.3 * *fi * (1.0 - *fi / k) + 0.02 * k);
+            *fi = fi.clamp(0.0, k);
+        }
+        return;
+    }
+    let t = m.temp_season(i, s);
+    let g = ((t - 3.0) / 12.0).clamp(0.0, 1.0);
+    let mut k = m.k_plants[i];
+    if let Some(&td) = tend.get(i) {
+        if td > 0.0 {
+            k = farming::wild_plant_cap(k, td);
+        }
+    }
+    if k > 0.0 {
+        *pl += r * (0.5 * g * *pl * (1.0 - *pl / k) + 0.03 * k * g) - 0.12 * (1.0 - g) * *pl;
+        *pl = pl.clamp(0.0, k);
+    }
+    let k = m.k_game[i];
+    if k > 0.0 {
+        *ga += r * (0.12 * *ga * (1.0 - *ga / k) + 0.01 * k);
+        *ga = ga.clamp(0.0, k);
+    }
+    let k = m.k_fish[i];
+    if k > 0.0 {
+        *fi += r * (0.3 * *fi * (1.0 - *fi / k) + 0.02 * k);
+        *fi = fi.clamp(0.0, k);
+    }
+    // small game breeds fast but suffers in hard winters
+    let k = m.k_small.get(i).copied().unwrap_or(0.0);
+    if k > 0.0 {
+        *sm += r * (0.45 * g.max(0.2) * *sm * (1.0 - *sm / k) + 0.02 * k);
+        *sm = sm.clamp(0.0, k);
     }
 }

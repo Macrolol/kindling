@@ -49,7 +49,7 @@ impl World {
     }
 
     /// A meeting that may turn hostile. Returns true when it did (no peaceful exchange follows).
-    pub(super) fn confront(&mut self, bands: &mut [Band], a0: usize, c0: usize, d: i32, rng: &mut Rng) -> bool {
+    pub(super) fn confront(&self, bands: &mut [Band], a0: usize, c0: usize, d: i32, rng: &mut Rng, fx: &mut Fx) -> bool {
         let p = self.params;
         if p.aggression <= 0.0 {
             return false;
@@ -60,16 +60,16 @@ impl World {
         if !rng.chance((0.05 * p.aggression * t).min(0.5)) {
             return false;
         }
-        self.year_acc.confrontations += 1;
-        self.counters.confrontations += 1;
+        fx.acc.confrontations += 1;
+        fx.counters.confrontations += 1;
         let pa = Self::power(&bands[a]);
         let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled); // on their own ground, ready (behind house walls and field banks, more so)
         let r = pa / pc.max(1.0);
         // the pressing side weighs the odds against how badly it wants this
         let resolve = r * (0.6 + 0.5 * t) * rng.range(0.7, 1.3);
         if resolve < 0.9 {
-            self.year_acc.avoided += 1;
-            self.counters.avoided += 1;
+            fx.acc.avoided += 1;
+            fx.counters.avoided += 1;
             // the side that backed off is readier to look for other ground
             bands[a].pressed = (bands[a].pressed + 0.15).min(1.0);
             return true;
@@ -86,8 +86,8 @@ impl World {
             bands[a].store += left;
             let ag = bands[a].clone();
             bands[c].add_grudge(&ag, 0.25);
-            self.counters.fled += 1;
-            self.displace(bands, c, a, rng);
+            fx.counters.fled += 1;
+            self.displace(bands, c, a, rng, fx);
             return true;
         }
         let (cs, cn) = (bands[c].store, bands[c].d.need.max(1.0));
@@ -108,16 +108,16 @@ impl World {
             let tick = self.tick;
             bands[a].bond(cid, 0.1, 0.0, tick);
             bands[c].bond(aid, 0.1, 0.0, tick);
-            self.year_acc.tributes += 1;
-            self.counters.tributes += 1;
-            self.push_event(EventKind::Tribute, cid, aid, cell, NONE, u32::MAX);
+            fx.acc.tributes += 1;
+            fx.counters.tributes += 1;
+            fx.push_event(EventKind::Tribute, cid, aid, cell, NONE, u32::MAX);
             return true;
         }
-        self.fight(bands, a, c, r, rng);
+        self.fight(bands, a, c, r, rng, fx);
         true
     }
 
-    fn fight(&mut self, bands: &mut [Band], a: usize, c: usize, r: f32, rng: &mut Rng) {
+    fn fight(&self, bands: &mut [Band], a: usize, c: usize, r: f32, rng: &mut Rng, fx: &mut Fx) {
         let p = self.params;
         let w = self.map.w;
         let ra = r.powf(1.5);
@@ -147,10 +147,8 @@ impl World {
             b.d.known_ver += 1;
         }
         let deaths = dl + dw;
-        self.year_acc.fights += 1;
-        self.year_acc.conflict_deaths += deaths;
-        self.counters.fights += 1;
-        self.counters.conflict_deaths += deaths as u64;
+        fx.acc.conflict_deaths += deaths;
+        fx.counters.conflict_deaths += deaths as u64;
         // loot: food and goods the winner can use
         let take = rng.range(0.3, 0.6) * bands[lose].store;
         bands[lose].store -= take;
@@ -184,47 +182,36 @@ impl World {
         bands[lose].add_grudge(&wb, 0.4 + 3.0 * fl);
         bands[win].add_grudge(&lb, 0.1 + 3.0 * fw);
         let cell = bands[lose].cell(w);
-        if let Some(f) = self.conflict_flow.get_mut(cell) {
-            *f += deaths as f32;
-        }
-        if let Some(f) = self.conflict_flow.get_mut(bands[win].cell(w)) {
-            *f += 0.5 * deaths as f32;
-        }
+        fx.ops.push(Op::Conflict(cell as u32, deaths as f32));
+        fx.ops.push(Op::Conflict(bands[win].cell(w) as u32, 0.5 * deaths as f32));
         // the first fight anywhere, and each new bloodiest one, go in the chronicle
         let it = bands[win].d.kit.hunt;
-        if self.counters.fights == 1 {
-            self.push_event(EventKind::FirstFight, wid, lid, cell as u32, it, deaths);
-        } else if deaths >= 10 && deaths as u64 > self.counters.max_fight_deaths {
-            self.push_event(EventKind::BloodiestFight, wid, lid, cell as u32, it, deaths);
-        } else {
-            self.push_event(EventKind::Fight, wid, lid, cell as u32, it, deaths);
-        }
-        self.counters.max_fight_deaths = self.counters.max_fight_deaths.max(deaths as u64);
+        fx.ops.push(Op::Fight { win: wid, lose: lid, cell: cell as u32, item: it, deaths });
         // what becomes of the losers
         let left = bands[lose].pop;
         if left < 8 {
             // a broken remnant joins the winners, bringing what they know
-            self.absorb(bands, win, lose, left, rng);
-            self.counters.absorbed += 1;
-            self.year_acc.absorbed += 1;
-            self.push_event(EventKind::Absorbed, lid, wid, cell as u32, NONE, left);
+            self.absorb(bands, win, lose, left, rng, fx);
+            fx.counters.absorbed += 1;
+            fx.acc.absorbed += 1;
+            fx.push_event(EventKind::Absorbed, lid, wid, cell as u32, NONE, left);
             return;
         }
         if rng.chance(0.35) {
             // captives taken home
             let n = ((left as f32 * rng.range(0.08, 0.2)) as u32).max(1);
-            self.absorb(bands, win, lose, n, rng);
-            self.counters.captives += n as u64;
+            self.absorb(bands, win, lose, n, rng, fx);
+            fx.counters.captives += n as u64;
         }
         if rng.chance(0.75) {
-            self.displace(bands, lose, win, rng);
+            self.displace(bands, lose, win, rng, fx);
         } else {
             bands[lose].pressed = (bands[lose].pressed + 0.4).min(1.0);
         }
     }
 
     /// `n` people of band `from` join band `to`; each recipe they know well enough may come with them.
-    fn absorb(&mut self, bands: &mut [Band], to: usize, from: usize, n: u32, rng: &mut Rng) {
+    fn absorb(&self, bands: &mut [Band], to: usize, from: usize, n: u32, rng: &mut Rng, fx: &mut Fx) {
         let n = n.min(bands[from].pop);
         bands[from].pop -= n;
         bands[to].pop += n;
@@ -237,8 +224,8 @@ impl World {
             if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.5 * share) {
                 tb.known.push(Known { skill: kn.skill * 0.6, from: fid, since: tick, kin: false, ..kn });
                 tb.d.known_ver += 1;
-                self.counters.transfers += 1;
-                self.year_acc.transfers += 1;
+                fx.counters.transfers += 1;
+                fx.acc.transfers += 1;
                 tb.learned += 1;
             }
         }
@@ -246,7 +233,7 @@ impl World {
 
     /// Band `k` is driven off by band `by`: it leaves for the best ground it can find 2-6 cells
     /// away from them, or, with boats and a coast at hand, puts to sea.
-    fn displace(&mut self, bands: &mut [Band], k: usize, by: usize, rng: &mut Rng) {
+    fn displace(&self, bands: &mut [Band], k: usize, by: usize, rng: &mut Rng, fx: &mut Fx) {
         let m = &self.map;
         let (w, h) = (m.w as i32, m.h as i32);
         let b = &bands[k];
@@ -304,8 +291,8 @@ impl World {
         let oid = bands[by].id;
         let b = &mut bands[k];
         b.pressed = (b.pressed + 0.6).min(1.0);
-        self.counters.displaced += 1;
-        self.year_acc.displaced += 1;
+        fx.counters.displaced += 1;
+        fx.acc.displaced += 1;
         if best.0 == cur {
             return; // nowhere better to go: they stay, wary
         }
@@ -313,22 +300,18 @@ impl World {
         b.x = (best.0 % self.map.w) as u16;
         b.settled *= 0.3; // fields and houses left behind
         b.y = (best.0 / self.map.w) as u16;
-        let mut by_sea = 0;
         if let Some(s) = sea {
-            self.counters.voyages += 1;
-            self.counters.fled_by_sea += 1;
-            self.sea_toll(b, s, rng);
-            self.note_crossing(from as usize, b);
+            fx.counters.voyages += 1;
+            self.sea_toll(b, s, rng, fx);
+            self.note_crossing(from as usize, b, fx);
             self.forget_reached_shore(b);
-            by_sea = 1;
-            if self.counters.fled_by_sea == 1 {
-                let (bid, boat) = (b.id, b.d.kit.boat);
-                self.push_event(EventKind::FirstSeaRefuge, bid, oid, best.0 as u32, boat, from);
-                return;
-            }
+            let (bid, boat) = (b.id, b.d.kit.boat);
+            fx.ops.push(Op::FledBySea { band: bid, by: oid, cell: best.0 as u32, boat, from });
+            return;
         }
+        let by_sea = 0;
         let bid = b.id;
-        self.push_event(EventKind::Fled, bid, oid, best.0 as u32, NONE, by_sea);
+        fx.push_event(EventKind::Fled, bid, oid, best.0 as u32, NONE, by_sea);
     }
 
     /// Yearly: grudges fade (half gone in about 8 years at the default memory), pressure eases.

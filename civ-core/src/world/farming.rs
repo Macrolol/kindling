@@ -162,45 +162,33 @@ impl World {
             self.ensure_farm_layers();
         }
         let fy = CROP_K * self.params.farm_yield;
+        let m = &self.map;
+        let pot = &self.crop_pot;
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            const CH: usize = 4096;
+            if n >= 65536 && [self.camp.len(), self.dom.len(), self.fert.len(), self.crop.len(), pot.len()].iter().all(|&l| l == n) {
+                self.camp
+                    .par_chunks_mut(CH)
+                    .zip(self.tend.par_chunks_mut(CH))
+                    .zip(self.dom.par_chunks_mut(CH))
+                    .zip(self.fert.par_chunks_mut(CH))
+                    .zip(self.crop.par_chunks_mut(CH))
+                    .enumerate()
+                    .for_each(|(ci, ((((ca, te), dm), fe), cr))| {
+                        for j in 0..ca.len() {
+                            let i = ci * CH + j;
+                            field_cell(m, s, fy, pot[i], i, &mut ca[j], &mut te[j], &mut dm[j], &mut fe[j], &mut cr[j]);
+                        }
+                    });
+                return;
+            }
+        }
         for i in 0..n {
-            if !self.map.is_land(i) {
-                continue;
-            }
-            self.camp[i] *= 0.985;
-            let td = self.tend[i];
-            if td > 0.0 {
-                // weeds and scrub take back what is not worked
-                let nt = if td > 0.4 { 0.4 + (td - 0.4) * 0.94 } else { td * 0.995 };
-                self.tend[i] = if nt < 1e-3 { 0.0 } else { nt };
-            }
-            if self.dom[i] > 0.0 && self.tend[i] < 0.4 {
-                // untended crops go feral
-                self.dom[i] *= 0.985;
-                if self.dom[i] < 1e-3 {
-                    self.dom[i] = 0.0;
-                }
-            }
-            let f = self.fert[i];
-            if f < 1.0 {
-                let river = if self.map.river[i] { 0.03 } else { 0.0 };
-                self.fert[i] = (f + (0.006 + river) * (1.0 - f)).min(1.0);
-            }
-            let cult = cultivated(self.tend[i]);
-            if cult > 0.0 || self.crop[i] > 0.0 {
-                let t = self.map.temp_season(i, s);
-                let g = ((t - 6.0) / 12.0).clamp(0.0, 1.0);
-                let kc = fy * self.crop_pot[i] * cult * (0.45 + 0.55 * self.dom[i]) * self.fert[i];
-                let c = &mut self.crop[i];
-                if g > 0.15 {
-                    *c += 0.6 * g * (kc - *c).max(0.0);
-                } else {
-                    *c *= 0.6;
-                }
-                *c = c.min(kc.max(0.0));
-                if *c < 1e-3 {
-                    *c = 0.0;
-                }
-            }
+            let (mut ca, mut te, mut dm, mut fe, mut cr) = (self.camp[i], self.tend[i], self.dom[i], self.fert[i], self.crop[i]);
+            field_cell(m, s, fy, pot[i], i, &mut ca, &mut te, &mut dm, &mut fe, &mut cr);
+            (self.camp[i], self.tend[i], self.dom[i], self.fert[i], self.crop[i]) = (ca, te, dm, fe, cr);
         }
     }
 
@@ -245,7 +233,7 @@ impl World {
     }
 
     /// A band's season with its stands, fields and animals (after the harvest is taken).
-    pub(super) fn farm_season(&mut self, b: &mut Band, ec: &Econ, rng: &mut Rng) {
+    pub(super) fn farm_season(&self, b: &mut Band, ec: &Econ, rng: &mut Rng, fx: &mut Fx) {
         let n = self.map.w * self.map.h;
         if self.tend.len() != n || b.pop == 0 {
             return;
@@ -262,21 +250,31 @@ impl World {
         let farm_share = (ec.farm_food / food).clamp(0.0, 1.0);
         let pot = self.crop_pot[ci];
         // ---- camp memory and the tending of wild stands
-        self.camp[ci] += (pop / 30.0).min(2.0) * (0.5 + plant_share);
-        let campf = self.camp[ci] / (self.camp[ci] + 20.0);
+        // (the shared farm layers are read as they stood at the start of the season and the
+        // changes buffered; `tend_ci` / `dom_ci` / `fert_ci` track this band's own cell)
+        let dcamp = (pop / 30.0).min(2.0) * (0.5 + plant_share);
+        fx.cell(Layer::Camp, ci, dcamp);
+        let camp = self.camp[ci] + dcamp;
+        let campf = camp / (camp + 20.0);
+        let mut tend_ci = self.tend[ci];
         for &(c, wt) in &ec.cells {
             if !self.map.is_land(c) {
                 continue;
             }
-            let td = &mut self.tend[c];
-            if *td < 0.4 {
-                *td += p.farm_rate * 0.03 * wt * campf * plant_share * (0.4 - *td);
+            let t0 = self.tend[c];
+            let mut td = t0;
+            if td < 0.4 {
+                td += p.farm_rate * 0.03 * wt * campf * plant_share * (0.4 - td);
             }
             if b.sow > 0.0 && self.crop_pot[c] > 0.05 {
                 // clearing and sowing: the home cell most, the edges of the range less
-                *td += 0.25 * b.sow * wt * (1.0 - *td) * (0.5 + 0.5 * kit.farm_m.min(1.5) / 1.5);
+                td += 0.25 * b.sow * wt * (1.0 - td) * (0.5 + 0.5 * kit.farm_m.min(1.5) / 1.5);
             }
-            *td = td.min(1.0);
+            td = td.min(1.0);
+            fx.cell(Layer::Tend, c, td - t0);
+            if c == ci {
+                tend_ci = td;
+            }
         }
         // settling in: people who stay put build lasting houses, stores, field walls
         // (living off fields and herds most; a long-used camp a little; it fades if neither)
@@ -285,28 +283,24 @@ impl World {
         if b.sow <= 0.0 {
             let seed = b.strain > 0.0 && b.stock[Mat::Grain as usize] > 0.05;
             let wild = self.wild[ci] & WILD_GRAIN != 0;
-            if pot > 0.2 && kit.dig != NONE && ((wild && self.tend[ci] > 0.25) || seed) {
+            if pot > 0.2 && kit.dig != NONE && ((wild && tend_ci > 0.25) || seed) {
                 let crowd = self.crowd(ci, b) as f32 / (pop + 10.0);
                 // nobody takes on field work unless foraging is getting hard (hunger, crowding)
                 let push = (b.d.stress + crowd).min(1.5);
                 let ch = if seed {
                     p.farm_rate * 0.005 * pot * b.curiosity * (0.2 + push)
                 } else {
-                    p.farm_rate * 0.0006 * self.tend[ci] * pot * b.curiosity * push * push
+                    p.farm_rate * 0.0006 * tend_ci * pot * b.curiosity * push * push
                 };
                 if rng.chance(ch) {
                     b.sow = 0.3;
                     b.settled = b.settled.max(0.2);
-                    self.counters.farm_starts += 1;
+                    fx.counters.farm_starts += 1;
                     if !seed && self.no_fields_near(ci, 12) {
-                        let first = self.farm_starts.is_empty();
-                        self.farm_starts.push((self.tick, ci as u32, b.id));
-                        self.counters.farm_origins += 1;
-                        let k = if first { EventKind::FirstCultivation } else { EventKind::FarmingOrigin };
-                        self.push_event(k, b.id, 0, ci as u32, NONE, self.farm_starts.len() as u32);
+                        fx.ops.push(Op::FarmOrigin { band: b.id, cell: ci as u32 });
                     } else {
-                        self.counters.took_up_farming += 1;
-                        self.push_event(EventKind::TookUpFarming, b.id, 0, ci as u32, NONE, u32::MAX);
+                        fx.counters.took_up_farming += 1;
+                        fx.push_event(EventKind::TookUpFarming, b.id, 0, ci as u32, NONE, u32::MAX);
                     }
                 }
             }
@@ -324,25 +318,30 @@ impl World {
                 let phi = (ec.h[4] / ec.ys[4]).min(1.0);
                 let sickle = if kit.cut != NONE { 1.0 } else { 0.5 };
                 let strain = if b.stock[Mat::Grain as usize] > 0.05 { b.strain } else { 0.0 };
+                let mut dom_ci = self.dom[ci];
                 for &(c, wt) in &ec.cells {
                     let cult = cultivated(self.tend.get(c).copied().unwrap_or(0.0));
                     if cult <= 0.0 {
                         continue;
                     }
-                    let d = &mut self.dom[c];
-                    *d += p.farm_rate * 0.02 * sickle * phi.max(0.2) * wt * cult * (1.0 - *d);
-                    if strain > *d {
-                        *d += 0.3 * wt * (strain - *d);
+                    let d0 = self.dom[c];
+                    let mut d = d0;
+                    d += p.farm_rate * 0.02 * sickle * phi.max(0.2) * wt * cult * (1.0 - d);
+                    if strain > d {
+                        d += 0.3 * wt * (strain - d);
                     }
-                    *d = d.min(1.0);
-                    let f = &mut self.fert[c];
-                    *f -= p.soil_drain * 0.05 * phi * wt * cult * *f;
+                    d = d.min(1.0);
+                    fx.cell(Layer::Dom, c, d - d0);
+                    if c == ci {
+                        dom_ci = d;
+                    }
+                    let f = self.fert[c];
+                    fx.cell(Layer::Fert, c, -p.soil_drain * 0.05 * phi * wt * cult * f);
                 }
                 let was = b.strain;
-                b.strain = (b.strain * 0.999).max(self.dom[ci]);
+                b.strain = (b.strain * 0.999).max(dom_ci);
                 if was < 0.6 && b.strain >= 0.6 && !self.firsts.iter().any(|f| f.item == raw(Mat::Grain)) {
-                    self.firsts.push(First { item: raw(Mat::Grain), tick: self.tick, band: b.id, cell: ci as u32, recipe: u32::MAX });
-                    self.push_event(EventKind::FirstDomestic, b.id, 0, ci as u32, raw(Mat::Grain), u32::MAX);
+                    fx.first(raw(Mat::Grain), b.id, ci as u32, u32::MAX, EventKind::FirstDomestic, None);
                 }
                 if ec.h[4] > 0.02 * pop {
                     let g = Mat::Grain as usize;
@@ -360,19 +359,17 @@ impl World {
                     b.stock[fl] = 0.8;
                     b.origin[fl] = ci as u32;
                     if !self.firsts.iter().any(|f| f.item == raw(Mat::Flax)) {
-                        self.firsts.push(First { item: raw(Mat::Flax), tick: self.tick, band: b.id, cell: ci as u32, recipe: u32::MAX });
-                        self.push_event(EventKind::FirstDomestic, b.id, 0, ci as u32, raw(Mat::Flax), u32::MAX);
+                        fx.first(raw(Mat::Flax), b.id, ci as u32, u32::MAX, EventKind::FirstDomestic, None);
                     }
                 }
             }
             if b.sow < 0.05 {
                 b.sow = 0.0;
-                self.counters.abandoned_farming += 1;
-                self.push_event(EventKind::AbandonedFarming, b.id, 0, ci as u32, NONE, u32::MAX);
+                fx.counters.abandoned_farming += 1;
+                fx.push_event(EventKind::AbandonedFarming, b.id, 0, ci as u32, NONE, u32::MAX);
             }
             if b.tame > 0.6 && b.herd > 0.15 && kit.axe != NONE && self.farm_flags & FLAG_PLOUGH == 0 {
-                self.farm_flags |= FLAG_PLOUGH;
-                self.push_event(EventKind::FirstPlough, b.id, 0, ci as u32, NONE, u32::MAX);
+                fx.ops.push(Op::Flag { flag: FLAG_PLOUGH, kind: EventKind::FirstPlough, band: b.id, cell: ci as u32 });
             }
         }
         // seed grain: kept back while farming, eaten in a famine, slowly used otherwise
@@ -396,15 +393,14 @@ impl World {
                 if rng.chance(ch) {
                     b.herd = 0.05;
                     b.tame = 0.05;
-                    self.counters.herds_started += 1;
+                    fx.counters.herds_started += 1;
                     if self.farm_flags & FLAG_HERD == 0 {
-                        self.farm_flags |= FLAG_HERD;
-                        self.push_event(EventKind::FirstHerding, b.id, 0, ci as u32, NONE, u32::MAX);
+                        fx.ops.push(Op::Flag { flag: FLAG_HERD, kind: EventKind::FirstHerding, band: b.id, cell: ci as u32 });
                     }
                 }
             }
         } else {
-            let fields = if b.sow > 0.0 { 0.3 * (self.tend[ci] - 0.4).max(0.0) } else { 0.0 };
+            let fields = if b.sow > 0.0 { 0.3 * (tend_ci - 0.4).max(0.0) } else { 0.0 };
             // open grazing carries a herd; woodland hardly does
             let hk = 0.9 * (gp - 0.25).max(0.0) / 0.75 + fields;
             if hk < 0.03 {
@@ -417,8 +413,8 @@ impl World {
             }
             b.tame = (b.tame + 0.004 * (1.0 - b.tame)).min(1.0);
             // dung on the fields
-            let f = &mut self.fert[ci];
-            *f = (*f + 0.01 * b.herd.min(1.0) * (1.0 - *f)).min(1.0);
+            let f = self.fert[ci];
+            fx.cell(Layer::Fert, ci, 0.01 * b.herd.min(1.0) * (1.0 - f));
             let hb = 0.01 * b.herd.min(1.0);
             for mm in [Mat::Hide, Mat::Bone] {
                 b.stock[mm as usize] = (b.stock[mm as usize] + hb).min(1.5);
@@ -429,21 +425,20 @@ impl World {
                 b.stock[wl] = b.stock[wl].max(0.8);
                 b.origin[wl] = ci as u32;
                 if !self.firsts.iter().any(|f| f.item == raw(Mat::Wool)) {
-                    self.firsts.push(First { item: raw(Mat::Wool), tick: self.tick, band: b.id, cell: ci as u32, recipe: u32::MAX });
-                    self.push_event(EventKind::FirstDomestic, b.id, 0, ci as u32, raw(Mat::Wool), u32::MAX);
+                    fx.first(raw(Mat::Wool), b.id, ci as u32, u32::MAX, EventKind::FirstDomestic, None);
                 }
             }
             if b.herd < 0.01 {
                 b.herd = 0.0;
                 b.tame = 0.0;
-                self.counters.herds_lost += 1;
+                fx.counters.herds_lost += 1;
             }
         }
     }
 
     /// Crowd diseases: endemic deaths that rise steeply with density, sedentism and herds, and
     /// outbreaks that sweep through people with no immunity.
-    pub(super) fn disease_season(&mut self, b: &mut Band, rng: &mut Rng) {
+    pub(super) fn disease_season(&self, b: &mut Band, rng: &mut Rng, fx: &mut Fx) {
         let p = self.params;
         if p.disease <= 0.0 || b.pop == 0 {
             return;
@@ -460,7 +455,7 @@ impl World {
             let ch = p.disease * 0.003 * (dens / 80.0 - 0.5).max(0.0) * hs * (1.0 - b.immune);
             if rng.chance(ch) {
                 b.sick = rng.range(0.6, 1.0);
-                self.start_epidemic(b.id, ci, 0);
+                fx.ops.push(Op::Epidemic { band: b.id, from: 0, cell: ci as u32 });
             }
         }
         if b.sick >= 0.05 {
@@ -474,33 +469,25 @@ impl World {
         b.immune *= 0.997;
         let dead = dead.min(b.pop);
         b.pop -= dead;
-        self.counters.disease_deaths += dead as u64;
-        self.year_acc.disease_deaths += dead;
-    }
-
-    fn start_epidemic(&mut self, id: u32, cell: usize, from: u32) {
-        let first = self.counters.epidemics == 0;
-        self.counters.epidemics += 1;
-        self.year_acc.epidemics += 1;
-        let k = if first { EventKind::FirstEpidemic } else { EventKind::Epidemic };
-        self.push_event(k, id, from, cell as u32, NONE, u32::MAX);
+        fx.counters.disease_deaths += dead as u64;
+        fx.acc.disease_deaths += dead;
     }
 
     /// A meeting can carry sickness from a band in the middle of an outbreak.
-    pub(super) fn spread_disease(&mut self, bands: &mut [Band], a: usize, c: usize, rng: &mut Rng) {
+    pub(super) fn spread_disease(&self, bands: &mut [Band], a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
         for (x, y) in [(a, c), (c, a)] {
             let s = bands[y].settled;
             if bands[x].sick > 0.15 && bands[y].sick < 0.05 && rng.chance(0.5 * (1.0 - bands[y].immune) * (0.3 + 0.7 * s)) {
                 bands[y].sick = 0.8 * bands[x].sick;
                 let from = bands[x].id;
                 let (yid, yc) = (bands[y].id, bands[y].cell(self.map.w));
-                self.start_epidemic(yid, yc, from);
+                fx.ops.push(Op::Epidemic { band: yid, from, cell: yc as u32 });
             }
         }
     }
 
     /// `src` may show `dst` how to farm or hand over breeding animals.
-    pub(super) fn share_farming(&mut self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng) {
+    pub(super) fn share_farming(&self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         let dc = bands[dst].cell(self.map.w);
         let (ssow, sstrain, sgrain) = (bands[src].sow, bands[src].strain, bands[src].stock[Mat::Grain as usize]);
         let dpot = self.crop_pot.get(dc).copied().unwrap_or(0.0);
@@ -518,16 +505,60 @@ impl World {
                 d.strain = 0.95 * sstrain;
                 d.stock[Mat::Grain as usize] = d.stock[Mat::Grain as usize].max(0.5);
             }
-            self.counters.farm_starts += 1;
-            self.counters.took_up_farming += 1;
+            fx.counters.farm_starts += 1;
+            fx.counters.took_up_farming += 1;
             let (did, sid) = (d.id, bands[src].id);
-            self.push_event(EventKind::TookUpFarming, did, sid, dc as u32, NONE, u32::MAX);
+            fx.push_event(EventKind::TookUpFarming, did, sid, dc as u32, NONE, u32::MAX);
         }
         let (sh, st) = (bands[src].herd, bands[src].tame);
         if sh > 0.3 && bands[dst].herd <= 0.0 && bands[dst].d.kit.cord != NONE && self.graze_pot.get(dc).copied().unwrap_or(0.0) > 0.6 && rng.chance(0.004) {
             bands[dst].herd = 0.05;
             bands[dst].tame = 0.9 * st;
-            self.counters.herds_started += 1;
+            fx.counters.herds_started += 1;
+        }
+    }
+}
+
+/// One cell's seasonal change in the farming layers.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn field_cell(m: &Map, s: u32, fy: f32, pot: f32, i: usize, camp: &mut f32, tend: &mut f32, dom: &mut f32, fert: &mut f32, crop: &mut f32) {
+    if !m.is_land(i) {
+        return;
+    }
+    *camp *= 0.985;
+    let td = *tend;
+    if td > 0.0 {
+        // weeds and scrub take back what is not worked
+        let nt = if td > 0.4 { 0.4 + (td - 0.4) * 0.94 } else { td * 0.995 };
+        *tend = if nt < 1e-3 { 0.0 } else { nt };
+    }
+    if *dom > 0.0 && *tend < 0.4 {
+        // untended crops go feral
+        *dom *= 0.985;
+        if *dom < 1e-3 {
+            *dom = 0.0;
+        }
+    }
+    let f = *fert;
+    if f < 1.0 {
+        let river = if m.river[i] { 0.03 } else { 0.0 };
+        *fert = (f + (0.006 + river) * (1.0 - f)).min(1.0);
+    }
+    let cult = cultivated(*tend);
+    if cult > 0.0 || *crop > 0.0 {
+        let t = m.temp_season(i, s);
+        let g = ((t - 6.0) / 12.0).clamp(0.0, 1.0);
+        let kc = fy * pot * cult * (0.45 + 0.55 * *dom) * *fert;
+        let c = crop;
+        if g > 0.15 {
+            *c += 0.6 * g * (kc - *c).max(0.0);
+        } else {
+            *c *= 0.6;
+        }
+        *c = c.min(kc.max(0.0));
+        if *c < 1e-3 {
+            *c = 0.0;
         }
     }
 }

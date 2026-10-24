@@ -11,11 +11,45 @@ pub struct Config {
     /// founding bands, placed together in one temperate/tropical region
     pub founders: usize,
     pub founder_pop: u32,
+    /// chosen start cells (x, y). Empty: the founders' homeland is drawn at random, weighted to
+    /// rich land (as before). One cell: all founders start around it (a shared start area).
+    /// Several: founding lineage k starts at cell k (more cells than founders adds founders).
+    /// Additive (absent in older saves: random start).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<(u16, u16)>,
 }
 impl Default for Config {
     fn default() -> Self {
-        Config { seed: 1, map_w: 256, map_h: 160, founders: 6, founder_pop: 25 }
+        Config { seed: 1, map_w: 256, map_h: 160, founders: 6, founder_pop: 25, starts: Vec::new() }
     }
+}
+
+/// Why a cell cannot be a start, or a warning about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartCheck {
+    Ok,
+    /// habitable but poor or harsh (cold, dry, little food): allowed, with a warning
+    Poor,
+    /// sea, ice or off the map: rejected
+    Uninhabitable,
+}
+
+/// Parse "x,y" or "x1,y1;x2,y2;..." (spaces allowed).
+pub fn parse_starts(s: &str) -> Result<Vec<(u16, u16)>, String> {
+    let mut v = Vec::new();
+    for part in s.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let mut it = part.split(',').map(str::trim);
+        let (Some(x), Some(y), None) = (it.next(), it.next(), it.next()) else {
+            return Err(format!("bad start '{part}' (want x,y)"));
+        };
+        let x = x.parse::<u16>().map_err(|_| format!("bad x in '{part}'"))?;
+        let y = y.parse::<u16>().map_err(|_| format!("bad y in '{part}'"))?;
+        v.push((x, y));
+    }
+    if v.is_empty() {
+        return Err("no start given".into());
+    }
+    Ok(v)
 }
 
 /// Live parameters. Rates are per season (1 tick = 1 season, 4 per year).

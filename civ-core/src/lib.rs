@@ -13,6 +13,6 @@ pub mod world;
 #[cfg(test)]
 mod tests;
 
-pub use params::{Config, ParamChange, Params};
+pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;
 pub use world::World;

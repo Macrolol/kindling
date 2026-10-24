@@ -268,6 +268,9 @@ pub struct Derived {
     pub uses: u32,
     /// demand for each material heard from trade partners (lets goods pass down a chain)
     pub demand: [f32; NMAT],
+    /// (cell, available items) when the knowledge map was last updated for this band: while
+    /// neither changes there is nothing new to record
+    pub kn_key: Option<(u32, ItemSet)>,
 }
 
 pub const MAX_PARTNERS: usize = 8;

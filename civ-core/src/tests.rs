@@ -241,3 +241,117 @@ fn farm_diag() {
         }
     }
 }
+
+/// Basic sanity and conservation over a few hundred seasons: everyone is on habitable land, no
+/// NaNs or negative stocks creep in, wild food stays within the land's capacity, population
+/// totals agree with the bands, and band ids stay unique.
+#[test]
+fn sanity_and_conservation() {
+    let mut w = World::new(Config { seed: 3, map_w: 120, map_h: 80, ..Default::default() }, Params::default());
+    for t in 0..240 {
+        w.step();
+        if t % 20 != 19 {
+            continue;
+        }
+        let n = w.map.w * w.map.h;
+        let mut ids = std::collections::HashSet::new();
+        let mut pop = 0u32;
+        for b in &w.bands {
+            assert!(ids.insert(b.id), "duplicate band id {}", b.id);
+            assert!(b.pop > 0, "empty band {} left in the list", b.id);
+            pop += b.pop;
+            let c = b.cell(w.map.w);
+            assert!(c < n && w.map.is_land(c), "band {} off land", b.id);
+            assert!(b.store.is_finite() && b.store >= 0.0, "band {} store {}", b.id, b.store);
+            assert!(b.stock.iter().all(|v| v.is_finite() && *v >= -1e-3), "band {} stock", b.id);
+        }
+        assert_eq!(pop, w.total_pop());
+        for i in 0..n {
+            // tended land carries more wild plants than its natural capacity
+            let kp = match w.tend.get(i) {
+                Some(&td) if td > 0.0 => crate::world::farming::wild_plant_cap(w.map.k_plants[i], td),
+                _ => w.map.k_plants[i],
+            };
+            for (v, k) in [(w.plants[i], kp), (w.game[i], w.map.k_game[i]), (w.fish[i], w.map.k_fish[i])] {
+                assert!(v.is_finite() && v >= -1e-3, "stock {v} at {i}");
+                // (tending decays after the regrowth step, so the tended cap can sit slightly below)
+                assert!(v <= k.max(0.0) * 1.02 + 1e-3, "stock {v} over capacity {k} at {i}");
+            }
+        }
+        assert!(w.trade_flow.iter().chain(&w.conflict_flow).all(|v| v.is_finite() && *v >= 0.0));
+        assert!(w.tend.iter().chain(&w.dom).chain(&w.fert).all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
+    }
+    assert!(w.total_pop() > 0);
+    let last = w.history.last().unwrap();
+    assert_eq!(last.bands as usize, w.bands.len());
+}
+
+/// Chosen starts: a shared start area puts every founder within 3 cells of it; one cell per
+/// lineage puts each exactly there; sea or ice is refused (falls back to a random homeland);
+/// the starts are kept in the save and noted in the chronicle.
+#[test]
+fn chosen_starts() {
+    use crate::StartCheck;
+    let base = Config { seed: 7, map_w: 80, map_h: 50, ..Default::default() };
+    let m = crate::map::Map::generate(base.map_w, base.map_h, base.seed);
+    let good: Vec<(u16, u16)> = (0..m.h)
+        .flat_map(|y| (0..m.w).map(move |x| (x, y)))
+        .filter(|&(x, y)| m.start_check(x, y) == StartCheck::Ok)
+        .map(|(x, y)| (x as u16, y as u16))
+        .collect();
+    assert!(good.len() > 10);
+    let sea = (0..m.w * m.h).find(|&i| !m.is_land(i)).map(|i| ((i % m.w) as u16, (i / m.w) as u16)).unwrap();
+    assert_eq!(m.start_check(sea.0 as usize, sea.1 as usize), StartCheck::Uninhabitable);
+    // shared area
+    let p = good[good.len() / 2];
+    let w = World::new(Config { starts: vec![p], ..base.clone() }, Params::default());
+    assert_eq!(w.bands.len(), base.founders);
+    for b in &w.bands {
+        assert!((b.x as i32 - p.0 as i32).abs() <= 3 && (b.y as i32 - p.1 as i32).abs() <= 3);
+    }
+    assert!(w.events.iter().chain(&w.chronicle).any(|e| w.event_text(e).contains("(chosen start)")));
+    // one per lineage (more than the default number of founders)
+    let picks: Vec<(u16, u16)> = good.iter().step_by(good.len() / 8).take(8).copied().collect();
+    let mut w = World::new(Config { starts: picks.clone(), ..base.clone() }, Params::default());
+    assert_eq!(w.bands.len(), 8);
+    for (b, &(x, y)) in w.bands.iter().zip(&picks) {
+        assert_eq!((b.x, b.y), (x, y));
+    }
+    // kept in the save
+    for _ in 0..8 {
+        w.step();
+    }
+    let bytes = w.save_bytes(None, "test", "now").unwrap();
+    let (l, _, _) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(l.cfg.starts, picks);
+    // sea refused: same as no choice at all
+    let a = World::new(Config { starts: vec![sea], ..base.clone() }, Params::default());
+    let b = World::new(base.clone(), Params::default());
+    let pos = |w: &World| w.bands.iter().map(|b| (b.x, b.y, b.pop)).collect::<Vec<_>>();
+    assert_eq!(pos(&a), pos(&b));
+    // parsing
+    assert_eq!(crate::parse_starts("3,4").unwrap(), vec![(3, 4)]);
+    assert_eq!(crate::parse_starts(" 3,4 ; 10, 2;").unwrap(), vec![(3, 4), (10, 2)]);
+    assert!(crate::parse_starts("3").is_err());
+    assert!(crate::parse_starts("a,b").is_err());
+}
+
+/// With the parallel feature, the result does not depend on the number of threads (each band
+/// and each meeting draws from its own random stream and effects apply in a fixed order).
+#[cfg(feature = "parallel")]
+#[test]
+fn same_result_on_any_thread_count() {
+    let run = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| {
+            let mut w = World::new(Config { seed: 5, map_w: 120, map_h: 80, ..Default::default() }, Params::default());
+            for _ in 0..320 {
+                w.step();
+            }
+            (w.state_hash(), w.total_pop(), w.bands.len())
+        })
+    };
+    let one = run(1);
+    assert!(one.2 >= 20, "too few bands ({}) to exercise the parallel paths", one.2);
+    assert_eq!(one, run(4));
+}
