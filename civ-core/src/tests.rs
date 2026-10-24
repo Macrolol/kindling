@@ -55,6 +55,34 @@ fn physics_sanity() {
     assert_eq!(physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out)), Some(Mat::Copper));
 }
 
+/// A save written by the v3 build (before conflict) must load through v3->v4, start with no
+/// grudges and an empty conflict overlay, and keep running (fights may now happen).
+#[test]
+fn v3_fixture_loads_and_runs() {
+    let bytes = include_bytes!("../tests/fixtures/v3_seed7_y60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v3 save loads");
+    assert_eq!(info.format_version, 3);
+    assert_eq!(info.migrated_from, Some(3));
+    assert!(w.total_pop() > 0);
+    assert_eq!(w.tick, 240);
+    for b in &w.bands {
+        assert!(b.grudges.is_empty());
+        assert_eq!(b.pressed, 0.0);
+    }
+    assert_eq!(w.counters.fights, 0);
+    assert_eq!(w.params.aggression, crate::params::Params::default().aggression);
+    let t0 = w.tick;
+    for _ in 0..40 {
+        w.step();
+    }
+    assert_eq!(w.tick, t0 + 40);
+    assert_eq!(w.conflict_flow.len(), w.map.w * w.map.h);
+    let again = w.save_bytes(None, "test", "test").expect("saves");
+    let (w2, _, info2) = World::load_bytes(&again).expect("reloads");
+    assert_eq!(info2.format_version, crate::save::FORMAT_VERSION);
+    assert_eq!(w2.counters.fights, w.counters.fights);
+}
+
 /// A save written by the v2 build (before lineage knowledge / craft habits) must load through
 /// the v2->v3 migration and keep running.
 #[test]

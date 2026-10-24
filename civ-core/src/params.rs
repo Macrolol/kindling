@@ -60,6 +60,14 @@ pub struct Params {
     // movement
     /// a band moves only if a cell looks this much better than its own
     pub move_inertia: f32,
+    // conflict (v4)
+    /// how readily a tense meeting (hunger, crowding, a grudge, a neighbour's stores) turns into
+    /// a confrontation; 0 = bands never confront each other
+    pub aggression: f32,
+    /// how deadly a fight is (scales the share of each side killed)
+    pub lethality: f32,
+    /// share of a grudge still held a year later (0.92: half gone in about 8 years)
+    pub grudge_memory: f32,
 }
 impl Default for Params {
     fn default() -> Self {
@@ -82,6 +90,9 @@ impl Default for Params {
             wildfire_rate: 0.012,
             flame_loss: 0.04,
             move_inertia: 1.12,
+            aggression: 1.0,
+            lethality: 1.0,
+            grudge_memory: 0.92,
         }
     }
 }

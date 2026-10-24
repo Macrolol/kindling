@@ -34,5 +34,15 @@ Current: `FORMAT_VERSION = 2`.
     empty after a load), sea counters, the `EventKind` values 15 LostAtSea and 16 Drifted.
   - Map generator 3 (`map.gen_version` 3) adds placer tin in stream gravels below tin lodes.
     Older maps are stored in the save and keep their own geology (no placers are added).
-- Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` and `v2_seed7_y60.civsave` (written by
-  the v1 and v2 builds) are loaded by `v1_fixture_loads_and_runs` and `v2_fixture_loads_and_runs`.
+- **v4** (competition and conflict). Migration `v3_to_v4`:
+  - `bands[].grudges` added (`[{id, lineage, w}]`, wrongs remembered against other bands): `[]`;
+  - `bands[].pressed` added (0..1, recent pressure from stronger neighbours): `0.0`.
+  - Additive v4 fields: `world.conflict_flow` (conflict overlay; rebuilt empty for older saves),
+    conflict `counters` (confrontations, avoided, tributes, fled, fights, conflict_deaths,
+    displaced, fled_by_sea, absorbed, captives, max_fight_deaths), the matching `YearStats`
+    fields, `params.aggression` / `lethality` / `grudge_memory` (defaults 1.0 / 1.0 / 0.92), and
+    the `EventKind` values 17 Fight, 18 FirstFight, 19 BloodiestFight, 20 Fled, 21 Tribute,
+    22 Absorbed, 23 FirstSeaRefuge (for Fight-type events `recipe` holds the number killed).
+- Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave`, `v2_seed7_y60.civsave` and
+  `v3_seed7_y60.civsave` (written by the v1, v2 and v3 builds) are loaded by
+  `v1_fixture_loads_and_runs`, `v2_fixture_loads_and_runs` and `v3_fixture_loads_and_runs`.

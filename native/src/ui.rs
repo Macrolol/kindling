@@ -231,7 +231,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
         egui::Window::new("Help").default_pos([400.0, 200.0]).show(ctx, |ui| {
             ui.label(
                 "Drag to pan, wheel to zoom, click a band to inspect it.\n\
-                 Space pause · +/- speed · 1–7 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
+                 Space pause · +/- speed · 1–8 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
                  Discs are bands (size ~ people, colour = founding lineage, orange ring = keeps a fire).\n\
                  Nothing is scripted: each band experiments with what it has; physics of the materials\n\
                  decides what works. Know-how spreads by teaching between neighbours and is forgotten\n\
@@ -278,6 +278,17 @@ fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiSta
         b.d.food_ratio, b.d.spare, b.d.stress, b.d.cold
     ));
     ui.label(format!("invented {} · learned {} · forgot {}", b.inventions, b.learned, b.forgotten));
+    {
+        let wq = civ_core::band::weapon_q(&b.d.kit);
+        let gs: Vec<String> = b.grudges.iter().map(|g| format!("band {} ({:.1})", g.id, g.w)).collect();
+        ui.label(format!(
+            "weapons {:.2}{} · grudges: {}{}",
+            wq,
+            if b.d.kit.hunt != civ_core::materials::NONE { format!(" ({})", item_name(b.d.kit.hunt)) } else { String::new() },
+            if gs.is_empty() { "none".into() } else { gs.join(", ") },
+            if b.pressed > 0.05 { format!(" · pressed by neighbours {:.0}%", 100.0 * b.pressed) } else { String::new() }
+        ));
+    }
     ui.checkbox(&mut st.follow, "follow");
     ui.separator();
     ui.label(format!("Knows {} recipes ({} things it can make):", b.known.len(), b.n_items()));
@@ -537,6 +548,25 @@ fn legend(ctx: &egui::Context, st: &UiState, w: &World) {
                     if let Some(h) = h {
                         ui.label(format!("Last year: {} exchanges, {} partnerships, carried metal/obsidian on average {:.1} cells from its source.", h.trades, h.partnerships, h.goods_dist_mean));
                     }
+                }
+                7 => {
+                    ui.label("Fighting between bands: people killed around each place recently. Fights flare where hungry bands crowd the same ground, covet a neighbour's stores or goods, or nurse a grudge; most tense meetings still end with one side backing off or paying for peace. Fades over several years once the fighting stops.");
+                    let t = |f: f32| ((1.0 + f).ln() / CONFLICT_LN_MAX, format!("{f:.0}"));
+                    let e = CONFLICT_LN_MAX.exp() - 1.0;
+                    egui::Grid::new("cramp").num_columns(4).show(ui, |ui| {
+                        for (f, lab) in [t(1.0), t(5.0), t(12.0), (1.0, format!("{e:.0}+ dead"))] {
+                            swatch(ui, c32(conflict_ramp(f)), &lab);
+                        }
+                    });
+                    swatch(ui, unreached, "grey = no recent fighting (darker = land)");
+                    if let Some(h) = w.history.last() {
+                        ui.label(format!(
+                            "Last year: {} confrontations: {} backed off, {} paid for peace, {} fights ({} killed), {} bands driven off, {} absorbed by their victors.",
+                            h.confrontations, h.avoided, h.tributes, h.fights, h.conflict_deaths, h.displaced, h.absorbed
+                        ));
+                    }
+                    let c = &w.counters;
+                    ui.label(format!("All time: {} fights, {} killed, {} bands driven off ({} by sea), {} captives taken.", c.fights, c.conflict_deaths, c.displaced, c.fled_by_sea, c.captives));
                 }
                 _ => {
                     ui.label("Average temperature over the year. Seasons swing above and below this; cold places need fire and clothing.");

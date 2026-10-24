@@ -9,6 +9,7 @@ use std::time::Instant;
 pub fn run(a: &Args) {
     let mut sums: Vec<Summary> = Vec::new();
     let mut orders: Vec<Vec<Item>> = Vec::new();
+    let mut confl: Vec<ConflictStats> = Vec::new();
     for seed in a.seeds.0..=a.seeds.1 {
         let t0 = Instant::now();
         let mut w = if let Some(p) = &a.load {
@@ -97,6 +98,15 @@ pub fn run(a: &Args) {
                 println!("    lost worldwide: {}", s.lost_worldwide.join(", "));
             }
         }
+        let cf = conflict_stats(&w);
+        if !a.json {
+            println!(
+                "    conflict: {} confrontations ({} avoided, {} paid off, {} fled) | {} fights ({:.1}/century), {} killed = {:.3}%/yr of people (lost at sea {}) | {} displaced ({} by sea), {} absorbed, {} captives | by century fights {:?} | lineages {} (largest {:.0}% of people) | pop by century {:?}",
+                cf.confrontations, cf.avoided, cf.tributes, cf.fled, cf.fights, cf.fights_per_century, cf.deaths, cf.death_rate_pct,
+                w.counters.lost_at_sea, cf.displaced, cf.fled_by_sea, cf.absorbed, cf.captives, cf.fights_by_century, cf.lineages, cf.top_lineage_pct, cf.pop_by_century
+            );
+        }
+        confl.push(cf);
         orders.push(s.firsts.iter().map(|f| f.item).collect());
         sums.push(s);
     }
@@ -154,6 +164,18 @@ pub fn run(a: &Args) {
         }
         let alive = sums.iter().filter(|s| s.pop > 0).count();
         println!("  alive at end: {alive}/{}", sums.len());
+        let n = confl.len() as f32;
+        let mean = |f: &dyn Fn(&ConflictStats) -> f32| confl.iter().map(f).sum::<f32>() / n;
+        println!(
+            "  conflict (mean per seed): {:.1} fights/century, {:.0} killed = {:.3}%/yr of people, {:.0} displaced ({:.1} by sea), {:.1} absorbed, {:.0} paid off, {:.0} avoided | largest lineage {:.0}% of people (max {:.0}%), lineages alive {:.1}",
+            mean(&|c| c.fights_per_century), mean(&|c| c.deaths as f32), mean(&|c| c.death_rate_pct), mean(&|c| c.displaced as f32),
+            mean(&|c| c.fled_by_sea as f32), mean(&|c| c.absorbed as f32), mean(&|c| c.tributes as f32), mean(&|c| c.avoided as f32),
+            mean(&|c| c.top_lineage_pct), confl.iter().map(|c| c.top_lineage_pct).fold(0.0, f32::max), mean(&|c| c.lineages as f32)
+        );
+        let cents = confl.iter().map(|c| c.fights_by_century.len()).max().unwrap_or(0);
+        let fc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.fights_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
+        let pc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.pop_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
+        println!("  fights per century (mean): [{}] | population at end of each century (mean): [{}]", fc.join(", "), pc.join(", "));
         let rs: Vec<f32> = sums.iter().flat_map(|s| s.firsts.iter().filter_map(|f| f.diffusion_r)).collect();
         if !rs.is_empty() {
             println!("  distance-vs-arrival correlation over {} item spreads: mean {:.2}", rs.len(), rs.iter().sum::<f32>() / rs.len() as f32);
@@ -171,5 +193,61 @@ pub fn run(a: &Args) {
             ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
             println!("    {:<36} {:>3} seeds  median Y{:>6.1}", name, ys.len(), ys[ys.len() / 2]);
         }
+    }
+}
+
+struct ConflictStats {
+    confrontations: u64,
+    avoided: u64,
+    tributes: u64,
+    fled: u64,
+    fights: u64,
+    fights_per_century: f32,
+    deaths: u64,
+    /// conflict deaths per year as a share of the population (mean over the run)
+    death_rate_pct: f32,
+    displaced: u64,
+    fled_by_sea: u64,
+    absorbed: u64,
+    captives: u64,
+    fights_by_century: Vec<u32>,
+    pop_by_century: Vec<u32>,
+    lineages: u32,
+    top_lineage_pct: f32,
+}
+
+fn conflict_stats(w: &World) -> ConflictStats {
+    let c = &w.counters;
+    let years = (w.tick as f32 / 4.0).max(1.0);
+    let person_years: f64 = w.history.iter().map(|h| h.pop as f64).sum();
+    let cents = (w.history.len() + 99) / 100;
+    let mut fbc = vec![0u32; cents];
+    let mut pbc = vec![0u32; cents];
+    for (k, h) in w.history.iter().enumerate() {
+        fbc[k / 100] += h.fights;
+        pbc[k / 100] = h.pop;
+    }
+    let mut lin: std::collections::BTreeMap<u32, u32> = Default::default();
+    for b in &w.bands {
+        *lin.entry(b.lineage).or_default() += b.pop;
+    }
+    let tot = w.total_pop().max(1) as f32;
+    ConflictStats {
+        confrontations: c.confrontations,
+        avoided: c.avoided,
+        tributes: c.tributes,
+        fled: c.fled,
+        fights: c.fights,
+        fights_per_century: c.fights as f32 / years * 100.0,
+        deaths: c.conflict_deaths,
+        death_rate_pct: if person_years > 0.0 { (100.0 * c.conflict_deaths as f64 / person_years) as f32 } else { 0.0 },
+        displaced: c.displaced,
+        fled_by_sea: c.fled_by_sea,
+        absorbed: c.absorbed,
+        captives: c.captives,
+        fights_by_century: fbc,
+        pop_by_century: pbc,
+        lineages: lin.len() as u32,
+        top_lineage_pct: 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tot,
     }
 }

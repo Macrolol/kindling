@@ -35,7 +35,10 @@ pub const POP_LN_MAX: f32 = 6.0;
 /// Trade overlay scale: ln(1 + recent goods through a cell).
 pub const TRADE_LN_MAX: f32 = 3.0;
 
-pub const OVERLAYS: [&str; 7] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade"];
+/// Conflict overlay scale: ln(1 + people recently killed in fights around a cell).
+pub const CONFLICT_LN_MAX: f32 = 3.5;
+
+pub const OVERLAYS: [&str; 8] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade", "conflict"];
 
 /// Camera: centre in cell coordinates, zoom in screen pixels per cell.
 pub struct View {
@@ -54,6 +57,12 @@ impl View {
     pub fn to_world(&self, p: Vec2) -> Vec2 {
         vec2((p.x - screen_width() / 2.0) / self.zoom + self.cx, (p.y - screen_height() / 2.0) / self.zoom + self.cy)
     }
+}
+
+/// Dark red to orange to pale yellow: how much blood was shed here lately.
+pub fn conflict_ramp(t: f32) -> [f32; 3] {
+    let t = t.clamp(0.0, 1.0);
+    [0.35 + 0.65 * t.min(0.5) * 2.0, 0.05 + 0.9 * (t - 0.35).max(0.0) / 0.65, 0.05 + 0.6 * (t - 0.7).max(0.0) / 0.3]
 }
 
 pub fn biome_rgb(b: Biome) -> [f32; 3] {
@@ -168,6 +177,16 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                     let f = w.trade_flow.get(i).copied().unwrap_or(0.0);
                     if f > 0.02 {
                         ramp((1.0 + f).ln() / TRADE_LN_MAX)
+                    } else if land {
+                        grey(c, 0.45)
+                    } else {
+                        grey(c, 0.8)
+                    }
+                }
+                7 => {
+                    let f = w.conflict_flow.get(i).copied().unwrap_or(0.0);
+                    if f > 0.05 {
+                        conflict_ramp((1.0 + f).ln() / CONFLICT_LN_MAX)
                     } else if land {
                         grey(c, 0.45)
                     } else {

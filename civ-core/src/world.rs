@@ -4,7 +4,7 @@
 //! stress) -> births / deaths -> practice / forgetting -> fire keeping -> experiments (invention) ->
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
-use crate::band::{make_kit, Band, Kit, Partner, CRAFT_LEN};
+use crate::band::{make_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -13,6 +13,8 @@ use crate::physics::{self, Action, Ctx, Inputs};
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
+
+mod conflict;
 
 pub const EVENT_CAP: usize = 40_000;
 
@@ -45,19 +47,41 @@ pub enum EventKind {
     LostAtSea,
     /// a fishing party blown out to sea came ashore somewhere new (other = new band id)
     Drifted,
+    /// v4 conflict: band (winner) fought other (loser); recipe = people killed, item = winner's weapon
+    Fight,
+    /// the world's first fight between bands (major)
+    FirstFight,
+    /// a fight deadlier than any before it (major; 10+ dead)
+    BloodiestFight,
+    /// band was driven off by other (recipe = 1 if it fled by sea)
+    Fled,
+    /// band bought peace from other with food or goods
+    Tribute,
+    /// what was left of band after a lost fight joined other (recipe = how many)
+    Absorbed,
+    /// first band to flee a stronger neighbour across the sea (major; recipe = cell left)
+    FirstSeaRefuge,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
         use EventKind::*;
         [
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
-            FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted,
-        ][(x as usize).min(16)]
+            FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
+            Absorbed, FirstSeaRefuge,
+        ][(x as usize).min(23)]
     }
     pub fn major(self) -> bool {
         matches!(
             self,
-            EventKind::FirstInvention | EventKind::LostWorldwide | EventKind::FirstFire | EventKind::Landfall | EventKind::FirstTraded
+            EventKind::FirstInvention
+                | EventKind::LostWorldwide
+                | EventKind::FirstFire
+                | EventKind::Landfall
+                | EventKind::FirstTraded
+                | EventKind::FirstFight
+                | EventKind::BloodiestFight
+                | EventKind::FirstSeaRefuge
         )
     }
 }
@@ -112,6 +136,15 @@ pub struct YearStats {
     /// carried copper/tin/bronze/obsidian: mean and max distance (cells) from where it was gathered
     pub goods_dist_mean: f32,
     pub goods_dist_max: f32,
+    /// conflict (v4): tense meetings that became confrontations, and how they ended
+    pub confrontations: u32,
+    pub avoided: u32,
+    pub tributes: u32,
+    pub fights: u32,
+    pub conflict_deaths: u32,
+    /// bands driven off (fled, or lost a fight and left)
+    pub displaced: u32,
+    pub absorbed: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -134,6 +167,18 @@ pub struct Counters {
     pub drift_returns: u64,
     /// bands that sighted a far shore from their coast
     pub sightings: u64,
+    /// conflict (v4)
+    pub confrontations: u64,
+    pub avoided: u64,
+    pub tributes: u64,
+    pub fled: u64,
+    pub fights: u64,
+    pub conflict_deaths: u64,
+    pub displaced: u64,
+    pub fled_by_sea: u64,
+    pub absorbed: u64,
+    pub captives: u64,
+    pub max_fight_deaths: u64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -177,6 +222,8 @@ pub struct World {
     /// goods moved through each cell recently (decays; for the trade overlay). Saved from v3 on
     /// so the overlay survives a reload; older saves start it empty.
     pub trade_flow: Vec<f32>,
+    /// people killed in fights around each cell recently (decays; for the conflict overlay, v4)
+    pub conflict_flow: Vec<f32>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
@@ -248,6 +295,7 @@ impl World {
         };
         w.occ = vec![Vec::new(); n];
         w.trade_flow = vec![0.0; n];
+        w.conflict_flow = vec![0.0; n];
         let mut rng = Rng::new(w.cfg.seed);
         // founders: one region anywhere people can live off the land - forest, grassland, coast,
         // cool or hot - more likely the richer it is. Where people start (what grows, what
@@ -363,6 +411,9 @@ impl World {
         for b in &mut self.bands {
             b.fit_vectors();
         }
+        if self.conflict_flow.len() != n {
+            self.conflict_flow = vec![0.0; n];
+        }
         if self.trade_flow.len() != n {
             self.trade_flow = vec![0.0; n];
         }
@@ -409,6 +460,9 @@ impl World {
         self.regrow();
         for v in &mut self.trade_flow {
             *v *= 0.85;
+        }
+        for v in &mut self.conflict_flow {
+            *v *= 0.93;
         }
         self.build_occupancy();
         let mut bands = std::mem::take(&mut self.bands);
@@ -1164,7 +1218,7 @@ impl World {
     fn push_out(&self, b: &Band) -> f32 {
         let c = b.cell(self.map.w);
         let crowd = self.crowd(c, b) as f32 / (b.pop as f32 + 10.0);
-        (b.d.stress + 0.5 * crowd).clamp(0.0, 1.0)
+        (b.d.stress + 0.5 * crowd + b.pressed).clamp(0.0, 1.0)
     }
 
     /// Is any of the 8 cells around `c` open sea (not just a river)?
@@ -1384,7 +1438,10 @@ impl World {
         let (x, y) = (b.x as usize, b.y as usize);
         let cur = b.cell(m.w);
         let mut best = cur;
-        let mut best_s = self.cell_score(b, cur) * self.params.move_inertia;
+        // a band recently driven off or menaced holds its ground less
+        let inertia = 1.0 + (self.params.move_inertia - 1.0) * (1.0 - b.pressed);
+        b.pressed *= 0.8;
+        let mut best_s = self.cell_score(b, cur) * inertia;
         let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| (c * m.w + a, 1.0)).collect();
         // occasionally scout further
         let dx = rng.below(7) as i32 - 3;
@@ -1499,7 +1556,10 @@ impl World {
         for (a, c, d) in pairs {
             let kin = if bands[a].lineage == bands[c].lineage { 1.3 } else { 1.0 };
             let pc = p.teach_rate * kin / (1.0 + d as f32);
-            if !rng.chance(pc) {
+            if !rng.chance(pc) || bands[a].pop == 0 || bands[c].pop == 0 {
+                continue;
+            }
+            if self.confront(bands, a, c, d, rng) {
                 continue;
             }
             self.exchange(bands, a, c, rng);
@@ -1534,6 +1594,9 @@ impl World {
             }
         }
         for (a, c, d) in far {
+            if bands[a].pop == 0 || bands[c].pop == 0 {
+                continue;
+            }
             if rng.chance(0.5) {
                 self.exchange(bands, a, c, rng);
                 self.exchange(bands, c, a, rng);
@@ -1781,6 +1844,8 @@ impl World {
                 // habits of hand carry over, each daughter a little different
                 craft: b.craft.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 far_shore: b.far_shore,
+                // old wrongs are remembered, less sharply, by the daughters
+                grudges: b.grudges.iter().map(|g| Grudge { w: 0.6 * g.w, ..*g }).filter(|g| g.w >= 0.05).collect(),
                 born: self.tick,
                 ..Default::default()
             };
@@ -1804,8 +1869,8 @@ impl World {
         }
         // tiny bands merge with a neighbour or vanish
         for k in 0..n0 {
-            if bands[k].pop >= 4 {
-                continue;
+            if bands[k].pop >= 4 || bands[k].pop == 0 {
+                continue; // (0: already absorbed by a stronger band this season)
             }
             let (x, y) = (bands[k].x as i32, bands[k].y as i32);
             let target = (0..n0).find(|&j| {
@@ -1926,6 +1991,7 @@ impl World {
                 }
             }
         }
+        self.fade_grudges();
         let acc = std::mem::take(&mut self.year_acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
@@ -1995,6 +2061,16 @@ impl World {
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
             EventKind::LostAtSea => format!("Y{yr}: {} of band {} lost at sea near ({cx},{cy})", e.other, e.band),
             EventKind::Drifted => format!("Y{yr}: a fishing party of band {} blown out to sea comes ashore at ({cx},{cy}) as band {}", e.band, e.other),
+            EventKind::Fight => {
+                let w = if it.is_empty() { String::new() } else { format!(" ({it})") };
+                format!("Y{yr}: band {}{w} beat band {} in a fight at ({cx},{cy}); {} killed", e.band, e.other, e.recipe)
+            }
+            EventKind::FirstFight => format!("Y{yr}: the first fight between bands: band {} beat band {} at ({cx},{cy}); {} killed", e.band, e.other, e.recipe),
+            EventKind::BloodiestFight => format!("Y{yr}: the deadliest fight yet: band {} beat band {} at ({cx},{cy}); {} killed{}", e.band, e.other, e.recipe, if it.is_empty() { String::new() } else { format!(", winners armed with {it}") }),
+            EventKind::Fled => format!("Y{yr}: band {} was driven off by band {} and moved to ({cx},{cy}){}", e.band, e.other, if e.recipe == 1 { " by sea" } else { "" }),
+            EventKind::Tribute => format!("Y{yr}: band {} bought peace from band {} with food and goods", e.band, e.other),
+            EventKind::Absorbed => format!("Y{yr}: the last {} of band {} were taken in by band {}, who beat them", e.recipe, e.band, e.other),
+            EventKind::FirstSeaRefuge => format!("Y{yr}: band {}, driven off by band {}, is the first to escape a stronger neighbour by sea, landing at ({cx},{cy})", e.band, e.other),
         }
     }
 }

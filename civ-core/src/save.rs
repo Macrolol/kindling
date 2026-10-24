@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -74,6 +74,23 @@ fn v2_to_v3(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
                 }
             }
             b.entry("far_shore").or_insert(serde_json::Value::Null);
+        }
+    }
+    Ok(v)
+}
+/// v3 -> v4 (competition and conflict). Frozen: do not edit.
+/// - `bands[].grudges` is new: none held (`[]`).
+/// - `bands[].pressed` is new: 0 (no recent pressure from neighbours).
+/// - `world.conflict_flow` is new: left out, so it is rebuilt empty on load.
+/// Everything else in v4 is additive (conflict counters, YearStats fields, EventKind 17..23,
+/// params aggression / lethality / grudge_memory, which take their defaults).
+fn v3_to_v4(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            b.entry("grudges").or_insert(serde_json::json!([]));
+            b.entry("pressed").or_insert(serde_json::json!(0.0));
         }
     }
     Ok(v)

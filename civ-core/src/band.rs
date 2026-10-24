@@ -38,6 +38,12 @@ pub struct Band {
     pub craft: Vec<f32>,
     /// a far shore this band has seen, heard of, or reached (cell); None = none known (v3)
     pub far_shore: Option<u32>,
+    /// bands this one bears a grudge against (people killed, stores taken); fades over the
+    /// years and is passed on, weaker, to daughter bands (v4)
+    pub grudges: Vec<Grudge>,
+    /// recent pressure from stronger neighbours, 0..1: being driven off makes a band readier
+    /// to move on, or to put to sea (v4)
+    pub pressed: f32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -57,6 +63,17 @@ pub struct Partner {
     /// goods passed either way so far
     pub traded: f32,
 }
+
+/// A remembered wrong done by another band (and, more weakly, by its whole lineage).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Grudge {
+    pub id: u32,
+    pub lineage: u32,
+    pub w: f32,
+}
+
+pub const MAX_GRUDGES: usize = 6;
 
 /// The best item a band uses for each task, and the resulting multipliers.
 #[derive(Clone, Copy, Debug)]
@@ -198,6 +215,36 @@ impl Band {
         }
         self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded });
     }
+    /// Grudge this band holds against `o`: in full against that band, a little against its people.
+    pub fn grudge_vs(&self, o: &Band) -> f32 {
+        let mut g = 0.0f32;
+        for x in &self.grudges {
+            if x.id == o.id {
+                g = g.max(x.w);
+            } else if x.lineage == o.lineage {
+                g = g.max(0.3 * x.w);
+            }
+        }
+        g
+    }
+    pub fn add_grudge(&mut self, o: &Band, by: f32) {
+        if let Some(x) = self.grudges.iter_mut().find(|x| x.id == o.id) {
+            x.w = (x.w + by).min(2.0);
+            return;
+        }
+        if self.grudges.len() >= MAX_GRUDGES {
+            let (wi, ww) = self.grudges.iter().enumerate().min_by(|a, b| a.1.w.total_cmp(&b.1.w)).map(|(i, x)| (i, x.w)).unwrap();
+            if ww >= by {
+                return;
+            }
+            self.grudges.swap_remove(wi);
+        }
+        self.grudges.push(Grudge { id: o.id, lineage: o.lineage, w: by.min(2.0) });
+    }
+    /// Close kin: parent and daughter, or sisters split from the same band.
+    pub fn close_kin(&self, o: &Band) -> bool {
+        self.parent == o.id || o.parent == self.id || (self.parent != 0 && self.parent == o.parent)
+    }
     pub fn cell(&self, w: usize) -> usize {
         self.y as usize * w + self.x as usize
     }
@@ -207,6 +254,23 @@ impl Band {
     pub fn n_items(&self) -> u32 {
         self.d.tk.producible.count()
     }
+}
+
+/// How dangerous a band's best weapons are, 0..~1.3: the same spears, points and axes it hunts
+/// and works with. Nothing is made "for war"; reach and a hard, sharp edge decide.
+pub fn weapon_q(k: &Kit) -> f32 {
+    let hunt = if k.hunt == NONE {
+        0.0
+    } else {
+        let m = mat(k.hunt);
+        match form(k.hunt) {
+            Form::Spear => 0.35 + 0.65 * cut_q(m),
+            Form::Point => 0.35 * cut_q(m),
+            _ => 0.2 * cut_q(m),
+        }
+    };
+    let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe)) };
+    hunt + 0.3 * axe
 }
 
 /// Choose the best item for each task from what a band can produce; compute multipliers.
