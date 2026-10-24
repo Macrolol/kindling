@@ -105,8 +105,8 @@ pub fn parse_args() -> Args {
 pub fn make_config(a: &Args, seed: u64) -> Config {
     let mut c = Config { seed, ..Default::default() };
     if let Some((w, h)) = a.map {
-        c.map_w = w.clamp(32, 600);
-        c.map_h = h.clamp(24, 400);
+        c.map_w = w.clamp(32, 2048);
+        c.map_h = h.clamp(24, 2048);
     }
     c
 }
