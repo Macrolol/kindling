@@ -26,5 +26,6 @@ Updated 2026-10-24 16:55 EDT.
 - s7: running (/tmp/long7.txt, PID 344861).
 
 ## Next
+0. Page updated (farming section, v5 vs v4 table, TOC, roadmap); 1500y table still to add.
 1. Wait for s7 1500y.
 2. Tests, builds (linux/windows/web), screenshot, Page, report.
