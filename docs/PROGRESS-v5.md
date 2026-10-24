@@ -31,4 +31,4 @@ Updated 2026-10-24 16:55 EDT.
 2. Tests, builds (linux/windows/web), screenshot, Page, report.
 
 - Tests: civ-core 8 pass, 1 ignored. Screenshot dist/screenshot-farming-overlay.png (seed 1, Y500, overlay 8 + legend).
-- Next: rebuild dist (Linux/Windows/web) from this commit, commit dist, report.
+- Done: dist Linux/Windows/web rebuilt clean from e8727bc and committed (32df5da). v5 complete; next ideas: delay iron (bloomery needs more), lineage dominance check on s7.
