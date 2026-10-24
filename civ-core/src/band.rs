@@ -3,6 +3,10 @@ use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use serde::{Deserialize, Serialize};
 
+/// shape, combine, heat (indexed by `Action as usize`)
+pub const CRAFT_ACTS: usize = 3;
+pub const CRAFT_LEN: usize = NMAT + CRAFT_ACTS;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Band {
@@ -28,6 +32,12 @@ pub struct Band {
     pub origin: Vec<u32>,
     /// exchange partners: bands this one trades with and visits
     pub partners: Vec<Partner>,
+    /// craft tradition: how readily this band turns to each material (NMAT entries) and to each
+    /// way of working (CRAFT_ACTS entries: shape, combine, heat). 1 = no leaning. Inherited with
+    /// drift at splits, reinforced by what the band finds or learns, fades back slowly. (v3)
+    pub craft: Vec<f32>,
+    /// a far shore this band has seen, heard of, or reached (cell); None = none known (v3)
+    pub far_shore: Option<u32>,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -158,6 +168,9 @@ impl Band {
         }
         if self.origin.len() < NMAT {
             self.origin.resize(NMAT, u32::MAX);
+        }
+        if self.craft.len() < CRAFT_LEN {
+            self.craft.resize(CRAFT_LEN, 1.0);
         }
     }
     pub fn partner(&self, id: u32) -> Option<&Partner> {

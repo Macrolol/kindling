@@ -110,6 +110,9 @@ pub struct Known {
     pub since: u32,
     /// band id it was learned from (u32::MAX = own invention, u32::MAX-1 = inherited at a split)
     pub from: u32,
+    /// found by this band or an ancestor (kept through splits, false when taught by others);
+    /// added in save format v3
+    pub kin: bool,
     #[serde(skip)]
     pub used: bool,
 }

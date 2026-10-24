@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -45,6 +45,35 @@ fn v1_to_v2(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
                 }
             }
             b.entry("origin").or_insert(serde_json::json!(vec![u32::MAX; NMAT_V2]));
+        }
+    }
+    Ok(v)
+}
+/// v2 -> v3 (lineage knowledge, craft habits, far shores). Frozen: do not edit.
+/// - `bands[].known[].kin` is new: a v2 band's own finds are exactly `from == u32::MAX`
+///   (v2 could not tell an ancestor's find from a teacher's, so inherited ones load as false).
+/// - `bands[].craft` (21 attention / way-of-working weights) is new: 1.0 = no leaning.
+/// - `bands[].far_shore` is new: none known.
+fn v2_to_v3(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    const CRAFT_LEN_V3: usize = 21;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            if let Some(known) = b.get_mut("known").and_then(|k| k.as_array_mut()) {
+                for k in known {
+                    let Some(k) = k.as_object_mut() else { continue };
+                    let own = k.get("from").and_then(|f| f.as_u64()) == Some(u32::MAX as u64);
+                    k.insert("kin".into(), serde_json::json!(own));
+                }
+            }
+            let craft = b.entry("craft").or_insert(serde_json::json!([]));
+            if let Some(a) = craft.as_array_mut() {
+                while a.len() < CRAFT_LEN_V3 {
+                    a.push(serde_json::json!(1.0));
+                }
+            }
+            b.entry("far_shore").or_insert(serde_json::Value::Null);
         }
     }
     Ok(v)

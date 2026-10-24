@@ -1,5 +1,4 @@
 //! Per-world summaries used by the headless runner and the stats window.
-use crate::knowledge::FROM_SELF;
 use crate::materials::*;
 use crate::world::World;
 use serde::Serialize;
@@ -21,6 +20,8 @@ pub struct ItemSummary {
     /// median spread speed, cells / year
     pub spread_speed: Option<f32>,
     pub how: String,
+    /// everything that had to exist first in this world (inputs of the first recipe, and theirs)
+    pub needs: Vec<Item>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -41,8 +42,15 @@ pub struct Summary {
     pub deaths: u64,
     pub lost_worldwide: Vec<String>,
     pub firsts: Vec<ItemSummary>,
-    /// fraction of band-known recipes that were self-invented (vs learned / inherited)
+    /// fraction of band-known recipes found by the band itself or an ancestor (kept through
+    /// splits) rather than taught by another band. v2 counted only the band's own finds, which
+    /// a split immediately relabels "from parent", so it read ~0%.
     pub self_invented_frac: f32,
+    /// of all recipe acquisitions by experiment or teaching: share found by experiment
+    pub own_find_share: f32,
+    pub sea: SeaSummary,
+    /// biome and mean temperature where people started (cell of the first discovery)
+    pub origin: String,
     /// span of occupied land (bounding box cells)
     pub range_cells: u32,
     /// continents (landmasses >= Map::CONTINENT_CELLS cells) in this world, largest first
@@ -72,6 +80,21 @@ pub struct TradeSummary {
     pub first_traded: Vec<(f32, String)>,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SeaSummary {
+    pub voyages: u64,
+    pub sea_disasters: u64,
+    pub lost_at_sea: u64,
+    pub drifts: u64,
+    pub drift_landings: u64,
+    pub drift_returns: u64,
+    pub sightings: u64,
+    /// bands with boats at the end
+    pub bands_with_boats: u32,
+    /// year the first boat was made (None = never)
+    pub first_boat: Option<f32>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct LandmassSummary {
     pub id: u32,
@@ -79,6 +102,9 @@ pub struct LandmassSummary {
     /// year people first arrived (None = never)
     pub landfall_year: Option<f32>,
     pub pop_now: u32,
+    /// fewest sea cells to cross from the landmass people started on (0 = that landmass)
+    #[serde(default)]
+    pub gap: Option<u32>,
 }
 
 pub const STAGES: [&str; 7] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze"];
@@ -113,7 +139,23 @@ pub fn summarize(w: &World) -> Summary {
         .collect();
     let ever: Vec<Item> = w.firsts.iter().filter(|f| f.recipe != u32::MAX).map(|f| f.item).collect();
     let mut firsts = Vec::new();
+    let first_inputs = |it: Item| -> Vec<Item> {
+        w.firsts
+            .iter()
+            .find(|f| f.item == it && f.recipe != u32::MAX)
+            .and_then(|f| w.reg.recipes.get(f.recipe as usize))
+            .map(|r| r.inputs.iter().copied().filter(|&i| i != NONE && form(i) != Form::Raw).collect())
+            .unwrap_or_default()
+    };
     for f in &w.firsts {
+        let mut needs: Vec<Item> = Vec::new();
+        let mut todo = first_inputs(f.item);
+        while let Some(i) = todo.pop() {
+            if !needs.contains(&i) && i != f.item {
+                needs.push(i);
+                todo.extend(first_inputs(i));
+            }
+        }
         let inv: u32 = w.reg.recipes.iter().filter(|r| r.output == f.item).map(|r| r.inventions).sum();
         let tr: u32 = w.reg.recipes.iter().filter(|r| r.output == f.item).map(|r| r.transfers).sum();
         let (mut reached, mut r, mut speed) = (0u32, None, None);
@@ -163,6 +205,7 @@ pub fn summarize(w: &World) -> Summary {
             diffusion_r: r,
             spread_speed: speed,
             how,
+            needs,
         });
     }
     let lost = w
@@ -175,7 +218,7 @@ pub fn summarize(w: &World) -> Summary {
     for b in &w.bands {
         for k in &b.known {
             allk += 1;
-            if k.from == FROM_SELF {
+            if k.kin {
                 selfk += 1;
             }
         }
@@ -200,12 +243,51 @@ pub fn summarize(w: &World) -> Summary {
         }
     }
     let lf = |l: usize| w.landfall.get(l).copied().filter(|&t| t != u32::MAX).map(|t| t as f32 / 4.0);
+    // sea gaps from the home landmass (breadth-first over sea cells, 8-connected)
+    let home = w.landfall.iter().position(|&t| t == 0).unwrap_or(1);
+    let mut gap = vec![None::<u32>; nl];
+    {
+        let n = mw * m.h;
+        let mut dist = vec![u32::MAX; n];
+        let mut q = std::collections::VecDeque::new();
+        for i in 0..n {
+            if m.landmass_of(i) as usize == home {
+                dist[i] = 0;
+                q.push_back(i);
+            }
+        }
+        if home < nl {
+            gap[home] = Some(0);
+        }
+        while let Some(i) = q.pop_front() {
+            let (x, y) = ((i % mw) as i32, (i / mw) as i32);
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= mw as i32 || ny >= m.h as i32 {
+                        continue;
+                    }
+                    let j = ny as usize * mw + nx as usize;
+                    if dist[j] != u32::MAX {
+                        continue;
+                    }
+                    let l = m.landmass_of(j) as usize;
+                    if l == 0 {
+                        dist[j] = dist[i] + 1;
+                        q.push_back(j);
+                    } else if l < nl && gap[l].is_none() {
+                        gap[l] = Some(dist[i]);
+                    }
+                }
+            }
+        }
+    }
     let mut continents = Vec::new();
     let (mut islands, mut islands_reached) = (0u32, 0u32);
     for l in 1..nl {
         let sz = m.landmass_size[l];
         if sz >= crate::map::Map::CONTINENT_CELLS {
-            continents.push(LandmassSummary { id: l as u32, cells: sz, landfall_year: lf(l), pop_now: lpop[l] });
+            continents.push(LandmassSummary { id: l as u32, cells: sz, landfall_year: lf(l), pop_now: lpop[l], gap: gap[l] });
         } else {
             islands += 1;
             if lf(l).is_some() {
@@ -260,6 +342,30 @@ pub fn summarize(w: &World) -> Summary {
         lost_worldwide: lost,
         firsts,
         self_invented_frac: if allk > 0 { selfk as f32 / allk as f32 } else { 0.0 },
+        own_find_share: {
+            let t = w.counters.inventions + w.counters.transfers;
+            if t > 0 { w.counters.inventions as f32 / t as f32 } else { 0.0 }
+        },
+        origin: w
+            .firsts
+            .first()
+            .map(|f| {
+                let c = f.cell as usize;
+                let coast = if w.coastal(c) { ", coast" } else { "" };
+                format!("{:?} {:.0}C{coast}", w.map.biome_at(c), w.map.temp[c])
+            })
+            .unwrap_or_default(),
+        sea: SeaSummary {
+            voyages: w.counters.voyages,
+            sea_disasters: w.counters.sea_disasters,
+            lost_at_sea: w.counters.lost_at_sea,
+            drifts: w.counters.drifts,
+            drift_landings: w.counters.drift_landings,
+            drift_returns: w.counters.drift_returns,
+            sightings: w.counters.sightings,
+            bands_with_boats: w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).count() as u32,
+            first_boat: w.firsts.iter().filter(|f| form(f.item) == Form::Boat).map(|f| f.tick as f32 / 4.0).reduce(f32::min),
+        },
         range_cells: range,
         continents,
         islands,
@@ -289,4 +395,35 @@ pub fn order_distance(a: &[Item], b: &[Item]) -> Option<f32> {
         }
     }
     Some(disc as f32 / tot as f32)
+}
+
+/// Like `order_distance`, but only over pairs of items where neither had to exist before the
+/// other in either world (`needs_a/b(x, y)`: x needed y). Prerequisite chains force the same
+/// order everywhere; this measures how much the free choices differ. Diagnostic only.
+pub fn order_distance_free(
+    a: &[Item],
+    b: &[Item],
+    needs_a: &dyn Fn(Item, Item) -> bool,
+    needs_b: &dyn Fn(Item, Item) -> bool,
+) -> Option<f32> {
+    let common: Vec<Item> = a.iter().copied().filter(|i| b.contains(i)).collect();
+    let pos = |v: &[Item], i: Item| v.iter().position(|&x| x == i).unwrap();
+    let (mut disc, mut tot) = (0u32, 0u32);
+    for i in 0..common.len() {
+        for j in i + 1..common.len() {
+            let (x, y) = (common[i], common[j]);
+            if needs_a(x, y) || needs_a(y, x) || needs_b(x, y) || needs_b(y, x) {
+                continue;
+            }
+            tot += 1;
+            if (pos(a, x) < pos(a, y)) != (pos(b, x) < pos(b, y)) {
+                disc += 1;
+            }
+        }
+    }
+    if tot < 3 {
+        None
+    } else {
+        Some(disc as f32 / tot as f32)
+    }
 }

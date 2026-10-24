@@ -55,6 +55,37 @@ fn physics_sanity() {
     assert_eq!(physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out)), Some(Mat::Copper));
 }
 
+/// A save written by the v2 build (before lineage knowledge / craft habits) must load through
+/// the v2->v3 migration and keep running.
+#[test]
+fn v2_fixture_loads_and_runs() {
+    let bytes = include_bytes!("../tests/fixtures/v2_seed7_y60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v2 save loads");
+    assert_eq!(info.format_version, 2);
+    assert_eq!(info.migrated_from, Some(2));
+    assert!(w.total_pop() > 0);
+    let mut own = 0;
+    for b in &w.bands {
+        assert_eq!(b.stock.len(), NMAT);
+        assert_eq!(b.craft.len(), crate::band::CRAFT_LEN);
+        assert!(b.far_shore.is_none());
+        for k in &b.known {
+            assert_eq!(k.kin, k.from == crate::knowledge::FROM_SELF);
+            own += k.kin as usize;
+        }
+    }
+    assert!(own > 0, "own finds kept as lineage knowledge");
+    let t0 = w.tick;
+    for _ in 0..40 {
+        w.step();
+    }
+    assert_eq!(w.tick, t0 + 40);
+    // and it round-trips in the current format
+    let again = w.save_bytes(None, "test", "test").expect("saves");
+    let (_, _, info2) = World::load_bytes(&again).expect("reloads");
+    assert_eq!(info2.format_version, crate::save::FORMAT_VERSION);
+}
+
 /// A save written by the v1 (pre-food-tech, pre-trade) build must still load, be migrated,
 /// have its per-season figures recomputed, and keep running.
 #[test]

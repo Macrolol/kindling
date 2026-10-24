@@ -133,7 +133,7 @@ fn lat_s_default() -> f32 {
 fn gen_v1() -> u32 {
     1
 }
-pub const GEN_VERSION: u32 = 2;
+pub const GEN_VERSION: u32 = 3; // 3: placer tin in streams below tin lodes
 
 // ---------------------------------------------------------------- noise
 fn lattice(seed: u64, x: i64, y: i64) -> f32 {
@@ -507,6 +507,8 @@ impl Map {
         let mut order: Vec<usize> = (0..n).filter(|&i| m.is_land(i)).collect();
         order.sort_by(|&a, &b| filled[b].partial_cmp(&filled[a]).unwrap());
         m.flow = m.rain.iter().map(|&r| r * 0.5).collect();
+        // where each cell drains to (used again for placer deposits below)
+        let mut recv = vec![usize::MAX; n];
         for &i in &order {
             let (x, y) = (i % w, i / w);
             let mut best = i;
@@ -515,6 +517,9 @@ impl Map {
                 if filled[j] < filled[best] {
                     best = j;
                 }
+            }
+            if best != i {
+                recv[i] = best;
             }
             if best != i && m.is_land(best) {
                 let f = m.flow[i];
@@ -626,6 +631,24 @@ impl Map {
             tin_thr -= 0.04;
         }
         let _ = cu_cells;
+        // placer tin: cassiterite is heavy and nearly indestructible, so streams draining a tin
+        // lode carry it down and drop it in their gravels where the current slackens. Most early
+        // tin was panned from such gravels, far from the lode itself and often where people
+        // already lived by the river.
+        let lodes: Vec<usize> = (0..n).filter(|&i| m.deposits[i] & D_TIN != 0).collect();
+        for &l in &lodes {
+            let mut c = l;
+            for step in 0..30 {
+                let nx = recv[c];
+                if nx == usize::MAX || !m.is_land(nx) {
+                    break;
+                }
+                c = nx;
+                if step >= 1 && m.river[c] && m.height[c] < m.height[l] && hash3(seed ^ 0x7a, (c % w) as i64, (c / w) as i64) % 2 == 0 {
+                    m.deposits[c] |= D_TIN;
+                }
+            }
+        }
         // ---- renewable capacities
         m.k_plants = vec![0.0; n];
         m.k_game = vec![0.0; n];

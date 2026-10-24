@@ -1,7 +1,7 @@
 //! Headless multi-seed runner: runs each seed in turn (one process, sequential) and prints
 //! per-seed stats plus cross-seed comparisons.
 use crate::cli::{make_config, make_params, Args};
-use civ_core::analysis::{order_distance, summarize, Summary};
+use civ_core::analysis::{order_distance, order_distance_free, summarize, Summary};
 use civ_core::materials::Item;
 use civ_core::World;
 use std::time::Instant;
@@ -43,9 +43,9 @@ pub fn run(a: &Args) {
             println!("{}", serde_json::to_string(&s).unwrap());
         } else {
             println!(
-                "seed {seed}: Y{:.0} pop {} bands {} range {} cells | items now {} (mean/band {:.1}) | stage now: {}, ever: {} | exp {} inv {} learned {} forgot {} | splits {} died {} | self-invented {:.0}% | {:.1}s (gen {:.1}s)",
+                "seed {seed}: Y{:.0} pop {} bands {} range {} cells | items now {} (mean/band {:.1}) | stage now: {}, ever: {} | exp {} inv {} learned {} forgot {} | splits {} died {} | lineage-found {:.0}% of known, {:.1}% of acquisitions | {:.1}s (gen {:.1}s)",
                 s.years, s.pop, s.bands, s.range_cells, s.items_now, s.items_mean, s.stage_now, s.stage_ever, s.experiments, s.inventions,
-                s.transfers, s.forgets, s.splits, s.deaths, 100.0 * s.self_invented_frac, el, t_gen
+                s.transfers, s.forgets, s.splits, s.deaths, 100.0 * s.self_invented_frac, 100.0 * s.own_find_share, el, t_gen
             );
             for f in &s.firsts {
                 if !a.verbose && f.bands_now == 0 && f.inventions <= 1 && f.transfers == 0 {
@@ -68,8 +68,8 @@ pub fn run(a: &Args) {
                 .continents
                 .iter()
                 .map(|c| match c.landfall_year {
-                    Some(y) => format!("#{} {}c Y{:.0} pop {}", c.id, c.cells, y, c.pop_now),
-                    None => format!("#{} {}c never", c.id, c.cells),
+                    Some(y) => format!("#{} {}c gap {} Y{:.0} pop {}", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into()), y, c.pop_now),
+                    None => format!("#{} {}c gap {} never", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into())),
                 })
                 .collect();
             println!(
@@ -79,6 +79,13 @@ pub fn run(a: &Args) {
                 cs.join(", "),
                 s.islands_reached,
                 s.islands
+            );
+            println!("    started in: {}", s.origin);
+            let q = &s.sea;
+            println!(
+                "    sea: first boat {} | voyages {} | sightings {} | drifts {} (ashore as new bands {}, got home {}) | disasters {} lost {} people | bands with boats now {}",
+                q.first_boat.map(|y| format!("Y{y:.0}")).unwrap_or("never".into()),
+                q.voyages, q.sightings, q.drifts, q.drift_landings, q.drift_returns, q.sea_disasters, q.lost_at_sea, q.bands_with_boats
             );
             let t = &s.trade;
             let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
@@ -103,8 +110,41 @@ pub fn run(a: &Args) {
             }
         }
         let mean = ds.iter().sum::<f32>() / ds.len().max(1) as f32;
+        let mut fs = Vec::new();
+        for i in 0..sums.len() {
+            for j in i + 1..sums.len() {
+                let dep = |s: &Summary| {
+                    let m: std::collections::HashMap<u16, Vec<u16>> = s.firsts.iter().map(|f| (f.item, f.needs.clone())).collect();
+                    move |x: u16, y: u16| m.get(&x).map(|v| v.contains(&y)).unwrap_or(false)
+                };
+                let (da, db) = (dep(&sums[i]), dep(&sums[j]));
+                if let Some(d) = order_distance_free(&orders[i], &orders[j], &da, &db) {
+                    fs.push(d);
+                }
+            }
+        }
+        let fmean = fs.iter().sum::<f32>() / fs.len().max(1) as f32;
         println!("\n== {} seeds, {} years", sums.len(), a.years);
         println!("discovery-order distance between seeds (Kendall tau, 0 same .. 1 reversed): mean {:.2} over {} pairs", mean, ds.len());
+        println!("  same, over item pairs with no prerequisite link in either seed (diagnostic): mean {:.2}", fmean);
+        let ls: Vec<String> = sums
+            .iter()
+            .map(|s| {
+                let n = s.continents.iter().filter(|c| c.landfall_year.is_some()).count();
+                let second = s.continents.iter().filter_map(|c| c.landfall_year).filter(|&y| y > 0.0).reduce(f32::min);
+                format!("s{} {}/{}{}", s.seed, n, s.continents.len(), second.map(|y| format!(" (2nd Y{y:.0})")).unwrap_or_default())
+            })
+            .collect();
+        let multi = sums.iter().filter(|s| s.continents.iter().filter(|c| c.landfall_year.is_some()).count() >= 2).count();
+        let possible = sums.iter().filter(|s| s.continents.len() >= 2).count();
+        println!("  settled a second continent: {multi}/{} seeds ({possible} have more than one) | {}", sums.len(), ls.join(", "));
+        let own: Vec<f32> = sums.iter().map(|s| 100.0 * s.own_find_share).collect();
+        let kin: Vec<f32> = sums.iter().map(|s| 100.0 * s.self_invented_frac).collect();
+        println!(
+            "  recipes found by experiment: {:.1}% of acquisitions (mean); known recipes found in-lineage at end: {:.0}% (mean)",
+            own.iter().sum::<f32>() / own.len() as f32,
+            kin.iter().sum::<f32>() / kin.len() as f32
+        );
         for st in civ_core::analysis::STAGES {
             let n = sums.iter().filter(|s| s.stage_ever == st).count();
             let m = sums.iter().filter(|s| s.stage_now == st).count();

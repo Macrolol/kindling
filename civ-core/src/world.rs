@@ -4,7 +4,7 @@
 //! stress) -> births / deaths -> practice / forgetting -> fire keeping -> experiments (invention) ->
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
-use crate::band::{make_kit, Band, Kit, Partner};
+use crate::band::{make_kit, Band, Kit, Partner, CRAFT_LEN};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -41,14 +41,18 @@ pub enum EventKind {
     LostLocal,
     /// first time a good passed from one band to another in trade
     FirstTraded,
+    /// people lost on the water (other = how many died; a whole band if it ended)
+    LostAtSea,
+    /// a fishing party blown out to sea came ashore somewhere new (other = new band id)
+    Drifted,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
         use EventKind::*;
         [
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
-            FirstFire, Landfall, LostLocal, FirstTraded,
-        ][(x as usize).min(14)]
+            FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted,
+        ][(x as usize).min(16)]
     }
     pub fn major(self) -> bool {
         matches!(
@@ -119,6 +123,17 @@ pub struct Counters {
     pub forgets: u64,
     pub splits: u64,
     pub deaths: u64,
+    /// band moves and daughter settlements made across open water
+    pub voyages: u64,
+    /// voyages (planned or drift) that ended in deaths at sea, and the people lost
+    pub sea_disasters: u64,
+    pub lost_at_sea: u64,
+    /// fishing parties blown off course: total, came ashore and founded a band, got home
+    pub drifts: u64,
+    pub drift_landings: u64,
+    pub drift_returns: u64,
+    /// bands that sighted a far shore from their coast
+    pub sightings: u64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -159,14 +174,17 @@ pub struct World {
     pub item_lost: BTreeMap<Item, u32>,
     /// materials (bitmask) that have changed hands at least once
     pub traded_first: u32,
-    /// goods moved through each cell recently (decays; for the trade overlay)
-    #[serde(skip)]
+    /// goods moved through each cell recently (decays; for the trade overlay). Saved from v3 on
+    /// so the overlay survives a reload; older saves start it empty.
     pub trade_flow: Vec<f32>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
     #[serde(skip)]
     pub occ_pop: Vec<u32>,
+    /// bands founded during the band loop (drift landings), added at the end of the season
+    #[serde(skip)]
+    pending: Vec<Band>,
     #[serde(skip)]
     rng: Option<Rng>,
     #[serde(skip)]
@@ -231,16 +249,22 @@ impl World {
         w.occ = vec![Vec::new(); n];
         w.trade_flow = vec![0.0; n];
         let mut rng = Rng::new(w.cfg.seed);
-        // founders: one region with mild climate and plenty of food
+        // founders: one region anywhere people can live off the land - forest, grassland, coast,
+        // cool or hot - more likely the richer it is. Where people start (what grows, what
+        // lies about, how cold the winters are) shapes what they come to work with first.
+        let food = |i: usize| w.map.k_plants[i] + w.map.k_game[i] + 0.5 * w.map.k_fish[i];
         let mut cands: Vec<usize> = (0..n)
-            .filter(|&i| w.map.is_land(i) && w.map.temp[i] > 16.0 && w.map.temp[i] < 27.0)
-            .filter(|&i| w.map.k_plants[i] + w.map.k_game[i] > 70.0)
+            .filter(|&i| w.map.is_land(i) && w.map.temp[i] > 3.0 && w.map.temp[i] < 30.0 && food(i) > 38.0)
             .collect();
         if cands.is_empty() {
             cands = (0..n).filter(|&i| w.map.is_land(i) && w.map.k_plants[i] > 5.0).collect();
         }
-        let origin = cands[rng.below(cands.len())];
+        let cw: Vec<f32> = cands.iter().map(|&i| (food(i) - 35.0).max(1.0).sqrt()).collect();
+        let origin = cands[rng.weighted(&cw).unwrap_or(0)];
         let (ox, oy) = (origin % w.map.w, origin / w.map.w);
+        // the founders are one people: they share habits of hand (what they are used to working,
+        // which ways of working) with small differences between groups
+        let culture: Vec<f32> = (0..CRAFT_LEN).map(|_| (0.5 * rng.gauss()).exp()).collect();
         for k in 0..w.cfg.founders {
             let mut pos = origin;
             for _ in 0..20 {
@@ -267,6 +291,7 @@ impl World {
                 flame: false,
                 stock: vec![0.0; NMAT],
                 origin: vec![u32::MAX; NMAT],
+                craft: culture.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 ..Default::default()
             };
             let _ = k;
@@ -338,7 +363,30 @@ impl World {
         for b in &mut self.bands {
             b.fit_vectors();
         }
-        self.trade_flow = vec![0.0; n];
+        if self.trade_flow.len() != n {
+            self.trade_flow = vec![0.0; n];
+        }
+        // saves from before v3 did not keep the overlay: sketch it from the standing trade
+        // partnerships (who trades with whom is saved), so it is not blank after loading
+        if self.trade_flow.iter().all(|&f| f == 0.0) {
+            let w = self.map.w;
+            let pos: std::collections::HashMap<u32, (f32, f32)> = self.bands.iter().map(|b| (b.id, (b.x as f32, b.y as f32))).collect();
+            for b in &self.bands {
+                for p in &b.partners {
+                    let Some(&(x1, y1)) = pos.get(&p.id) else { continue };
+                    let (x0, y0) = (b.x as f32, b.y as f32);
+                    let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1.0) as usize;
+                    let q = 0.1 * p.strength;
+                    for k in 0..=steps {
+                        let t = k as f32 / steps as f32;
+                        let (x, y) = ((x0 + (x1 - x0) * t).round() as usize, (y0 + (y1 - y0) * t).round() as usize);
+                        if let Some(f) = self.trade_flow.get_mut(y * w + x) {
+                            *f += q;
+                        }
+                    }
+                }
+            }
+        }
         // derived toolkits so a freshly loaded (paused) world can be inspected
         // and the season's figures (food, stress, cold...), which are not saved: recompute them
         // from the loaded world so the inspector and stats are right before the first step
@@ -476,6 +524,15 @@ impl World {
             s.add(raw(Mat::Fish));
         }
         s
+    }
+
+    /// Recompute every band's derived toolkit (used by tools that inspect a loaded world).
+    pub fn refresh_all_toolkits(&mut self) {
+        let mut bands = std::mem::take(&mut self.bands);
+        for b in &mut bands {
+            self.refresh_toolkit(b);
+        }
+        self.bands = bands;
     }
 
     fn refresh_toolkit(&self, b: &mut Band) {
@@ -779,9 +836,18 @@ impl World {
         let lam = p.invent_rate * b.curiosity * (0.15 + spare + p.stress_invent * stress) * (pop / 25.0).sqrt();
         let n = rng.poisson(lam).min(6);
         b.d.experiments = n;
-        for _ in 0..n {
-            self.experiment(b, rng, dry_s);
+        if n > 0 {
+            let att = self.attention(b);
+            for _ in 0..n {
+                self.experiment(b, rng, dry_s, &att);
+            }
         }
+        // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
+        for c in &mut b.craft {
+            *c = 1.0 + (*c - 1.0) * 0.998;
+        }
+        // ---------------- the sea: drift and far shores
+        self.sea_season(b, rng);
         // ---------------- practice / forgetting
         let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt());
         let mut forgot: Vec<u32> = Vec::new();
@@ -812,7 +878,103 @@ impl World {
     }
 
     /// One experiment: pick a primitive action and things at hand, see what physics says.
-    fn experiment(&mut self, b: &mut Band, rng: &mut Rng, dryness: f32) {
+    /// What a band's attention turns to when it tinkers. Nothing here says what to invent; it
+    /// says what is in people's hands and on their minds: the stuff of their way of getting food
+    /// (more so when hungry), what their troubles call for (cold: hides, bone, firewood; no water
+    /// at hand or a hard winter to store food for: things that hold), whether a material lies
+    /// all around or is a carried rarity (curious bands play with novelties), and the band's own
+    /// craft tradition. Physics still decides what works.
+    fn attention(&self, b: &Band) -> [f32; NMAT] {
+        use Mat::*;
+        let m = &self.map;
+        let ci = b.cell(m.w);
+        let h = b.d.harvest;
+        let tot = h.iter().sum::<f32>().max(1e-3);
+        let hunger = 1.0 + 1.5 * b.d.stress.clamp(0.0, 1.0);
+        let f = |r: usize| 2.0 * (h[r] / tot) * hunger;
+        let mut a = [1.0f32; NMAT];
+        let mut add = |mm: Mat, v: f32| a[mm as usize] += v;
+        // gathering plants: fibre, containers, digging sticks
+        add(Plants, 1.5 * f(0));
+        add(Fibre, 1.0 * f(0));
+        add(Clay, 0.8 * f(0));
+        add(Wood, 0.4 * f(0));
+        // hunting: carcasses, hides, bone, edges and points
+        add(Meat, 1.5 * f(1));
+        add(Hide, 1.2 * f(1));
+        add(Bone, 1.0 * f(1));
+        add(Stone, 0.5 * f(1));
+        add(Flint, 0.6 * f(1));
+        add(Obsidian, 0.6 * f(1));
+        add(Wood, 0.5 * f(1));
+        // fishing: lines and nets, floats, hooks
+        add(Fish, 1.5 * f(2));
+        add(Fibre, 1.0 * f(2));
+        add(Wood, 0.8 * f(2));
+        add(Bone, 0.6 * f(2));
+        // trapping small game: cord, sticks, skins
+        add(Fibre, 1.0 * f(3));
+        add(Wood, 0.8 * f(3));
+        add(Hide, 0.5 * f(3));
+        let cold = (b.d.cold * 2.0).clamp(0.0, 1.5);
+        add(Hide, 1.5 * cold);
+        add(Bone, 0.6 * cold);
+        add(Fibre, 0.5 * cold);
+        add(Wood, 1.0 * cold);
+        let store = ((5.0 - m.temp_winter(ci)) / 10.0).clamp(0.0, 1.0)
+            + if self.near_water(ci) { 0.0 } else { 1.0 };
+        add(Clay, 0.8 * store);
+        add(Hide, 0.5 * store);
+        add(Fibre, 0.5 * store);
+        // at hand here vs carried in
+        let here = |mm: Mat| match mm {
+            Wood => m.k_wood[ci] > 2.0,
+            Fibre => m.k_fibre[ci] > 2.0,
+            Meat | Hide | Bone => self.game[ci] > 5.0,
+            Plants => self.plants[ci] > 5.0,
+            Fish => self.fish[ci] > 3.0,
+            mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && m.has(ci, d)),
+        };
+        // striking stones catch the eye: green and grey ores (pigments, heavy shiny lumps),
+        // glassy obsidian
+        add(CopperOre, 0.8);
+        add(TinOre, 0.5);
+        add(Obsidian, 0.5);
+        let carried = 0.3 + 0.6 * b.curiosity;
+        for (mi, v) in a.iter_mut().enumerate() {
+            let mm = ALL_MATS[mi];
+            if !here(mm) {
+                *v *= carried;
+            }
+            // attention is focused: what is on people's minds crowds out the rest
+            *v = (*v * b.craft.get(mi).copied().unwrap_or(1.0)).powf(1.0);
+        }
+        a
+    }
+
+    /// Doing (inventing or being shown) a recipe deepens a band's habit of working its materials
+    /// that way. Tradition is relative: leanings are renormalised to a mean of 1.
+    fn reinforce_craft(b: &mut Band, r: &Recipe, by: f32) {
+        if b.craft.len() < CRAFT_LEN {
+            b.craft.resize(CRAFT_LEN, 1.0);
+        }
+        for &i in r.inputs.iter() {
+            if i != NONE && !matches!(form(i), Form::Fire | Form::Kiln) {
+                let c = &mut b.craft[mat(i) as usize];
+                *c = (*c * by).min(4.0);
+            }
+        }
+        let ai = NMAT + (r.action as usize).min(2);
+        b.craft[ai] = (b.craft[ai] * by.sqrt()).min(3.0);
+        let mean = b.craft[..NMAT].iter().sum::<f32>() / NMAT as f32;
+        if mean > 0.0 {
+            for c in &mut b.craft[..NMAT] {
+                *c = (*c / mean).max(0.2);
+            }
+        }
+    }
+
+    fn experiment(&mut self, b: &mut Band, rng: &mut Rng, dryness: f32, att: &[f32; NMAT]) {
         self.counters.experiments += 1;
         self.year_acc.experiments += 1;
         let pool: Vec<Item> = b
@@ -830,7 +992,11 @@ impl World {
         // things near a fire also get combined with it (feeding, building around)
         let mut cpool = pool.clone();
         cpool.extend(fires.iter().copied());
-        let pick = |rng: &mut Rng, v: &[Item]| v[rng.below(v.len())];
+        // what gets picked up follows the band's attention (see `attention`)
+        let pick = |rng: &mut Rng, v: &[Item]| {
+            let ws: Vec<f32> = v.iter().map(|&i| att[mat(i) as usize]).collect();
+            v[rng.weighted(&ws).unwrap_or_else(|| rng.below(v.len()))]
+        };
         // salience: things that already work as tools get tried as tools; hard cobbles too
         let tool_w: Vec<f32> = pool
             .iter()
@@ -840,16 +1006,43 @@ impl World {
                 _ => 0.3,
             })
             .collect();
-        let roll = rng.f32();
-        let (action, inputs): (Action, Inputs) = if !fires.is_empty() && roll < 0.15 {
-            let t1 = pick(rng, &pool);
-            let t2 = if rng.chance(0.25) { pick(rng, &pool) } else { NONE };
+        // which way of working: heat (only with a fire at hand), shape, combine - each band's
+        // habits tilt the mix
+        let cr = |k: usize| b.craft.get(NMAT + k).copied().unwrap_or(1.0);
+        let wh = if fires.is_empty() { 0.0 } else { 0.15 * cr(Action::Heat as usize) };
+        let ws = 0.45 * cr(Action::Shape as usize);
+        let wc = 0.40 * cr(Action::Combine as usize);
+        let roll = rng.f32() * (wh + ws + wc);
+        // what goes into a fire: people soon learn that fibre, hide and bone just burn away, while
+        // earths and stones come out changed - so the fire gets fed stones, clays, food, pots
+        // (attention still tilts it, more loosely than at the work bench)
+        let pick_heat = |rng: &mut Rng, v: &[Item]| {
+            let ws: Vec<f32> = v
+                .iter()
+                .map(|&i| {
+                    let m = mat(i);
+                    let keeps = if matches!(m, Mat::Fibre | Mat::Hide | Mat::Bone) { 0.3 } else if m.is_food() || m.props().fuel_t > 0.0 { 1.0 } else { 1.5 };
+                    att[m as usize].sqrt() * keeps
+                })
+                .collect();
+            v[rng.weighted(&ws).unwrap_or_else(|| rng.below(v.len()))]
+        };
+        let (action, inputs): (Action, Inputs) = if roll < wh {
+            let t1 = pick_heat(rng, &pool);
+            let t2 = if rng.chance(0.25) { pick_heat(rng, &pool) } else { NONE };
             if t1 == t2 {
                 return;
             }
             let k = if !kilns.is_empty() && rng.chance(0.6) { pick(rng, &kilns) } else { NONE };
-            (Action::Heat, [t1, t2, pick(rng, &fires), k])
-        } else if roll < 0.6 {
+            // the fire: a band that knows a hotter fire (charcoal) mostly banks that one for
+            // firing work; otherwise any fire it keeps
+            let hottest = fires.iter().copied().max_by_key(|&f| (crate::materials::fire_temp(mat(f), None) * 10.0) as i64);
+            let fire = match hottest {
+                Some(f) if rng.chance(0.6) => f,
+                _ => fires[rng.below(fires.len())],
+            };
+            (Action::Heat, [t1, t2, fire, k])
+        } else if roll < wh + ws {
             let t = pick(rng, &pool);
             let tool = if rng.chance(0.35) { NONE } else { pool[rng.weighted(&tool_w).unwrap_or(0)] };
             if t == tool {
@@ -900,7 +1093,8 @@ impl World {
             return;
         }
         self.reg.recipes[rid as usize].inventions += 1;
-        b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, used: true });
+        Self::reinforce_craft(b, &self.reg.recipes[rid as usize], 1.35);
+        b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, kin: true, used: true });
         b.d.known_ver += 1;
         b.inventions += 1;
         self.counters.inventions += 1;
@@ -966,19 +1160,45 @@ impl World {
         s
     }
 
+    /// How hard life at home pushes a band to look elsewhere: hunger, cold and crowding.
+    fn push_out(&self, b: &Band) -> f32 {
+        let c = b.cell(self.map.w);
+        let crowd = self.crowd(c, b) as f32 / (b.pop as f32 + 10.0);
+        (b.d.stress + 0.5 * crowd).clamp(0.0, 1.0)
+    }
+
+    /// Is any of the 8 cells around `c` open sea (not just a river)?
+    pub fn coastal(&self, c: usize) -> bool {
+        let m = &self.map;
+        nbrs8(c % m.w, c / m.w, m.w, m.h).any(|(a, bb)| !m.is_land(bb * m.w + a))
+    }
+
+    /// Chance that people in a boat of quality `q` come through `sea` cells of open water.
+    /// Better boats (higher q) are both faster and safer; a raft on a long crossing often is not.
+    pub fn sea_survival(q: f32, sea: f32) -> f32 {
+        (-0.025 * sea * (1.4 - q).max(0.3).powi(2)).exp()
+    }
+
     /// A trip out over open water: pick a heading from a coastal camp and paddle until land shows
     /// up or the boat's range runs out. Returns the landing cell and how much open water was
-    /// crossed. Nothing guides the heading: distant or small landfalls are found only by chance.
-    pub fn voyage(&self, b: &Band, rng: &mut Rng) -> Option<(usize, f32)> {
+    /// crossed. Without a known far shore the heading is pure chance; with one (`aim`, seen from
+    /// the coast or heard of) they steer for it, roughly. Range grows with the boat.
+    pub fn voyage(&self, b: &Band, rng: &mut Rng, aim: Option<u32>) -> Option<(usize, f32)> {
         let kit = &b.d.kit;
         let m = &self.map;
         if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
             return None;
         }
-        let range = 2.0 + 6.0 * kit.boat_q;
-        let ang = rng.f32() * std::f32::consts::TAU;
-        let (dx, dy) = (ang.cos(), ang.sin());
+        let range = 2.0 + 10.0 * kit.boat_q;
         let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
+        let ang = match aim {
+            Some(t) => {
+                let (tx, ty) = ((t as usize % m.w) as f32 + 0.5, (t as usize / m.w) as f32 + 0.5);
+                (ty - y0).atan2(tx - x0) + 0.3 * rng.gauss()
+            }
+            None => rng.f32() * std::f32::consts::TAU,
+        };
+        let (dx, dy) = (ang.cos(), ang.sin());
         let step = 0.7f32;
         let mut sea = 0.0f32;
         let mut t = step;
@@ -1006,6 +1226,159 @@ impl World {
         None
     }
 
+    /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
+    /// Returns the number lost.
+    fn sea_toll(&mut self, b: &mut Band, sea: f32, rng: &mut Rng) -> u32 {
+        if rng.chance(Self::sea_survival(b.d.kit.boat_q, sea)) {
+            return 0;
+        }
+        let lost = ((b.pop as f32 * rng.range(0.3, 1.05)) as u32).min(b.pop);
+        b.pop -= lost;
+        self.counters.sea_disasters += 1;
+        self.counters.lost_at_sea += lost as u64;
+        self.push_event(EventKind::LostAtSea, b.id, lost, b.cell(self.map.w) as u32, NONE, u32::MAX);
+        lost
+    }
+
+    /// The sea in a coastal band's year: looking out from the shore (or from the fishing grounds)
+    /// people may make out land on the horizon; and fishing parties are sometimes blown out to sea
+    /// - most drown or wash back, some come ashore somewhere new, a few find their way home with
+    /// news of it.
+    fn sea_season(&mut self, b: &mut Band, rng: &mut Rng) {
+        let m = &self.map;
+        let ci = b.cell(m.w);
+        if !self.coastal(ci) {
+            return;
+        }
+        let q = b.d.kit.boat_q;
+        let h = b.d.harvest;
+        let fish_share = h[2] / h.iter().sum::<f32>().max(1e-3);
+        let own_lm = m.landmass_of(ci);
+        // a look out to sea, about once a year
+        if b.far_shore.is_none() && rng.chance(0.25) {
+            let mut sight = 3.0 + (m.height.get(ci).copied().unwrap_or(0.0) / 500.0).clamp(0.0, 3.0);
+            if q > 0.0 && fish_share > 0.1 {
+                sight += 1.0 + 3.0 * q; // seen from out on the fishing grounds
+            }
+            let a0 = rng.f32() * std::f32::consts::TAU;
+            'rays: for k in 0..16 {
+                let ang = a0 + k as f32 * std::f32::consts::TAU / 16.0;
+                let (dx, dy) = (ang.cos(), ang.sin());
+                let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
+                let mut sea = 0.0f32;
+                let mut t = 0.7f32;
+                while t < sight + 2.0 {
+                    let (px, py) = (x0 + dx * t, y0 + dy * t);
+                    if px < 0.0 || py < 0.0 || px >= m.w as f32 || py >= m.h as f32 {
+                        break;
+                    }
+                    let c = py as usize * m.w + px as usize;
+                    if m.is_land(c) {
+                        if sea >= 1.4 && m.landmass_of(c) != own_lm {
+                            b.far_shore = Some(c as u32);
+                            self.counters.sightings += 1;
+                            break 'rays;
+                        }
+                        if sea > 0.0 || t > 2.0 {
+                            break;
+                        }
+                    } else {
+                        sea += 0.7;
+                        if sea > sight {
+                            break;
+                        }
+                    }
+                    t += 0.7;
+                }
+            }
+        }
+        // drift: only people who fish from boats are out there to be blown away
+        if q <= 0.0 || fish_share < 0.1 || b.pop < 15 {
+            return;
+        }
+        let pd = 0.006 * fish_share * (1.0 - 0.5 * q);
+        if !rng.chance(pd) {
+            return;
+        }
+        self.counters.drifts += 1;
+        let party = (5 + rng.below(7) as u32).min(b.pop / 3);
+        let blown = 3.0 + 15.0 * rng.f32();
+        let ang = rng.f32() * std::f32::consts::TAU;
+        let (dx, dy) = (ang.cos(), ang.sin());
+        let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
+        let mut sea = 0.0f32;
+        let mut t = 0.7f32;
+        let mut landing = None;
+        while sea <= blown {
+            let (px, py) = (x0 + dx * t, y0 + dy * t);
+            if px < 0.0 || py < 0.0 || px >= m.w as f32 || py >= m.h as f32 {
+                break;
+            }
+            let c = py as usize * m.w + px as usize;
+            if m.is_land(c) {
+                if sea > 0.0 {
+                    landing = Some(c);
+                    break;
+                }
+            } else {
+                sea += 0.7;
+            }
+            t += 0.7;
+        }
+        let survive = landing.is_some() && rng.chance(Self::sea_survival(0.7 * q, sea));
+        if !survive {
+            b.pop -= party;
+            self.counters.sea_disasters += 1;
+            self.counters.lost_at_sea += party as u64;
+            self.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
+            return;
+        }
+        let c = landing.unwrap();
+        if sea < 2.0 || self.map.landmass_of(c) == own_lm && sea < 4.0 {
+            return; // washed back onto a known shore: a fright, nothing more
+        }
+        let far_lm = self.map.landmass_of(c) != own_lm;
+        if rng.chance(0.3 + 0.4 * q) {
+            // they make it home and tell of what they saw
+            self.counters.drift_returns += 1;
+            if far_lm {
+                b.far_shore = Some(c as u32);
+            }
+            return;
+        }
+        // they stay where they came ashore, with what they carry in their heads and hands
+        self.counters.drift_landings += 1;
+        b.pop -= party;
+        let id = self.next_id;
+        self.next_id += 1;
+        let known: Vec<Known> = b
+            .known
+            .iter()
+            .filter(|kn| rng.chance(0.3 + 0.6 * kn.skill))
+            .map(|kn| Known { skill: kn.skill * 0.8, from: FROM_PARENT, since: self.tick, ..*kn })
+            .collect();
+        let nb = Band {
+            id,
+            lineage: b.lineage,
+            parent: b.id,
+            gen: b.gen + 1,
+            x: (c % self.map.w) as u16,
+            y: (c / self.map.w) as u16,
+            pop: party,
+            store: 0.5,
+            curiosity: b.curiosity,
+            flame: b.flame && rng.chance(0.3),
+            known,
+            stock: b.stock.iter().map(|v| v * 0.3).collect(),
+            origin: b.origin.clone(),
+            craft: b.craft.clone(),
+            born: self.tick,
+            ..Default::default()
+        };
+        self.push_event(EventKind::Drifted, b.id, id, c as u32, NONE, u32::MAX);
+        self.pending.push(nb);
+    }
+
     fn maybe_move(&mut self, b: &mut Band, rng: &mut Rng) {
         let m = &self.map;
         let (x, y) = (b.x as usize, b.y as usize);
@@ -1021,10 +1394,19 @@ impl World {
             let dist = dx.abs().max(dy.abs()) as f32;
             cands.push((sy as usize * m.w + sx as usize, 1.0 + 0.08 * (dist - 1.0).max(0.0)));
         }
-        // people with boats sometimes go and look across the water
-        if b.d.kit.boat_q > 0.0 && rng.chance(0.25) {
-            if let Some((c, sea)) = self.voyage(b, rng) {
-                cands.push((c, 1.15 + 0.06 * sea));
+        // people with boats sometimes go and look across the water: more often when home is
+        // hungry or crowded, or when they know of land out there; hard times make a poorer
+        // landing acceptable
+        let mut by_sea: Option<(usize, f32)> = None;
+        if b.d.kit.boat_q > 0.0 {
+            let push = self.push_out(b);
+            let pv = 0.06 + 0.35 * push + if b.far_shore.is_some() { 0.1 } else { 0.0 };
+            if rng.chance(pv) {
+                let aim = if rng.chance(0.7) { b.far_shore } else { None };
+                if let Some((c, sea)) = self.voyage(b, rng, aim) {
+                    cands.push((c, (1.15 + 0.06 * sea) * (1.0 - 0.3 * push)));
+                    by_sea = Some((c, sea));
+                }
             }
         }
         for (c, pen) in cands {
@@ -1037,6 +1419,22 @@ impl World {
         if best != cur {
             b.x = (best % m.w) as u16;
             b.y = (best / m.w) as u16;
+            if let Some((c, sea)) = by_sea {
+                if c == best {
+                    self.counters.voyages += 1;
+                    self.sea_toll(b, sea, rng);
+                    self.forget_reached_shore(b);
+                }
+            }
+        }
+    }
+
+    /// Once a band stands on the land it had heard of, it is no longer a far shore.
+    fn forget_reached_shore(&self, b: &mut Band) {
+        if let Some(f) = b.far_shore {
+            if self.map.landmass_of(f as usize) == self.map.landmass_of(b.cell(self.map.w)) {
+                b.far_shore = None;
+            }
         }
     }
 
@@ -1269,6 +1667,10 @@ impl World {
         if bands[src].flame && !bands[dst].flame && rng.chance(0.5) {
             bands[dst].flame = true;
         }
+        // so can word of a land across the water
+        if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
+            bands[dst].far_shore = bands[src].far_shore;
+        }
         let cands: Vec<(u32, f32)> = bands[src]
             .known
             .iter()
@@ -1292,7 +1694,8 @@ impl World {
         let out = r.output;
         let srcid = bands[src].id;
         let d = &mut bands[dst];
-        d.known.push(Known { recipe: rid, skill: 0.3, since: self.tick, from: srcid, used: true });
+        Self::reinforce_craft(d, &self.reg.recipes[rid as usize], 1.06);
+        d.known.push(Known { recipe: rid, skill: 0.3, since: self.tick, from: srcid, kin: false, used: true });
         d.d.known_ver += 1;
         d.learned += 1;
         let (did, dc) = (d.id, d.cell(self.map.w) as u32);
@@ -1333,13 +1736,15 @@ impl World {
                 }
             }
             // a daughter band with boats may strike out across the water instead
-            let mut sailed = false;
+            let mut sailed = None;
             if b.d.kit.boat_q > 0.0 && rng.chance(0.5) {
-                if let Some((c, sea)) = self.voyage(b, rng) {
-                    let s = self.cell_score(b, c) / (1.1 + 0.05 * sea);
+                let push = self.push_out(b);
+                let aim = if rng.chance(0.7) { b.far_shore } else { None };
+                if let Some((c, sea)) = self.voyage(b, rng, aim) {
+                    let s = self.cell_score(b, c) / ((1.1 + 0.05 * sea) * (1.0 - 0.3 * push));
                     if s > best.1 {
                         best = (c, s);
-                        sailed = true;
+                        sailed = Some(sea);
                     }
                 }
             }
@@ -1373,14 +1778,24 @@ impl World {
                 stock: b.stock.clone(),
                 origin: b.origin.clone(),
                 partners: vec![Partner { id: b.id, strength: 0.5, since: self.tick, traded: 0.0 }],
+                // habits of hand carry over, each daughter a little different
+                craft: b.craft.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
+                far_shore: b.far_shore,
                 born: self.tick,
                 ..Default::default()
             };
-            if sailed {
+            if let Some(sea) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
+                d.d.kit.boat_q = b.d.kit.boat_q;
+                self.counters.voyages += 1;
+                self.sea_toll(&mut d, sea, rng);
+                self.forget_reached_shore(&mut d);
             }
             let bm = &mut bands[k];
             bm.pop -= dpop;
+            if d.pop < 4 {
+                continue; // the daughter band was lost at sea (or too few made it to stand alone)
+            }
             bm.store *= 0.6;
             bm.bond(id, 0.5, 0.0, self.tick);
             self.counters.splits += 1;
@@ -1405,7 +1820,7 @@ impl World {
                 tb.pop += pop;
                 for kn in moved {
                     if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.6) {
-                        tb.known.push(Known { skill: kn.skill * 0.7, from: id, since: self.tick, ..kn });
+                        tb.known.push(Known { skill: kn.skill * 0.7, from: id, since: self.tick, kin: false, ..kn });
                         tb.d.known_ver += 1;
                     }
                 }
@@ -1417,6 +1832,7 @@ impl World {
             bands[k].pop = 0;
         }
         bands.retain(|b| b.pop > 0);
+        newb.extend(std::mem::take(&mut self.pending));
         for mut d in newb {
             self.refresh_toolkit(&mut d);
             bands.push(d);
@@ -1577,6 +1993,8 @@ impl World {
             }
             EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
+            EventKind::LostAtSea => format!("Y{yr}: {} of band {} lost at sea near ({cx},{cy})", e.other, e.band),
+            EventKind::Drifted => format!("Y{yr}: a fishing party of band {} blown out to sea comes ashore at ({cx},{cy}) as band {}", e.band, e.other),
         }
     }
 }
