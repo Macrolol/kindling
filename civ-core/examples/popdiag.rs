@@ -73,7 +73,7 @@ fn main() {
             yr, pop, w.bands.len(), pop as f32 / nb, occn, inrn as f32 / land as f32 * 100.0, pop as f32 / cap_in.max(1.0),
             hungry, mf, msp, mst, mc, sp / kp.max(1.0), sg / kg.max(1.0), sf / kf.max(1.0),
             splits as f32 / every as f32, deaths as f32 / every as f32,
-            k(&|b| b.d.kit.plants_m), k(&|b| b.d.kit.game_m), k(&|b| b.d.kit.fish_m), k(&|b| b.d.kit.cook_m), k(&|b| b.d.kit.protect));
+            k(&|b| b.d.kit.plants_m), k(&|b| b.d.kit.game_m), k(&|b| b.d.kit.fish_m), k(&|b| b.d.kit.digest_mean()), k(&|b| b.d.kit.protect));
     }
     // final: where people are vs capacity, per biome
     let m = &w.map;

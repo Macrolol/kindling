@@ -64,6 +64,28 @@ pub fn run(a: &Args) {
                     f.how
                 );
             }
+            let cs: Vec<String> = s
+                .continents
+                .iter()
+                .map(|c| match c.landfall_year {
+                    Some(y) => format!("#{} {}c Y{:.0} pop {}", c.id, c.cells, y, c.pop_now),
+                    None => format!("#{} {}c never", c.id, c.cells),
+                })
+                .collect();
+            println!(
+                "    continents settled {}/{}: {} | islands reached {}/{}",
+                s.continents.iter().filter(|c| c.landfall_year.is_some()).count(),
+                s.continents.len(),
+                cs.join(", "),
+                s.islands_reached,
+                s.islands
+            );
+            let t = &s.trade;
+            let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
+            println!(
+                "    trade: {} exchanges, volume {:.0}, food shared {:.0}, mean dist {:.1} | last yr {} trades, {} partnerships, carried metal/obsidian {:.1} cells from source (max ever {:.0}) | first: {}",
+                t.trades, t.volume, t.food_shared, t.mean_dist, t.trades_last, t.partnerships_last, t.goods_dist_mean_last, t.goods_dist_max_ever, ft.join(", ")
+            );
             if !s.lost_worldwide.is_empty() {
                 println!("    lost worldwide: {}", s.lost_worldwide.join(", "));
             }

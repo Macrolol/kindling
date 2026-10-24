@@ -88,6 +88,10 @@ pub struct Props {
     pub melt: f32,
     /// resists heat / holds heat in (kiln lining)
     pub refractory: f32,
+    /// buoyancy: floats and carries weight (a log, a bundle of reeds)
+    pub float: f32,
+    /// watertight as a sheet (can be stretched over a frame)
+    pub seal: f32,
 }
 
 const fn p(name: &'static str) -> Props {
@@ -109,19 +113,21 @@ const fn p(name: &'static str) -> Props {
         fires_to: None,
         melt: 0.0,
         refractory: 0.0,
+        float: 0.0,
+        seal: 0.0,
     }
 }
 
 pub static PROPS: [Props; NMAT] = [
-    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, ..p("wood") },
+    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, float: 7.0, ..p("wood") },
     Props { hard: 6.0, tough: 7.0, fracture: 3.5, sharp: 3.0, workable: 1.0, refractory: 4.0, ..p("stone") },
     Props { hard: 7.0, tough: 3.5, fracture: 9.0, sharp: 8.0, workable: 0.5, refractory: 3.0, ..p("flint") },
     Props { hard: 5.5, tough: 1.5, fracture: 10.0, sharp: 10.0, workable: 0.5, ..p("obsidian") },
     Props { hard: 1.0, tough: 1.0, plastic: 9.0, workable: 8.0, fire_t: 600.0, fires_to: Some(Mat::Ceramic), refractory: 8.0, ..p("clay") },
     Props { hard: 3.8, tough: 3.0, fracture: 1.0, reduce_t: 1150.0, reduces_to: Some(Mat::Copper), refractory: 2.0, ..p("copper ore") },
     Props { hard: 6.5, tough: 4.0, fracture: 1.0, reduce_t: 1050.0, reduces_to: Some(Mat::Tin), refractory: 2.0, ..p("tin ore") },
-    Props { hard: 0.5, tough: 3.0, workable: 6.0, fibrous: 9.0, fuel_t: 400.0, ..p("plant fibre") },
-    Props { hard: 1.0, tough: 6.0, workable: 6.0, fibrous: 6.0, food: 0.5, ..p("hide") },
+    Props { hard: 0.5, tough: 3.0, workable: 6.0, fibrous: 9.0, fuel_t: 400.0, float: 6.0, ..p("plant fibre") },
+    Props { hard: 1.0, tough: 6.0, workable: 6.0, fibrous: 6.0, food: 0.5, seal: 7.0, ..p("hide") },
     Props { hard: 4.0, tough: 5.0, fracture: 2.5, sharp: 4.5, workable: 5.0, ..p("bone") },
     Props { hard: 0.2, tough: 1.0, food: 9.0, ..p("meat") },
     Props { hard: 0.5, tough: 1.0, food: 6.0, fibrous: 2.0, ..p("wild plants") },
@@ -149,7 +155,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 13;
+pub const NFORM: usize = 16;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -179,6 +185,12 @@ pub enum Form {
     Fire,
     /// an enclosed fire chamber lined with the material
     Kiln,
+    /// something that floats and carries people (dugout, skin boat, reed bundle boat)
+    Boat,
+    /// knotted mesh for catching fish and birds
+    Net,
+    /// a snare: a cord noose on a springy stick
+    Trap,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -194,6 +206,9 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Cooked,
     Form::Fire,
     Form::Kiln,
+    Form::Boat,
+    Form::Net,
+    Form::Trap,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -258,12 +273,23 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n} fire"),
         },
         Form::Kiln => format!("{n}-lined kiln"),
+        Form::Boat => match m {
+            Mat::Wood => "dugout canoe".into(),
+            Mat::Hide => "skin boat".into(),
+            Mat::Fibre => "reed bundle boat".into(),
+            _ => format!("{n} raft"),
+        },
+        Form::Net => format!("{n} net"),
+        Form::Trap => match m {
+            Mat::Hide => "rawhide snare".into(),
+            _ => format!("{n} snare"),
+        },
     }
 }
 
 /// Fixed-size bitset over all item ids.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ItemSet(pub [u64; 7]);
+pub struct ItemSet(pub [u64; 8]);
 impl ItemSet {
     #[inline]
     pub fn has(&self, i: Item) -> bool {
@@ -303,6 +329,16 @@ pub fn vessel_q(m: Mat) -> f32 {
         Mat::Clay => 0.25,
         _ => 0.3,
     }
+}
+/// Seaworthiness of a boat: a sturdy hull that floats (or a watertight skin on a frame).
+pub fn boat_q(m: Mat) -> f32 {
+    let p = m.props();
+    ((p.tough + p.float.max(p.seal)) / 14.0).clamp(0.0, 1.0)
+}
+/// Quality of a net or snare: strong, flexible cord.
+pub fn mesh_q(m: Mat) -> f32 {
+    let p = m.props();
+    ((p.tough + p.fibrous) / 15.0).clamp(0.0, 1.0)
 }
 /// Warmth of clothing.
 pub fn garment_q(m: Mat) -> f32 {

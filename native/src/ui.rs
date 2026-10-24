@@ -231,7 +231,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
         egui::Window::new("Help").default_pos([400.0, 200.0]).show(ctx, |ui| {
             ui.label(
                 "Drag to pan, wheel to zoom, click a band to inspect it.\n\
-                 Space pause · +/- speed · 1–6 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
+                 Space pause · +/- speed · 1–7 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
                  Discs are bands (size ~ people, colour = founding lineage, orange ring = keeps a fire).\n\
                  Nothing is scripted: each band experiments with what it has; physics of the materials\n\
                  decides what works. Know-how spreads by teaching between neighbours and is forgotten\n\
@@ -526,6 +526,17 @@ fn legend(ctx: &egui::Context, st: &UiState, w: &World) {
                         swatch(ui, c32(col), name);
                     }
                     swatch(ui, c32([0.25, 0.25, 0.25]), "dark grey = nothing special");
+                }
+                6 => {
+                    ui.label("Goods changing hands recently: each exchange marks the cells between the two bands (stone, flint, obsidian, hides, fibre, ores, metal). Bright lines are busy routes; lines over the sea are boat trips between partners. Fades within a couple of years once trade stops.");
+                    let t = |f: f32| ((1.0 + f).ln() / TRADE_LN_MAX, format!("{f:.1}"));
+                    let e = TRADE_LN_MAX.exp() - 1.0;
+                    ramp_bar(ui, &[t(0.0), t(1.0), t(5.0), (1.0, format!("{e:.0}+ loads"))]);
+                    swatch(ui, unreached, "grey = no trade passing (darker = land)");
+                    let h = w.history.last();
+                    if let Some(h) = h {
+                        ui.label(format!("Last year: {} exchanges, {} partnerships, carried metal/obsidian on average {:.1} cells from its source.", h.trades, h.partnerships, h.goods_dist_mean));
+                    }
                 }
                 _ => {
                     ui.label("Average temperature over the year. Seasons swing above and below this; cold places need fire and clothing.");

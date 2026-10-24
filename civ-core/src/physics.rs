@@ -59,6 +59,8 @@ pub fn canonical(action: Action, mut inp: Inputs) -> Inputs {
 pub struct Ctx {
     /// 0 (wet) .. 1 (arid): friction fire-making is easier in dry places
     pub dryness: f32,
+    /// at the water's edge (sea or river): only here does anyone find out what floats
+    pub water: bool,
 }
 
 /// Result of applying an action: the output item and the chance a single attempt succeeds.
@@ -74,7 +76,7 @@ fn o(out: Item, p: f32) -> Option<Outcome> {
 
 pub fn apply(action: Action, inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     match action {
-        Action::Shape => shape(inp[0], inp[1]),
+        Action::Shape => shape(inp[0], inp[1], ctx),
         Action::Combine => combine(inp, ctx),
         Action::Heat => heat(inp),
     }
@@ -84,7 +86,7 @@ fn is_metal(m: Mat) -> bool {
     m.props().malleable >= 5.0
 }
 
-fn shape(t: Item, tool: Item) -> Option<Outcome> {
+fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
     if t == NONE {
         return None;
     }
@@ -126,6 +128,10 @@ fn shape(t: Item, tool: Item) -> Option<Outcome> {
             if tm == Mat::Wood && hands {
                 return o(item(Form::Shaft, tm), 0.4);
             }
+            // fell and hollow out a log with an axe: a dugout (floats because wood floats)
+            if ctx.water && tp.float >= 5.0 && tp.tough >= 5.0 && of == Form::Axe && cut_q(om) > 0.4 {
+                return o(item(Form::Boat, tm), 0.04 + 0.2 * cut_q(om));
+            }
             // carve with an edge harder than the material
             if of == Form::Edge && tp.workable >= 4.0 && op.hard > tp.hard + 1.0 {
                 if tp.fibrous >= 3.0 && tp.food < 1.0 {
@@ -150,6 +156,11 @@ fn shape(t: Item, tool: Item) -> Option<Outcome> {
             None
         }
         Form::Cord => {
+            // knot cord into an open mesh over a gauge stick / with a netting needle
+            if !hands && (of == Form::Shaft || of == Form::Point) && tp.fibrous >= 5.0 {
+                let p = if of == Form::Point { 0.25 } else { 0.15 };
+                return o(item(Form::Net, tm), p);
+            }
             // weave / knot cord into a container
             if hands && tp.fibrous >= 5.0 {
                 return o(item(Form::Vessel, tm), 0.4);
@@ -187,6 +198,23 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             if em.props().hard >= 3.0 && em.props().tough + em.props().malleable >= 3.0 {
                 return o(item(Form::Axe, em), 0.25 + 0.3 * cut_q(em));
             }
+        }
+    }
+    // a watertight skin lashed over a frame of shafts: a skin boat
+    if ctx.water && n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
+            return o(item(Form::Boat, mat(sk)), 0.06);
+        }
+    }
+    // a springy stick with a cord noose: a snare
+    if n == 2 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        let c = find(Form::Cord)?;
+        return o(item(Form::Trap, mat(c)), 0.2);
+    }
+    // bundles of buoyant reeds bound tightly with cord: a reed boat
+    if ctx.water && n == 2 && count(Form::Cord) == 1 {
+        if let Some(r) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().float >= 5.0 && mat(i).props().fibrous >= 8.0) {
+            return o(item(Form::Boat, mat(r)), 0.03);
         }
     }
     // sewing: hide + cord + a point to pierce it

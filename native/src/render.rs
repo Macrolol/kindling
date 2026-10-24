@@ -32,8 +32,10 @@ pub const DEPOSIT_KEY: [(u32, [f32; 3], &str); 6] = [
 pub const TEMP_LO: f32 = -15.0;
 pub const TEMP_HI: f32 = 30.0;
 pub const POP_LN_MAX: f32 = 6.0;
+/// Trade overlay scale: ln(1 + recent goods through a cell).
+pub const TRADE_LN_MAX: f32 = 3.0;
 
-pub const OVERLAYS: [&str; 6] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature"];
+pub const OVERLAYS: [&str; 7] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade"];
 
 /// Camera: centre in cell coordinates, zoom in screen pixels per cell.
 pub struct View {
@@ -162,6 +164,16 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                     g
                 }
                 5 => ramp((m.temp[i] - TEMP_LO) / (TEMP_HI - TEMP_LO)),
+                6 => {
+                    let f = w.trade_flow.get(i).copied().unwrap_or(0.0);
+                    if f > 0.02 {
+                        ramp((1.0 + f).ln() / TRADE_LN_MAX)
+                    } else if land {
+                        grey(c, 0.45)
+                    } else {
+                        grey(c, 0.8)
+                    }
+                }
                 _ => c,
             };
             let o = (y * m.w + x) * 4;

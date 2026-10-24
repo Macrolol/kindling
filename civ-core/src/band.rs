@@ -24,6 +24,10 @@ pub struct Band {
     /// carried raw materials (0..~1.5 per material)
     pub stock: Vec<f32>,
     pub born: u32,
+    /// where each carried material was first gathered (cell; u32::MAX = unknown)
+    pub origin: Vec<u32>,
+    /// exchange partners: bands this one trades with and visits
+    pub partners: Vec<Partner>,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -31,6 +35,17 @@ pub struct Band {
     // ---- derived each season (not saved)
     #[serde(skip)]
     pub d: Derived,
+}
+
+/// A standing exchange relationship with another band (grows with use, fades without).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Partner {
+    pub id: u32,
+    pub strength: f32,
+    pub since: u32,
+    /// goods passed either way so far
+    pub traded: f32,
 }
 
 /// The best item a band uses for each task, and the resulting multipliers.
@@ -47,12 +62,23 @@ pub struct Kit {
     pub cord: Item,
     pub hammer: Item,
     pub point: Item,
+    pub boat: Item,
+    pub net: Item,
+    pub trap: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
+    /// gathering efficiency per resource
     pub plants_m: f32,
     pub game_m: f32,
     pub fish_m: f32,
-    pub cook_m: f32,
+    pub small_m: f32,
+    /// food value per unit harvested [plants, game, fish, small game]: cooking makes more of the
+    /// same harvest digestible (gelatinised starch, softened meat), so it adds calories, not speed
+    pub digest: [f32; 4],
+    /// smoking / drying over a fire slows spoilage of stored meat and fish
+    pub smoke: bool,
+    /// seaworthiness of the best boat (0 = none)
+    pub boat_q: f32,
     pub protect: f32,
 }
 impl Default for Kit {
@@ -69,21 +95,32 @@ impl Default for Kit {
             cord: NONE,
             hammer: NONE,
             point: NONE,
+            boat: NONE,
+            net: NONE,
+            trap: NONE,
             cooked: [NONE; 3],
             plants_m: 1.0,
             game_m: 1.0,
             fish_m: 1.0,
-            cook_m: 1.0,
+            small_m: 0.35,
+            digest: [1.0; 4],
+            smoke: false,
+            boat_q: 0.0,
             protect: 0.0,
         }
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 14] {
+    pub fn used_items(&self) -> [Item; 17] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
+            self.boat, self.net, self.trap,
         ]
+    }
+    /// mean food value per unit across the four food kinds (for display)
+    pub fn digest_mean(&self) -> f32 {
+        self.digest.iter().sum::<f32>() / 4.0
     }
 }
 
@@ -99,12 +136,55 @@ pub struct Derived {
     pub cold: f32,
     pub need: f32,
     pub upkeep: f32,
+    /// food eaten this season (person-seasons) and the harvest [plants, game, fish, small game]
+    pub food: f32,
+    pub harvest: [f32; 4],
     pub experiments: u32,
     /// raw materials (bitmask) that the tools in use need
     pub needed: u32,
+    /// raw materials (bitmask) that appear in any recipe the band knows
+    pub uses: u32,
+    /// demand for each material heard from trade partners (lets goods pass down a chain)
+    pub demand: [f32; NMAT],
 }
 
+pub const MAX_PARTNERS: usize = 8;
+
 impl Band {
+    /// Older saves carry stock / origin vectors for fewer materials: pad them.
+    pub fn fit_vectors(&mut self) {
+        if self.stock.len() < NMAT {
+            self.stock.resize(NMAT, 0.0);
+        }
+        if self.origin.len() < NMAT {
+            self.origin.resize(NMAT, u32::MAX);
+        }
+    }
+    pub fn partner(&self, id: u32) -> Option<&Partner> {
+        self.partners.iter().find(|p| p.id == id)
+    }
+    /// Strengthen (or start) a partnership; the weakest link is dropped when there are too many.
+    pub fn bond(&mut self, id: u32, by: f32, traded: f32, tick: u32) {
+        if let Some(p) = self.partners.iter_mut().find(|p| p.id == id) {
+            p.strength = (p.strength + by).min(1.0);
+            p.traded += traded;
+            return;
+        }
+        if self.partners.len() >= MAX_PARTNERS {
+            let (wi, wp) = self
+                .partners
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.strength.total_cmp(&b.1.strength))
+                .map(|(i, p)| (i, p.strength))
+                .unwrap();
+            if wp >= by {
+                return;
+            }
+            self.partners.swap_remove(wi);
+        }
+        self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded });
+    }
     pub fn cell(&self, w: usize) -> usize {
         self.y as usize * w + self.x as usize
     }
@@ -120,7 +200,7 @@ impl Band {
 pub fn make_kit(avail: &ItemSet) -> Kit {
     let mut k = Kit::default();
     let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
-    let mut best = [0f32; 11];
+    let mut best = [0f32; 14];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -147,6 +227,9 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Kiln => upd(7, m.props().refractory, &mut k.kiln),
             Form::Cord => upd(8, m.props().tough + 1.0, &mut k.cord),
             Form::Hammer => upd(9, m.props().hard, &mut k.hammer),
+            Form::Boat => upd(11, score(boat_q(m), m), &mut k.boat),
+            Form::Net => upd(12, score(mesh_q(m), m), &mut k.net),
+            Form::Trap => upd(13, score(mesh_q(m), m), &mut k.trap),
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,
                 Mat::Meat => k.cooked[1] = it,
@@ -177,12 +260,19 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
     let ceramic = if k.vessel != NONE && mat(k.vessel) == Mat::Ceramic { 1.0 } else { 0.0 };
+    let netq = q(k.net, &mesh_q);
+    let trapq = q(k.trap, &mesh_q);
+    k.boat_q = q(k.boat, &boat_q);
+    k.plants_m = 1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe;
+    k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer);
+    k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;
+    // small game (hares, birds, rodents): hard to catch by hand, easy with snares and nets
+    k.small_m = 0.35 + 0.4 * hunt_q + 1.6 * trapq + 0.4 * netq;
     // cooking makes more of each food digestible (boiling in pots helps plants most)
     let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
-    k.plants_m = (1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe) * ck(0, 1.3 + 0.2 * ceramic);
-    k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer) * ck(1, 1.25);
-    k.fish_m = (1.0 + 0.8 * hunt_q + 0.5 * vq + 0.3 * point + 0.2 * cord) * ck(2, 1.2);
-    k.cook_m = 1.0 + 0.03 * kiln;
+    k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2)];
+    k.smoke = fire > 0.0 && (k.cooked[1] != NONE || k.cooked[2] != NONE);
+    let _ = kiln;
     let gq = q(k.garment, &garment_q);
     k.protect = (0.35 * fire + 0.5 * gq + 0.05 * kiln + 0.05 * axe * fire).min(0.92);
     k

@@ -4,7 +4,7 @@
 //! stress) -> births / deaths -> practice / forgetting -> fire keeping -> experiments (invention) ->
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
-use crate::band::{make_kit, Band};
+use crate::band::{make_kit, Band, Kit, Partner};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -35,15 +35,26 @@ pub enum EventKind {
     Founded,
     /// the world's first band to keep fire (captured from a wildfire)
     FirstFire,
+    /// first people ever to reach a landmass (other = landmass id, 1 = largest)
+    Landfall,
+    /// an item nobody can make any more, but one only ever known to a few bands (minor)
+    LostLocal,
+    /// first time a good passed from one band to another in trade
+    FirstTraded,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
         use EventKind::*;
-        [FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded, FirstFire]
-            [(x as usize).min(11)]
+        [
+            FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
+            FirstFire, Landfall, LostLocal, FirstTraded,
+        ][(x as usize).min(14)]
     }
     pub fn major(self) -> bool {
-        matches!(self, EventKind::FirstInvention | EventKind::LostWorldwide | EventKind::FirstFire)
+        matches!(
+            self,
+            EventKind::FirstInvention | EventKind::LostWorldwide | EventKind::FirstFire | EventKind::Landfall | EventKind::FirstTraded
+        )
     }
 }
 
@@ -84,6 +95,19 @@ pub struct YearStats {
     pub transfers: u32,
     pub forgets: u32,
     pub with_fire: u32,
+    /// exchanges this year (one good passed one way counts once)
+    pub trades: u32,
+    /// stock units of goods passed between bands
+    pub trade_volume: f32,
+    /// food given to hungry neighbours (person-seasons)
+    pub food_shared: f32,
+    /// summed band-to-band distance of trades (cells); mean = trade_dist / trades
+    pub trade_dist: f32,
+    /// standing partnerships (pairs) at year end
+    pub partnerships: u32,
+    /// carried copper/tin/bronze/obsidian: mean and max distance (cells) from where it was gathered
+    pub goods_dist_mean: f32,
+    pub goods_dist_max: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -109,6 +133,8 @@ pub struct World {
     pub plants: Vec<f32>,
     pub game: Vec<f32>,
     pub fish: Vec<f32>,
+    /// small game (snared / trapped); empty in stage-1 saves, filled on load
+    pub small: Vec<f32>,
     pub bands: Vec<Band>,
     pub reg: Registry,
     pub events: VecDeque<Event>,
@@ -123,6 +149,16 @@ pub struct World {
     /// item -> number of bands able to make it (last year)
     #[serde(with = "crate::save::pairs")]
     pub item_bands: BTreeMap<Item, u32>,
+    /// landmass id -> tick people first arrived (u32::MAX = never); empty in stage-1 saves
+    pub landfall: Vec<u32>,
+    /// item -> most bands that could make it at once since it last appeared (log thinning)
+    #[serde(with = "crate::save::pairs")]
+    pub item_peak: BTreeMap<Item, u32>,
+    /// materials (bitmask) that have changed hands at least once
+    pub traded_first: u32,
+    /// goods moved through each cell recently (decays; for the trade overlay)
+    #[serde(skip)]
+    pub trade_flow: Vec<f32>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
@@ -138,6 +174,41 @@ fn raw(m: Mat) -> Item {
     item(Form::Raw, m)
 }
 
+/// Goods bands carry and can pass on (food is shared separately; wood is everywhere).
+pub const TRADE_MATS: [Mat; 12] = [
+    Mat::Stone,
+    Mat::Flint,
+    Mat::Obsidian,
+    Mat::Clay,
+    Mat::CopperOre,
+    Mat::TinOre,
+    Mat::Fibre,
+    Mat::Hide,
+    Mat::Bone,
+    Mat::Copper,
+    Mat::Tin,
+    Mat::Bronze,
+];
+
+/// What material `mi` is worth to band `b` right now, as (reason to want it, marginal worth).
+/// No price is set anywhere: the reason is the band's own tools (1.0), recipes it knows (0.5),
+/// what its partners have said others want, or plain curiosity about something it has never
+/// held; the worth falls as its stock rises.
+pub fn want(b: &Band, mi: usize) -> (f32, f32) {
+    let bit = 1u32 << mi;
+    let need: f32 = if b.d.needed & bit != 0 {
+        1.0
+    } else if b.d.uses & bit != 0 {
+        0.5
+    } else {
+        0.0
+    };
+    let st = b.stock.get(mi).copied().unwrap_or(0.0);
+    let nov = if st < 0.05 { 0.12 * b.curiosity } else { 0.0 };
+    let base = need.max(b.d.demand[mi]).max(nov);
+    (base, base * (1.3 - st).clamp(0.0, 1.3))
+}
+
 impl World {
     pub fn new(cfg: Config, params: Params) -> World {
         let map = Map::generate(cfg.map_w, cfg.map_h, cfg.seed);
@@ -146,6 +217,7 @@ impl World {
             plants: map.k_plants.clone(),
             game: map.k_game.clone(),
             fish: map.k_fish.clone(),
+            small: map.k_small.clone(),
             map,
             cfg,
             params,
@@ -154,6 +226,7 @@ impl World {
             ..Default::default()
         };
         w.occ = vec![Vec::new(); n];
+        w.trade_flow = vec![0.0; n];
         let mut rng = Rng::new(w.cfg.seed);
         // founders: one region with mild climate and plenty of food
         let mut cands: Vec<usize> = (0..n)
@@ -189,7 +262,8 @@ impl World {
                 store: 5.0,
                 curiosity: (1.0 + 0.25 * rng.gauss()).clamp(0.4, 1.8),
                 flame: false,
-                stock: vec![0.0; NRAW],
+                stock: vec![0.0; NMAT],
+                origin: vec![u32::MAX; NMAT],
                 ..Default::default()
             };
             let _ = k;
@@ -239,16 +313,38 @@ impl World {
     pub fn after_load(&mut self) {
         self.reg.rebuild_index();
         let n = self.map.w * self.map.h;
-        self.occ = vec![Vec::new(); n];
-        for b in &mut self.bands {
-            if b.stock.len() < NRAW {
-                b.stock.resize(NRAW, 0.0);
+        // stage-1 maps gain the newer derived layers (small game, offshore fish, landmasses)
+        let legacy = self.map.gen_version < 2;
+        self.map.upgrade_legacy();
+        if self.map.landmass.len() != n {
+            self.map.label_landmasses();
+        }
+        if self.small.len() != n {
+            self.small = self.map.k_small.clone();
+        }
+        if self.fish.len() != n {
+            self.fish.resize(n, 0.0);
+        }
+        for i in 0..n {
+            // newly added shelf fish start at capacity
+            if legacy && !self.map.is_land(i) {
+                self.fish[i] = self.map.k_fish[i];
             }
         }
+        self.occ = vec![Vec::new(); n];
+        for b in &mut self.bands {
+            b.fit_vectors();
+        }
+        self.trade_flow = vec![0.0; n];
         // derived toolkits so a freshly loaded (paused) world can be inspected
+        // and the season's figures (food, stress, cold...), which are not saved: recompute them
+        // from the loaded world so the inspector and stats are right before the first step
         let mut bands = std::mem::take(&mut self.bands);
+        let s = self.season();
         for b in &mut bands {
             self.refresh_toolkit(b);
+            let ec = self.economy(b, s);
+            ec.apply(&mut b.d);
         }
         self.bands = bands;
     }
@@ -260,6 +356,9 @@ impl World {
             self.after_load();
         }
         self.regrow();
+        for v in &mut self.trade_flow {
+            *v *= 0.85;
+        }
         self.build_occupancy();
         let mut bands = std::mem::take(&mut self.bands);
         for bi in 0..bands.len() {
@@ -268,6 +367,7 @@ impl World {
         self.contacts(&mut bands, &mut rng);
         self.demography(&mut bands, &mut rng);
         self.bands = bands;
+        self.track_landfall();
         self.track_knowledge();
         self.tick += 1;
         if self.tick % 4 == 0 {
@@ -283,6 +383,13 @@ impl World {
         let m = &self.map;
         for i in 0..m.w * m.h {
             if !m.is_land(i) {
+                // sea fish
+                let k = m.k_fish[i];
+                if k > 0.0 {
+                    let p = &mut self.fish[i];
+                    *p += r * (0.3 * *p * (1.0 - *p / k) + 0.02 * k);
+                    *p = p.clamp(0.0, k);
+                }
                 continue;
             }
             let t = m.temp_season(i, s);
@@ -303,6 +410,13 @@ impl World {
             if k > 0.0 {
                 let p = &mut self.fish[i];
                 *p += r * (0.3 * *p * (1.0 - *p / k) + 0.02 * k);
+                *p = p.clamp(0.0, k);
+            }
+            // small game breeds fast but suffers in hard winters
+            let k = m.k_small.get(i).copied().unwrap_or(0.0);
+            if k > 0.0 {
+                let p = &mut self.small[i];
+                *p += r * (0.45 * g.max(0.2) * *p * (1.0 - *p / k) + 0.02 * k);
                 *p = p.clamp(0.0, k);
             }
         }
@@ -343,7 +457,8 @@ impl World {
                 s.add(raw(mm));
             }
         }
-        for mm in [Mat::Hide, Mat::Bone] {
+        // hides, bones, and metal carried as blanks / ingots (made here or traded in)
+        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze] {
             if st(mm) {
                 s.add(raw(mm));
             }
@@ -367,34 +482,100 @@ impl World {
             b.d.tk = closure(&self.reg, &b.known, &raws, b.flame);
             b.d.kit = make_kit(&b.d.tk.avail);
             b.d.tk_key = Some(key);
+            let mut uses = 0u32;
+            for k in &b.known {
+                for &i in self.reg.recipes[k.recipe as usize].inputs.iter() {
+                    if i != NONE && form(i) == Form::Raw {
+                        uses |= 1 << (mat(i) as u32);
+                    }
+                }
+            }
+            b.d.uses = uses;
         }
     }
 
-    fn band_season(&mut self, b: &mut Band, rng: &mut Rng) {
-        let p = self.params;
-        let w = self.map.w;
+    /// Is there open water (sea or a river) at or next to this cell?
+    pub fn near_water(&self, c: usize) -> bool {
+        let m = &self.map;
+        let (x, y) = (c % m.w, c / m.w);
+        m.river.get(c).copied().unwrap_or(false) || nbrs8(x, y, m.w, m.h).any(|(a, bb)| !m.is_land(bb * m.w + a))
+    }
+
+    /// The cells a band forages this season with their weights: its own cell, the land around it,
+    /// and, if it has a boat and lives by the sea, a stretch of coastal water it can fish.
+    pub fn home_range(&self, b: &Band, kit: &Kit) -> Vec<(usize, f32)> {
+        let m = &self.map;
+        let w = m.w;
         let ci = b.cell(w);
-        let s = self.season();
-        if b.stock.len() < NRAW {
-            b.stock.resize(NRAW, 0.0);
+        let (x, y) = (b.x as usize, b.y as usize);
+        let mut cells = Vec::with_capacity(16);
+        cells.push((ci, 1.0));
+        let mut coastal = false;
+        for (nx, ny) in nbrs8(x, y, w, m.h) {
+            let j = ny * w + nx;
+            if m.is_land(j) {
+                cells.push((j, 0.3));
+            } else {
+                coastal = true;
+            }
         }
-        for k in &mut b.known {
-            k.used = false;
+        if kit.boat_q > 0.0 && coastal {
+            let r = 1 + (2.0 * kit.boat_q).round() as i32;
+            let mut sea: Vec<(usize, f32)> = Vec::new();
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (sx, sy) = (x as i32 + dx, y as i32 + dy);
+                    if sx < 0 || sy < 0 || sx as usize >= w || sy as usize >= m.h {
+                        continue;
+                    }
+                    let j = sy as usize * w + sx as usize;
+                    if m.is_land(j) {
+                        continue;
+                    }
+                    let d = dx.abs().max(dy.abs()) as f32;
+                    // nearshore water was already fished from the beach; boats add the rest
+                    let wt = if d <= 1.0 { 0.12 } else { 0.25 / d };
+                    sea.push((j, wt));
+                }
+            }
+            // a band can only work so much water: total weight capped
+            let tot: f32 = sea.iter().map(|c| c.1).sum();
+            let cap = 0.6 + 1.2 * kit.boat_q;
+            let sc = if tot > cap { cap / tot } else { 1.0 };
+            cells.extend(sea.into_iter().map(|(j, wt)| (j, wt * sc)));
         }
-        self.refresh_toolkit(b);
+        cells
+    }
+
+    /// The season's economy for a band, computed from the current world without changing it:
+    /// how hard it works, what it harvests, how full it eats, and what its tools need.
+    pub fn economy(&self, b: &Band, s: u32) -> Econ {
+        let p = self.params;
+        let ci = b.cell(self.map.w);
         let kit = b.d.kit;
-        // ---------------- economy
         let pop = b.pop.max(1) as f32;
         let labour = 0.55 * pop;
         let t = self.map.temp_season(ci, s);
         let cold = p.cold_scale * ((8.0 - t) / 14.0).max(0.0) * (1.0 - kit.protect);
         let need = pop * (1.0 + cold);
-        // tool upkeep
+        let wet = self.near_water(ci);
+        let cells = self.home_range(b, &kit);
+        let get = |v: &Vec<f32>, c: usize| v.get(c).copied().unwrap_or(0.0);
+        let ys = [
+            cells.iter().map(|&(c, wt)| wt * get(&self.plants, c)).sum::<f32>(),
+            cells.iter().map(|&(c, wt)| wt * get(&self.game, c)).sum::<f32>(),
+            cells.iter().map(|&(c, wt)| wt * get(&self.fish, c)).sum::<f32>(),
+            cells.iter().map(|&(c, wt)| wt * get(&self.small, c)).sum::<f32>(),
+        ];
+        // tool upkeep (a boat only matters by the water, a net only where there are fish)
         let mut upkeep = 0.0;
         let mut needed = 0u32;
-        let used = kit.used_items();
-        for &it in &used {
+        let mut used = Vec::with_capacity(17);
+        for &it in kit.used_items().iter() {
             if it == NONE {
+                continue;
+            }
+            if (it == kit.boat && !wet) || (it == kit.net && ys[2] < 1.0) {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via.get(&it).copied().unwrap_or((0, 0, 0));
@@ -404,52 +585,43 @@ impl World {
             } else {
                 upkeep += 0.01;
             }
-            mark_used(&self.reg, &mut b.known, &b.d.tk, it);
+            used.push(it);
         }
         let upkeep_l = upkeep * labour;
-        // home range: own cell + neighbours at reduced weight
-        let (x, y) = (b.x as usize, b.y as usize);
-        let mut cells: [(usize, f32); 9] = [(ci, 1.0); 9];
-        let mut nc = 1;
-        for (nx, ny) in nbrs8(x, y, w, self.map.h) {
-            let j = ny * w + nx;
-            if self.map.is_land(j) {
-                cells[nc] = (j, 0.3);
-                nc += 1;
-            }
-        }
-        let cells = &cells[..nc];
-        let ys = [
-            cells.iter().map(|&(c, wt)| wt * self.plants[c]).sum::<f32>(),
-            cells.iter().map(|&(c, wt)| wt * self.game[c]).sum::<f32>(),
-            cells.iter().map(|&(c, wt)| wt * self.fish[c]).sum::<f32>(),
+        let ks = [
+            3.0 * kit.plants_m * p.forage_eff,
+            2.5 * kit.game_m * p.forage_eff,
+            2.5 * kit.fish_m * p.forage_eff,
+            2.5 * kit.small_m * p.forage_eff,
         ];
-        let ks = [3.0 * kit.plants_m * p.forage_eff, 2.5 * kit.game_m * p.forage_eff, 2.5 * kit.fish_m * p.forage_eff];
-        let wsum: f32 = (0..3).map(|r| ys[r] * ks[r]).sum::<f32>().max(1e-6);
-        let harvest = |e: f32| -> [f32; 3] {
-            let mut h = [0f32; 3];
-            for r in 0..3 {
+        let dg = kit.digest;
+        // effort goes where it pays best (food value per unit of effort)
+        let wsum: f32 = (0..4).map(|r| ys[r] * ks[r] * dg[r]).sum::<f32>().max(1e-6);
+        let harvest = |e: f32| -> [f32; 4] {
+            let mut h = [0f32; 4];
+            for r in 0..4 {
                 if ys[r] > 0.01 {
-                    let er = e * ys[r] * ks[r] / wsum;
+                    let er = e * ys[r] * ks[r] * dg[r] / wsum;
                     h[r] = ys[r] * (1.0 - (-ks[r] * er / ys[r]).exp());
                 }
             }
             h
         };
-        let cook = kit.cook_m;
-        let winter_next = s == 2 || (s == 1 && self.map.tamp[ci] > 8.0);
+        let food_of = |h: &[f32; 4]| (0..4).map(|r| h[r] * dg[r]).sum::<f32>();
+        let ls = self.map.local_season(ci, s);
+        let winter_next = ls == 2 || (ls == 1 && self.map.tamp[ci] > 8.0);
         let vq = if kit.vessel == NONE { 0.0 } else { vessel_q(mat(kit.vessel)) };
-        let store_target = if winter_next { need * 0.6 * vq } else { 0.0 };
+        // laying food by for winter: some is always cached, containers let far more keep
+        let store_target = if winter_next { need * (0.15 + 0.75 * vq) } else { 0.0 };
         let target = (need + store_target - b.store * 0.5).max(need * 0.5);
         let max_e = (labour * 0.85 - upkeep_l).max(labour * 0.3);
-        let food_of = |e: f32| harvest(e).iter().sum::<f32>() * cook;
-        let e_food = if food_of(max_e) <= target {
+        let e_food = if food_of(&harvest(max_e)) <= target {
             max_e
         } else {
             let (mut lo, mut hi) = (0.0f32, max_e);
             for _ in 0..14 {
                 let mid = 0.5 * (lo + hi);
-                if food_of(mid) < target {
+                if food_of(&harvest(mid)) < target {
                     lo = mid
                 } else {
                     hi = mid
@@ -458,64 +630,116 @@ impl World {
             hi
         };
         let h = harvest(e_food);
-        let stocks: [&mut Vec<f32>; 3] = [&mut self.plants, &mut self.game, &mut self.fish];
-        for (r, st) in stocks.into_iter().enumerate() {
-            if ys[r] > 0.01 {
-                let phi = (h[r] / ys[r]).min(1.0);
-                for &(c, wt) in cells {
-                    st[c] -= phi * wt * st[c];
+        let food = food_of(&h);
+        // stored food rots faster in the warm; sealed containers and smoking slow it
+        let base = 0.12 + 0.28 * (t / 25.0).clamp(0.0, 1.0);
+        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 };
+        let mut store = b.store * (1.0 - spoil);
+        let food_ratio = if food >= need {
+            store = (store + food - need).min(pop * (0.5 + 1.5 * vq));
+            1.0
+        } else {
+            let take = store.min(need - food);
+            store -= take;
+            ((food + take) / need).min(1.0)
+        };
+        let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
+        let stress = ((1.0 - food_ratio) * 2.0 + 0.15 * cold).clamp(0.0, 1.0);
+        Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil }
+    }
+
+    fn band_season(&mut self, b: &mut Band, rng: &mut Rng) {
+        let p = self.params;
+        let w = self.map.w;
+        let ci = b.cell(w);
+        let s = self.season();
+        b.fit_vectors();
+        for k in &mut b.known {
+            k.used = false;
+        }
+        self.refresh_toolkit(b);
+        let pop = b.pop.max(1) as f32;
+        let ec = self.economy(b, s);
+        for &it in &ec.used {
+            mark_used(&self.reg, &mut b.known, &b.d.tk, it);
+        }
+        {
+            let stocks: [&mut Vec<f32>; 4] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small];
+            for (r, st) in stocks.into_iter().enumerate() {
+                if ec.ys[r] > 0.01 {
+                    let phi = (ec.h[r] / ec.ys[r]).min(1.0);
+                    for &(c, wt) in &ec.cells {
+                        if let Some(v) = st.get_mut(c) {
+                            *v -= phi * wt * *v;
+                        }
+                    }
                 }
             }
         }
-        let food = h.iter().sum::<f32>() * cook;
-        let spoil = 0.35 - 0.25 * vq;
-        b.store *= 1.0 - spoil;
-        let food_ratio = if food >= need {
-            b.store = (b.store + food - need).min(pop * 1.5);
-            1.0
-        } else {
-            let take = b.store.min(need - food);
-            b.store -= take;
-            ((food + take) / need).min(1.0)
-        };
-        // hides and bones from hunting
-        let hunted = h[1];
+        b.store = ec.store_after;
+        // hides and bones from hunting (small game gives a little)
+        let hunted = ec.h[1] + 0.3 * ec.h[3];
         b.stock[Mat::Hide as usize] = (b.stock[Mat::Hide as usize] + hunted * 0.01).min(1.5);
         b.stock[Mat::Bone as usize] = (b.stock[Mat::Bone as usize] + hunted * 0.01).min(1.5);
-        let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
-        let stress = ((1.0 - food_ratio) * 2.0 + 0.15 * cold).clamp(0.0, 1.0);
-        b.d.food_ratio = food_ratio;
-        b.d.spare = spare;
-        b.d.stress = stress;
-        b.d.cold = cold;
-        b.d.need = need;
-        b.d.upkeep = upkeep;
-        b.d.needed = needed;
+        let (food_ratio, spare, stress, needed) = (ec.food_ratio, ec.spare, ec.stress, ec.needed);
+        ec.apply(&mut b.d);
         // ---------------- materials: gather what is here, use up what tools consume
         for (d, mm) in DEPOSITS {
             let mi = mm as usize;
             let want = if needed & (1 << mi) != 0 { 1.2 } else { 0.4 };
             if self.map.has(ci, d) {
                 b.stock[mi] = b.stock[mi].max(want);
+                b.origin[mi] = ci as u32;
             }
         }
         if self.map.k_wood[ci] > 2.0 {
             b.stock[Mat::Wood as usize] = b.stock[Mat::Wood as usize].max(if needed & 1 != 0 { 1.0 } else { 0.3 });
+            b.origin[Mat::Wood as usize] = ci as u32;
         }
         if self.map.k_fibre[ci] > 2.0 {
             b.stock[Mat::Fibre as usize] = b.stock[Mat::Fibre as usize].max(0.6);
+            b.origin[Mat::Fibre as usize] = ci as u32;
         }
-        for mi in 0..NRAW {
-            let present = match ALL_MATS[mi] {
+        for mi in [Mat::Hide as usize, Mat::Bone as usize] {
+            if hunted > 1.0 {
+                b.origin[mi] = ci as u32;
+            }
+        }
+        // metal the band can smelt or alloy itself is kept as blanks / ingots; it remembers
+        // where its ore came from
+        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre)] {
+            let mi = metal as usize;
+            if b.d.tk.producible.has(raw(metal)) && b.stock[mi] < 0.8 {
+                let o = b.origin[ore as usize];
+                if b.stock[mi] < 0.4 || b.origin[mi] == u32::MAX {
+                    b.origin[mi] = if o != u32::MAX { o } else { ci as u32 };
+                }
+                b.stock[mi] = 0.8;
+            }
+        }
+        for mi in 0..NMAT {
+            let mm = ALL_MATS[mi];
+            if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic {
+                continue;
+            }
+            let present = match mm {
                 Mat::Wood => self.map.k_wood[ci] > 2.0,
                 Mat::Fibre => self.map.k_fibre[ci] > 2.0,
+                Mat::Copper | Mat::Tin | Mat::Bronze => b.d.tk.producible.has(raw(mm)),
                 mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
             };
-            let mut use_ = 0.02;
+            // metal is durable and re-worked (blunt tools are re-hammered, scrap re-melted),
+            // so it wears away far slower than stone, hide or fibre
+            let metal = matches!(mm, Mat::Copper | Mat::Tin | Mat::Bronze);
+            let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
-                use_ += 0.06;
+                use_ += if metal { 0.02 } else { 0.06 };
             }
             b.stock[mi] = (b.stock[mi] - use_).max(0.0);
+            if b.stock[mi] <= 0.0 {
+                b.origin[mi] = u32::MAX;
+            }
+            b.d.demand[mi] *= 0.9;
         }
         // ---------------- demography (births / deaths; splits happen later)
         let fed = ((food_ratio - 0.75) / 0.25).clamp(0.0, 1.0);
@@ -531,9 +755,10 @@ impl World {
             self.push_event(EventKind::FireLost, b.id, 0, ci as u32, NONE, u32::MAX);
         }
         let dry = (1.0 - self.map.rain[ci]).clamp(0.0, 1.0);
-        let dry_s = (dry + if s == 1 { 0.2 } else if s == 3 { -0.2 } else { 0.0 }).clamp(0.0, 1.0);
+        let ls = self.map.local_season(ci, s);
+        let dry_s = (dry + if ls == 1 { 0.2 } else if ls == 3 { -0.2 } else { 0.0 }).clamp(0.0, 1.0);
         if !b.flame && self.map.k_wood[ci] + self.map.k_plants[ci] > 10.0 {
-            let pf = p.wildfire_rate * dry_s * if s == 1 { 2.0 } else { 0.6 };
+            let pf = p.wildfire_rate * dry_s * if ls == 1 { 2.0 } else { 0.6 };
             if rng.chance(pf) && rng.chance((0.3 * b.curiosity).min(0.9)) {
                 b.flame = true;
                 let fire = item(Form::Fire, Mat::Wood);
@@ -648,7 +873,7 @@ impl World {
                 mark_used(&self.reg, &mut b.known, &b.d.tk, i);
             }
         }
-        let ctx = Ctx { dryness };
+        let ctx = Ctx { dryness, water: self.near_water(b.cell(self.map.w)) };
         let Some(out) = physics::apply(action, &inputs, &ctx) else { return };
         if b.d.tk.producible.has(out.out) || !rng.chance(out.p) {
             return;
@@ -693,7 +918,14 @@ impl World {
             return -1.0;
         }
         let kit = &b.d.kit;
-        let pot = |j: usize| 3.0 * kit.plants_m * self.plants[j] + 2.5 * kit.game_m * self.game[j] + 2.5 * kit.fish_m * self.fish[j];
+        let dg = kit.digest;
+        let sm = |j: usize| self.small.get(j).copied().unwrap_or(0.0);
+        let pot = |j: usize| {
+            3.0 * kit.plants_m * dg[0] * self.plants[j]
+                + 2.5 * kit.game_m * dg[1] * self.game[j]
+                + 2.5 * kit.fish_m * dg[2] * self.fish[j]
+                + 2.5 * kit.small_m * dg[3] * sm(j)
+        };
         let (x, y) = (c % m.w, c / m.w);
         let mut nb = 0.0f32;
         let mut cnt = 0.0f32;
@@ -705,9 +937,20 @@ impl World {
             }
         }
         let mut s = pot(c) + 0.6 * nb / cnt.max(1.0) * 2.0;
+        // with a boat, the sea next to a coastal camp is food too
+        if kit.boat_q > 0.0 {
+            let mut sea = 0.0;
+            for (nx, ny) in nbrs4(x, y, m.w, m.h) {
+                let j = ny * m.w + nx;
+                if !m.is_land(j) {
+                    sea += self.fish[j];
+                }
+            }
+            s += 2.5 * kit.fish_m * dg[2] * 0.25 * sea * kit.boat_q;
+        }
         let crowd = self.crowd(c, b) as f32;
         s /= 1.0 + crowd / (b.pop as f32 + 10.0);
-        let winter = m.temp_season(c, 3);
+        let winter = m.temp_winter(c);
         let cold = self.params.cold_scale * ((8.0 - winter) / 14.0).max(0.0) * (1.0 - kit.protect);
         s /= 1.0 + 1.5 * cold;
         // materials the band's tools need and is running out of
@@ -720,24 +963,69 @@ impl World {
         s
     }
 
+    /// A trip out over open water: pick a heading from a coastal camp and paddle until land shows
+    /// up or the boat's range runs out. Returns the landing cell and how much open water was
+    /// crossed. Nothing guides the heading: distant or small landfalls are found only by chance.
+    pub fn voyage(&self, b: &Band, rng: &mut Rng) -> Option<(usize, f32)> {
+        let kit = &b.d.kit;
+        let m = &self.map;
+        if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
+            return None;
+        }
+        let range = 2.0 + 6.0 * kit.boat_q;
+        let ang = rng.f32() * std::f32::consts::TAU;
+        let (dx, dy) = (ang.cos(), ang.sin());
+        let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
+        let step = 0.7f32;
+        let mut sea = 0.0f32;
+        let mut t = step;
+        while t < range + 4.0 {
+            let (px, py) = (x0 + dx * t, y0 + dy * t);
+            if px < 0.0 || py < 0.0 || px >= m.w as f32 || py >= m.h as f32 {
+                return None;
+            }
+            let c = py as usize * m.w + px as usize;
+            if m.is_land(c) {
+                if sea > 0.0 {
+                    return Some((c, sea));
+                }
+                if t > 2.5 {
+                    return None; // headed inland: not a voyage
+                }
+            } else {
+                sea += step;
+                if sea > range {
+                    return None;
+                }
+            }
+            t += step;
+        }
+        None
+    }
+
     fn maybe_move(&mut self, b: &mut Band, rng: &mut Rng) {
         let m = &self.map;
         let (x, y) = (b.x as usize, b.y as usize);
         let cur = b.cell(m.w);
         let mut best = cur;
         let mut best_s = self.cell_score(b, cur) * self.params.move_inertia;
-        let mut cands: Vec<usize> = nbrs8(x, y, m.w, m.h).map(|(a, c)| c * m.w + a).collect();
+        let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| (c * m.w + a, 1.0)).collect();
         // occasionally scout further
         let dx = rng.below(7) as i32 - 3;
         let dy = rng.below(7) as i32 - 3;
         let (sx, sy) = (x as i32 + dx, y as i32 + dy);
         if sx >= 0 && sy >= 0 && (sx as usize) < m.w && (sy as usize) < m.h {
-            cands.push(sy as usize * m.w + sx as usize);
+            let dist = dx.abs().max(dy.abs()) as f32;
+            cands.push((sy as usize * m.w + sx as usize, 1.0 + 0.08 * (dist - 1.0).max(0.0)));
         }
-        for c in cands {
-            let (cx, cy) = (c % m.w, c / m.w);
-            let dist = (cx as i32 - x as i32).abs().max((cy as i32 - y as i32).abs()) as f32;
-            let sc = self.cell_score(b, c) / (1.0 + 0.08 * (dist - 1.0).max(0.0));
+        // people with boats sometimes go and look across the water
+        if b.d.kit.boat_q > 0.0 && rng.chance(0.25) {
+            if let Some((c, sea)) = self.voyage(b, rng) {
+                cands.push((c, 1.15 + 0.06 * sea));
+            }
+        }
+        for (c, pen) in cands {
+            let sc = self.cell_score(b, c) / pen;
             if sc > best_s {
                 best_s = sc;
                 best = c;
@@ -746,6 +1034,31 @@ impl World {
         if best != cur {
             b.x = (best % m.w) as u16;
             b.y = (best / m.w) as u16;
+        }
+    }
+
+    /// Record the first arrival of people on each landmass.
+    fn track_landfall(&mut self) {
+        let nl = self.map.landmass_size.len();
+        if self.landfall.len() != nl {
+            self.landfall.resize(nl, u32::MAX);
+        }
+        let w = self.map.w;
+        let any = self.landfall.iter().any(|&t| t != u32::MAX);
+        let mut evs = Vec::new();
+        for b in &self.bands {
+            let c = b.cell(w);
+            let l = self.map.landmass_of(c) as usize;
+            if l == 0 || l >= nl || self.landfall[l] != u32::MAX {
+                continue;
+            }
+            self.landfall[l] = self.tick;
+            if any {
+                evs.push((b.id, l as u32, c as u32, b.d.kit.boat));
+            }
+        }
+        for (id, l, c, boat) in evs {
+            self.push_event(EventKind::Landfall, id, l, c, boat, u32::MAX);
         }
     }
 
@@ -790,7 +1103,161 @@ impl World {
             }
             self.exchange(bands, a, c, rng);
             self.exchange(bands, c, a, rng);
+            self.trade(bands, a, c, d, rng);
         }
+        // partners keep visiting each other after they drift apart: a standing relationship
+        // reaches further than chance meetings (much further by boat)
+        let idx: std::collections::HashMap<u32, usize> = bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+        let mut far: Vec<(usize, usize, i32)> = Vec::new();
+        for (a, b) in bands.iter().enumerate() {
+            for pt in &b.partners {
+                let Some(&c) = idx.get(&pt.id) else { continue };
+                if b.id > pt.id && bands[c].partner(b.id).is_some() {
+                    continue; // the pair is visited from the other side
+                }
+                let o = &bands[c];
+                let d = (b.x as i32 - o.x as i32).abs().max((b.y as i32 - o.y as i32).abs());
+                if d <= r {
+                    continue;
+                }
+                let boat = b.d.kit.boat_q.max(o.d.kit.boat_q);
+                let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat;
+                let lm_a = self.map.landmass_of(b.cell(w as usize));
+                let lm_c = self.map.landmass_of(o.cell(w as usize));
+                if (d as f32) > reach || (lm_a != lm_c && boat <= 0.0) {
+                    continue;
+                }
+                if rng.chance(0.5 * pt.strength / (1.0 + 0.15 * d as f32)) {
+                    far.push((a, c, d));
+                }
+            }
+        }
+        for (a, c, d) in far {
+            if rng.chance(0.5) {
+                self.exchange(bands, a, c, rng);
+                self.exchange(bands, c, a, rng);
+            }
+            self.trade(bands, a, c, d, rng);
+        }
+    }
+
+    /// Two bands that meet swap what each has spare for what the other values more, pass food to
+    /// the hungry, and hear about what each other wants. Nothing has a set price: worth is each
+    /// band's own need and shortage (see `want`).
+    fn trade(&mut self, bands: &mut [Band], a: usize, c: usize, d: i32, rng: &mut Rng) {
+        let tick = self.tick;
+        // news of wants travels with every meeting, so goods can pass down a chain of bands
+        for (x, y) in [(a, c), (c, a)] {
+            for &m in TRADE_MATS.iter() {
+                let mi = m as usize;
+                let (base, _) = want(&bands[y], mi);
+                if bands[y].stock[mi] < 0.3 && base >= 0.3 {
+                    let dm = &mut bands[x].d.demand[mi];
+                    *dm = dm.max(0.6 * base);
+                }
+            }
+        }
+        let kin = bands[a].lineage == bands[c].lineage;
+        let pstr = bands[a].partner(bands[c].id).map(|p| p.strength).unwrap_or(0.0);
+        let close = kin || pstr >= 0.3;
+        // best good each side could pass the other, and what it is worth to both
+        let best = |from: &Band, to: &Band| -> Option<(usize, f32, f32)> {
+            let mut bst: Option<(usize, f32, f32)> = None;
+            for &m in TRADE_MATS.iter() {
+                let mi = m as usize;
+                let sf = from.stock[mi];
+                if sf < 0.3 {
+                    continue;
+                }
+                let q = (sf - 0.2).min(0.3);
+                let g = want(to, mi).1 - want(from, mi).1;
+                if bst.map_or(true, |b| g > b.1) {
+                    bst = Some((mi, g, q));
+                }
+            }
+            bst
+        };
+        let ac = best(&bands[a], &bands[c]);
+        let ca = best(&bands[c], &bands[a]);
+        let ok = |o: Option<(usize, f32, f32)>, th: f32| o.filter(|x| x.1 > th);
+        let mut moved = 0.0;
+        match (ok(ac, 0.05), ok(ca, 0.05)) {
+            (Some(x), Some(y)) => {
+                // barter: both come out ahead by their own reckoning
+                moved += self.pass_good(bands, a, c, x.0, x.2, d);
+                moved += self.pass_good(bands, c, a, y.0, y.2, d);
+            }
+            (Some(x), None) | (None, Some(x)) => {
+                let (from, to) = if ok(ac, 0.05).is_some() { (a, c) } else { (c, a) };
+                // pay in food if the receiver has plenty, otherwise a gift between close bands
+                let (fr, tr) = (&bands[from], &bands[to]);
+                let can_pay = tr.d.food_ratio >= 1.0 && tr.store > 0.4 * tr.d.need && fr.store < 0.6 * fr.d.need.max(1.0);
+                if x.1 > 0.15 && (can_pay || (close && rng.chance(0.5))) {
+                    moved += self.pass_good(bands, from, to, x.0, x.2, d);
+                    if can_pay {
+                        let f = 0.08 * bands[to].d.need;
+                        bands[to].store -= f;
+                        bands[from].store += f;
+                    }
+                }
+            }
+            _ => {}
+        }
+        // food for the hungry among kin and partners
+        if close {
+            for (x, y) in [(a, c), (c, a)] {
+                let (gx, gy) = (&bands[x], &bands[y]);
+                if gx.d.food_ratio >= 1.0 && gx.store > 0.3 * gx.d.need && gy.d.food_ratio < 0.9 {
+                    let give = (0.3 * (gx.store - 0.3 * gx.d.need)).min((0.9 - gy.d.food_ratio) * gy.d.need);
+                    if give > 0.0 {
+                        bands[x].store -= give;
+                        bands[y].store += give;
+                        self.year_acc.food_shared += give;
+                        moved += 0.01;
+                    }
+                }
+            }
+        }
+        if moved > 0.0 {
+            let (ia, ic) = (bands[a].id, bands[c].id);
+            bands[a].bond(ic, 0.2, moved, tick);
+            bands[c].bond(ia, 0.2, moved, tick);
+            self.refresh_toolkit(&mut bands[a]);
+            self.refresh_toolkit(&mut bands[c]);
+        }
+    }
+
+    /// Move `q` of material `mi` from one band to another; returns the amount moved.
+    fn pass_good(&mut self, bands: &mut [Band], from: usize, to: usize, mi: usize, q: f32, d: i32) -> f32 {
+        let w = self.map.w;
+        let o = bands[from].origin[mi];
+        bands[from].stock[mi] -= q;
+        let (fc, fid) = (bands[from].cell(w), bands[from].id);
+        let t = &mut bands[to];
+        if t.stock[mi] < q || t.origin[mi] == u32::MAX {
+            t.origin[mi] = if o == u32::MAX { fc as u32 } else { o };
+        }
+        t.stock[mi] = (t.stock[mi] + q).min(1.5);
+        let (tc, tid) = (t.cell(w), t.id);
+        self.year_acc.trades += 1;
+        self.year_acc.trade_volume += q;
+        self.year_acc.trade_dist += d as f32;
+        if self.traded_first & (1 << mi) == 0 {
+            self.traded_first |= 1 << mi;
+            self.push_event(EventKind::FirstTraded, fid, tid, tc as u32, raw(ALL_MATS[mi]), u32::MAX);
+        }
+        // the overlay: mark the cells along the way
+        if self.trade_flow.len() == w * self.map.h {
+            let (x0, y0) = ((fc % w) as f32, (fc / w) as f32);
+            let (x1, y1) = ((tc % w) as f32, (tc / w) as f32);
+            let steps = d.max(1);
+            for k in 0..=steps {
+                let t = k as f32 / steps as f32;
+                let (x, y) = ((x0 + (x1 - x0) * t).round() as usize, (y0 + (y1 - y0) * t).round() as usize);
+                self.trade_flow[y * w + x] += q;
+            }
+        }
+        q
     }
 
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
@@ -862,6 +1329,17 @@ impl World {
                     best = (c, s);
                 }
             }
+            // a daughter band with boats may strike out across the water instead
+            let mut sailed = false;
+            if b.d.kit.boat_q > 0.0 && rng.chance(0.5) {
+                if let Some((c, sea)) = self.voyage(b, rng) {
+                    let s = self.cell_score(b, c) / (1.1 + 0.05 * sea);
+                    if s > best.1 {
+                        best = (c, s);
+                        sailed = true;
+                    }
+                }
+            }
             let dpop = (b.pop as f32 * rng.range(0.35, 0.5)) as u32;
             let id = self.next_id;
             self.next_id += 1;
@@ -877,7 +1355,7 @@ impl World {
                     }
                 })
                 .collect();
-            let d = Band {
+            let mut d = Band {
                 id,
                 lineage: b.lineage,
                 parent: b.id,
@@ -890,12 +1368,18 @@ impl World {
                 flame: b.flame,
                 known,
                 stock: b.stock.clone(),
+                origin: b.origin.clone(),
+                partners: vec![Partner { id: b.id, strength: 0.5, since: self.tick, traded: 0.0 }],
                 born: self.tick,
                 ..Default::default()
             };
+            if sailed {
+                d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
+            }
             let bm = &mut bands[k];
             bm.pop -= dpop;
             bm.store *= 0.6;
+            bm.bond(id, 0.5, 0.0, self.tick);
             self.counters.splits += 1;
             self.push_event(EventKind::Split, bm.id, id, best.0 as u32, NONE, u32::MAX);
             newb.push(d);
@@ -974,7 +1458,9 @@ impl World {
                 *counts.entry(it).or_default() += 1;
             }
         }
-        // anything that was known last year and now by nobody is lost to the world
+        // anything that was known last year and now by nobody is lost to the world. Only items
+        // that had spread (5+ bands at once) go in the chronicle; a local trick that one or two
+        // bands had and dropped is logged quietly
         let lost: Vec<Item> = self
             .item_bands
             .iter()
@@ -982,9 +1468,40 @@ impl World {
             .map(|(&it, _)| it)
             .collect();
         for it in lost {
-            self.push_event(EventKind::LostWorldwide, 0, 0, 0, it, u32::MAX);
+            let peak = self.item_peak.remove(&it).unwrap_or(5);
+            let kind = if peak >= 5 { EventKind::LostWorldwide } else { EventKind::LostLocal };
+            self.push_event(kind, 0, 0, 0, it, u32::MAX);
+        }
+        for (&it, &c) in &counts {
+            let pk = self.item_peak.entry(it).or_insert(0);
+            *pk = (*pk).max(c);
         }
         self.item_bands = counts;
+        // partnerships fade unless used; partners that no longer exist are dropped
+        let ids: std::collections::HashSet<u32> = self.bands.iter().map(|b| b.id).collect();
+        let mut links = 0u32;
+        let (mut gd, mut gn, mut gmax) = (0.0f32, 0u32, 0.0f32);
+        let w = self.map.w;
+        for b in &mut self.bands {
+            for p in &mut b.partners {
+                p.strength *= 0.8;
+            }
+            b.partners.retain(|p| p.strength >= 0.05 && ids.contains(&p.id));
+            links += b.partners.len() as u32;
+            let c = b.cell(w);
+            for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre] {
+                let mi = m as usize;
+                let o = b.origin.get(mi).copied().unwrap_or(u32::MAX);
+                if b.stock.get(mi).copied().unwrap_or(0.0) > 0.1 && o != u32::MAX {
+                    let (ox, oy) = ((o as usize % w) as i32, (o as usize / w) as i32);
+                    let dd = (ox - b.x as i32).abs().max((oy - b.y as i32).abs()) as f32;
+                    let _ = c;
+                    gd += dd;
+                    gn += 1;
+                    gmax = gmax.max(dd);
+                }
+            }
+        }
         let acc = std::mem::take(&mut self.year_acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
@@ -995,6 +1512,9 @@ impl World {
             items_mean: if nb > 0 { sum as f32 / nb as f32 } else { 0.0 },
             items_max: mx,
             with_fire,
+            partnerships: links / 2,
+            goods_dist_mean: if gn > 0 { gd / gn as f32 } else { 0.0 },
+            goods_dist_max: gmax,
             ..acc
         });
     }
@@ -1042,6 +1562,46 @@ impl World {
             EventKind::Merged => format!("Y{yr}: band {} dwindled and joined band {}", e.band, e.other),
             EventKind::Died => format!("Y{yr}: band {} died out at ({cx},{cy})", e.band),
             EventKind::Founded => format!("Y{yr}: band {} founded at ({cx},{cy})", e.band),
+            EventKind::Landfall => {
+                let sz = self.map.landmass_size.get(e.other as usize).copied().unwrap_or(0);
+                let kind = if sz >= Map::CONTINENT_CELLS { "continent" } else { "island" };
+                format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){}", e.band, e.other, if it.is_empty() { String::new() } else { format!(" by {it}") })
+            }
+            EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
+            EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
         }
+    }
+}
+
+/// One season's economic outcome for a band (see `World::economy`).
+#[derive(Clone, Debug, Default)]
+pub struct Econ {
+    pub cells: Vec<(usize, f32)>,
+    /// standing stock in range [plants, game, fish, small game] and the harvest of each
+    pub ys: [f32; 4],
+    pub h: [f32; 4],
+    pub food: f32,
+    pub need: f32,
+    pub cold: f32,
+    pub upkeep: f32,
+    pub needed: u32,
+    pub used: Vec<Item>,
+    pub food_ratio: f32,
+    pub store_after: f32,
+    pub spare: f32,
+    pub stress: f32,
+    pub spoil: f32,
+}
+impl Econ {
+    pub fn apply(&self, d: &mut crate::band::Derived) {
+        d.food_ratio = self.food_ratio;
+        d.spare = self.spare;
+        d.stress = self.stress;
+        d.cold = self.cold;
+        d.need = self.need;
+        d.upkeep = self.upkeep;
+        d.needed = self.needed;
+        d.food = self.food;
+        d.harvest = self.h;
     }
 }

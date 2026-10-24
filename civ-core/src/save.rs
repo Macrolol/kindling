@@ -14,14 +14,41 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[
-    // v1 -> v2 goes here
-];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2];
+
+/// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
+/// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
+///   carried and traded), so pad with 0.0.
+/// - `bands[].origin` (where each carried material came from) is new: unknown (u32::MAX).
+/// - `map.gen_version` did not exist: v1 maps came from generator 1; record that explicitly so
+///   `Map::upgrade_legacy` fills the new map layers (shelf fish, small game, landmasses).
+/// Everything else new in v2 (partners, item_peak, trade stats, landfall...) is additive and
+/// loads as its default.
+fn v1_to_v2(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    const NMAT_V2: usize = 18;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(m) = world.get_mut("map").and_then(|m| m.as_object_mut()) {
+        m.entry("gen_version").or_insert(serde_json::json!(1));
+    }
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            let stock = b.entry("stock").or_insert(serde_json::json!([]));
+            if let Some(a) = stock.as_array_mut() {
+                while a.len() < NMAT_V2 {
+                    a.push(serde_json::json!(0.0));
+                }
+            }
+            b.entry("origin").or_insert(serde_json::json!(vec![u32::MAX; NMAT_V2]));
+        }
+    }
+    Ok(v)
+}
 const _: () = assert!(
     MIGRATIONS.len() as u32 + SUPPORT_FLOOR == FORMAT_VERSION,
     "FORMAT_VERSION must equal SUPPORT_FLOOR + MIGRATIONS.len()"

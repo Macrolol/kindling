@@ -14,7 +14,7 @@ pub struct Config {
 }
 impl Default for Config {
     fn default() -> Self {
-        Config { seed: 1, map_w: 160, map_h: 100, founders: 6, founder_pop: 25 }
+        Config { seed: 1, map_w: 256, map_h: 160, founders: 6, founder_pop: 25 }
     }
 }
 

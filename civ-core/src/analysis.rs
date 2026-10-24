@@ -45,6 +45,40 @@ pub struct Summary {
     pub self_invented_frac: f32,
     /// span of occupied land (bounding box cells)
     pub range_cells: u32,
+    /// continents (landmasses >= Map::CONTINENT_CELLS cells) in this world, largest first
+    pub continents: Vec<LandmassSummary>,
+    /// smaller islands: how many exist, how many were ever reached
+    pub islands: u32,
+    pub islands_reached: u32,
+    /// share of land cells per biome (percent), in Biome order
+    pub biome_pct: Vec<(String, f32)>,
+    pub trade: TradeSummary,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TradeSummary {
+    pub trades: u64,
+    pub volume: f32,
+    pub food_shared: f32,
+    /// mean band-to-band distance of a trade (cells)
+    pub mean_dist: f32,
+    /// last year: trades, standing partnerships, distance of carried metal/obsidian from source
+    pub trades_last: u32,
+    pub partnerships_last: u32,
+    pub goods_dist_mean_last: f32,
+    /// furthest any carried copper/tin/bronze/obsidian ever was from where it was gathered
+    pub goods_dist_max_ever: f32,
+    /// (year, material) of the first time each good changed hands
+    pub first_traded: Vec<(f32, String)>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LandmassSummary {
+    pub id: u32,
+    pub cells: u32,
+    /// year people first arrived (None = never)
+    pub landfall_year: Option<f32>,
+    pub pop_now: u32,
 }
 
 pub const STAGES: [&str; 7] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze"];
@@ -156,6 +190,58 @@ pub fn summarize(w: &World) -> Summary {
     let range = if w.bands.is_empty() { 0 } else { (x1 - x0 + 1) as u32 * (y1 - y0 + 1) as u32 };
     let last = w.history.last();
     let _ = now;
+    let m = &w.map;
+    let nl = m.landmass_size.len();
+    let mut lpop = vec![0u32; nl];
+    for b in &w.bands {
+        let l = m.landmass_of(b.cell(mw)) as usize;
+        if l < nl {
+            lpop[l] += b.pop;
+        }
+    }
+    let lf = |l: usize| w.landfall.get(l).copied().filter(|&t| t != u32::MAX).map(|t| t as f32 / 4.0);
+    let mut continents = Vec::new();
+    let (mut islands, mut islands_reached) = (0u32, 0u32);
+    for l in 1..nl {
+        let sz = m.landmass_size[l];
+        if sz >= crate::map::Map::CONTINENT_CELLS {
+            continents.push(LandmassSummary { id: l as u32, cells: sz, landfall_year: lf(l), pop_now: lpop[l] });
+        } else {
+            islands += 1;
+            if lf(l).is_some() {
+                islands_reached += 1;
+            }
+        }
+    }
+    let mut bc = std::collections::BTreeMap::<String, u32>::new();
+    let mut land = 0u32;
+    for i in 0..mw * m.h {
+        if m.is_land(i) {
+            land += 1;
+            *bc.entry(format!("{:?}", m.biome_at(i))).or_default() += 1;
+        }
+    }
+    let mut trade = TradeSummary::default();
+    let mut dsum = 0.0f32;
+    for h in &w.history {
+        trade.trades += h.trades as u64;
+        trade.volume += h.trade_volume;
+        trade.food_shared += h.food_shared;
+        dsum += h.trade_dist;
+        trade.goods_dist_max_ever = trade.goods_dist_max_ever.max(h.goods_dist_max);
+    }
+    trade.mean_dist = if trade.trades > 0 { dsum / trade.trades as f32 } else { 0.0 };
+    if let Some(h) = last {
+        trade.trades_last = h.trades;
+        trade.partnerships_last = h.partnerships;
+        trade.goods_dist_mean_last = h.goods_dist_mean;
+    }
+    for e in &w.chronicle {
+        if e.kind == crate::world::EventKind::FirstTraded as u8 {
+            trade.first_traded.push((e.tick as f32 / 4.0, crate::materials::mat(e.item).props().name.to_string()));
+        }
+    }
+    let biome_pct = bc.into_iter().map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32)).collect();
     Summary {
         seed: w.cfg.seed,
         years: w.year(),
@@ -175,6 +261,11 @@ pub fn summarize(w: &World) -> Summary {
         firsts,
         self_invented_frac: if allk > 0 { selfk as f32 / allk as f32 } else { 0.0 },
         range_cells: range,
+        continents,
+        islands,
+        islands_reached,
+        biome_pct,
+        trade,
     }
 }
 

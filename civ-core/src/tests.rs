@@ -39,7 +39,7 @@ fn save_round_trip_continues_identically() {
 
 #[test]
 fn physics_sanity() {
-    let ctx = Ctx { dryness: 0.5 };
+    let ctx = Ctx { dryness: 0.5, water: true };
     let raw = |m| item(Form::Raw, m);
     // no copper from an open wood fire
     let inp = physics::canonical(Action::Heat, [raw(Mat::CopperOre), NONE, item(Form::Fire, Mat::Wood), NONE]);
@@ -53,4 +53,34 @@ fn physics_sanity() {
         [raw(Mat::CopperOre), NONE, item(Form::Fire, Mat::Charcoal), item(Form::Kiln, Mat::Clay)],
     );
     assert_eq!(physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out)), Some(Mat::Copper));
+}
+
+/// A save written by the v1 (pre-food-tech, pre-trade) build must still load, be migrated,
+/// have its per-season figures recomputed, and keep running.
+#[test]
+fn v1_fixture_loads_and_runs() {
+    let bytes = include_bytes!("../tests/fixtures/v1_seed7_y60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v1 save loads");
+    assert_eq!(info.format_version, 1);
+    assert_eq!(info.migrated_from, Some(1));
+    assert!(w.total_pop() > 0);
+    assert!(!w.bands.is_empty());
+    for b in &w.bands {
+        assert_eq!(b.stock.len(), NMAT);
+        assert_eq!(b.origin.len(), NMAT);
+        // figures are recomputed on load, not left at zero
+        assert!(b.d.need > 0.0, "need recomputed");
+        assert!(b.d.food_ratio > 0.0, "food ratio recomputed");
+    }
+    assert_eq!(w.map.gen_version, 2, "legacy map upgraded");
+    let t0 = w.tick;
+    for _ in 0..40 {
+        w.step();
+    }
+    assert_eq!(w.tick, t0 + 40);
+    assert!(w.total_pop() > 0);
+    // and it saves again at the current version
+    let again = w.save_bytes(None, "test", "now").unwrap();
+    let (_, _, info2) = World::load_bytes(&again).unwrap();
+    assert_eq!(info2.format_version, crate::save::FORMAT_VERSION);
 }

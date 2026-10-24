@@ -60,7 +60,7 @@ fn view_state(v: &View, sel: Option<u32>, st: &ui::UiState) -> ViewState {
 
 async fn run(a: cli::Args) {
     let mut w = World::new(cli::make_config(&a, a.seeds.0), cli::make_params(&a));
-    let mut st = ui::UiState { overlay: a.overlay.min(5), new_seed: a.seeds.0 + 1, ..Default::default() };
+    let mut st = ui::UiState { overlay: a.overlay.min(6), new_seed: a.seeds.0 + 1, ..Default::default() };
     let mut view = View::fit(&w);
     let mut selected: Option<u32> = None;
     let mut pending: Option<Loaded> = None;
@@ -114,7 +114,7 @@ async fn run(a: cli::Args) {
                     view = View { cx: v.cx, cy: v.cy, zoom: v.zoom };
                 }
                 selected = v.selected;
-                st.overlay = v.overlay.min(5);
+                st.overlay = v.overlay.min(6);
                 st.item = v.item;
             }
             toast(&mut st, msg);
@@ -162,7 +162,7 @@ async fn run(a: cli::Args) {
                 if is_key_pressed(KeyCode::F) {
                     st.follow = !st.follow;
                 }
-                for (k, o) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4), (KeyCode::Key6, 5)] {
+                for (k, o) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4), (KeyCode::Key6, 5), (KeyCode::Key7, 6)] {
                     if is_key_pressed(k) {
                         st.overlay = o;
                     }

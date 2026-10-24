@@ -20,7 +20,7 @@ pub struct Args {
 
 pub const USAGE: &str = "\
 kindling [--seed S] [--map WxH] [--config params.json] [--load file.civsave]
-  desktop:  [--screenshot out.png [--years N] [--overlay 0-5] [--ui inspector|log|stats|settings]]
+  desktop:  [--screenshot out.png [--years N] [--overlay 0-6] [--ui inspector|log|stats|settings]]
   headless: --headless [--seeds A..B | --seed S] [--years N] [--report K] [--json] [--verbose]
             [--save out.civsave]";
 
