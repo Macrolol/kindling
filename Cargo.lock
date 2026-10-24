@@ -710,6 +710,7 @@ dependencies = [
  "civ-core",
  "egui-macroquad",
  "macroquad",
+ "rayon",
  "serde_json",
 ]
 

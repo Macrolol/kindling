@@ -34,6 +34,10 @@ fn load_world_bytes(b: &[u8], name: &str) -> Result<Loaded, String> {
 fn main() {
     let a = cli::parse_args();
     #[cfg(not(target_arch = "wasm32"))]
+    if a.threads > 0 {
+        let _ = rayon::ThreadPoolBuilder::new().num_threads(a.threads).build_global();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     if a.headless {
         headless::run(&a);
         return;
@@ -58,9 +62,59 @@ fn view_state(v: &View, sel: Option<u32>, st: &ui::UiState) -> ViewState {
     ViewState { cx: v.cx, cy: v.cy, zoom: v.zoom, selected: sel, overlay: st.overlay, item: st.item }
 }
 
+/// One season on the chosen thread pool (native) or on the global one.
+#[cfg(not(target_arch = "wasm32"))]
+fn step(w: &mut World, pool: &Option<rayon::ThreadPool>) {
+    match pool {
+        Some(p) => p.install(|| w.step()),
+        None => w.step(),
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn step(w: &mut World, _pool: &Option<()>) {
+    w.step()
+}
+
+/// A few well-spread good-land cells (for the picker screenshot).
+fn demo_starts(w: &World, n: usize) -> Vec<(u16, u16)> {
+    let mut v = Vec::new();
+    let (mw, mh) = (w.map.w, w.map.h);
+    let mut k = 1usize;
+    while v.len() < n && k < 4000 {
+        // a scattered walk over the map
+        let x = (k * 7919 + 13) % mw;
+        let y = (k * 104729 + 7) % mh;
+        k += 1;
+        if w.map.start_check(x, y) == civ_core::StartCheck::Ok
+            && v.iter().all(|&(a, b): &(u16, u16)| (a as i64 - x as i64).abs() + (b as i64 - y as i64).abs() > (mw as i64 / 6))
+        {
+            v.push((x as u16, y as u16));
+        }
+    }
+    v
+}
+
 async fn run(a: cli::Args) {
     let mut w = World::new(cli::make_config(&a, a.seeds.0), cli::make_params(&a));
-    let mut st = ui::UiState { overlay: a.overlay.min(8), new_seed: a.seeds.0 + 1, ..Default::default() };
+    for m in cli::check_starts(&w, &a.starts) {
+        eprintln!("{m}");
+    }
+    let mut st = ui::UiState {
+        overlay: a.overlay.min(8),
+        new_seed: a.seeds.0 + 1,
+        threads: a.threads,
+        new_w: w.map.w,
+        new_h: w.map.h,
+        ..Default::default()
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut pool: Option<rayon::ThreadPool> = None;
+    #[cfg(target_arch = "wasm32")]
+    let pool: Option<()> = None;
+    #[allow(unused)]
+    let mut pool_n = a.threads;
+    // the start picker's world (map only; nothing runs on it)
+    let mut pv: Option<World> = None;
     let mut view = View::fit(&w);
     let mut selected: Option<u32> = None;
     let mut pending: Option<Loaded> = None;
@@ -72,7 +126,18 @@ async fn run(a: cli::Args) {
         }
     }
     // screenshot mode: run the world forward first, pick the most knowledgeable band
-    if a.screenshot.is_some() && a.load.is_none() {
+    if a.screenshot.is_some() && a.ui == "picker" {
+        let p = World::new(cli::make_config(&a, a.seeds.0), w.params);
+        let starts = demo_starts(&p, 4);
+        let mut pk = ui::Picker { seed: a.seeds.0, w: p.map.w, h: p.map.h, mode: 2, starts: vec![], founders: 6, note: String::new() };
+        for &(x, y) in &starts {
+            pk.click(&p.map, x as usize, y as usize);
+        }
+        st.picker = Some(pk);
+        st.show_legend = true;
+        st.overlay = 0;
+        pv = Some(p);
+    } else if a.screenshot.is_some() && a.load.is_none() {
         for _ in 0..a.shot_years * 4 {
             w.step();
         }
@@ -128,8 +193,22 @@ async fn run(a: cli::Args) {
         }
         let mut jump = None;
         egui_macroquad::ui(|ctx| {
-            jump = ui::draw(ctx, &mut st, &mut w, selected);
+            let cur = match pv.as_mut() {
+                Some(p) if st.picker.is_some() => p,
+                _ => &mut w,
+            };
+            jump = ui::draw(ctx, &mut st, cur, selected);
         });
+        if st.picker.is_none() && pv.is_some() {
+            // picker closed: back to the running world
+            pv = None;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if st.threads != pool_n {
+            pool_n = st.threads;
+            pool = if pool_n == 0 { None } else { cli::make_pool(pool_n) };
+            toast(&mut st, format!("sim threads: {}", if pool_n == 0 { "all cores".to_string() } else { pool_n.to_string() }));
+        }
         if let Some(id) = jump {
             selected = Some(id);
             st.follow = true;
@@ -161,6 +240,9 @@ async fn run(a: cli::Args) {
                 }
                 if is_key_pressed(KeyCode::F) {
                     st.follow = !st.follow;
+                }
+                if is_key_pressed(KeyCode::X) {
+                    st.fast = !st.fast;
                 }
                 for (k, o) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4), (KeyCode::Key6, 5), (KeyCode::Key7, 6), (KeyCode::Key8, 7), (KeyCode::Key9, 8)] {
                     if is_key_pressed(k) {
@@ -197,7 +279,15 @@ async fn run(a: cli::Args) {
         }
         if is_mouse_button_released(MouseButton::Left) {
             if press.is_some() && !dragged {
-                selected = render::pick_band(&w, &view, m);
+                match (st.picker.as_mut(), pv.as_ref()) {
+                    (Some(pk), Some(p)) => {
+                        let c = view.to_world(m);
+                        if c.x >= 0.0 && c.y >= 0.0 {
+                            pk.click(&p.map, c.x as usize, c.y as usize);
+                        }
+                    }
+                    _ => selected = render::pick_band(&w, &view, m),
+                }
             }
             press = None;
         }
@@ -249,27 +339,67 @@ async fn run(a: cli::Args) {
                         Err(e) => toast(&mut st, format!("load failed: {e}")),
                     }
                 }
-                ui::FileReq::New(seed) => {
+                ui::FileReq::Preview { seed, w: mw, h: mh } => {
+                    let mut c = cli::make_config(&a, seed);
+                    c.map_w = mw.clamp(32, 2048);
+                    c.map_h = mh.clamp(24, 2048);
+                    c.starts.clear();
+                    let p = World::new(c, w.params);
+                    view = View::fit(&p);
+                    st.picker = Some(ui::Picker { seed, w: p.map.w, h: p.map.h, mode: 0, starts: vec![], founders: p.cfg.founders, note: String::new() });
+                    st.show_load = false;
+                    st.show_legend = true;
+                    if !render::static_overlay(st.overlay) && st.overlay != 8 {
+                        st.overlay = 0;
+                    }
+                    pv = Some(p);
+                }
+                ui::FileReq::New { seed, w: mw, h: mh, starts, founders } => {
                     let p = w.params;
-                    w = World::new(cli::make_config(&a, seed), p);
+                    let mut c = cli::make_config(&a, seed);
+                    c.map_w = mw.clamp(32, 2048);
+                    c.map_h = mh.clamp(24, 2048);
+                    c.starts = starts.clone();
+                    if founders > 0 {
+                        c.founders = founders;
+                    }
+                    w = World::new(c, p);
+                    pv = None;
                     prev_params = w.params;
                     selected = None;
                     view = View::fit(&w);
                     st.show_load = false;
-                    toast(&mut st, format!("new world, seed {seed}"));
+                    let how = if starts.is_empty() {
+                        "random start".to_string()
+                    } else {
+                        let s: Vec<String> = starts.iter().map(|(x, y)| format!("{x},{y}")).collect();
+                        format!("starts {}", s.join(";"))
+                    };
+                    toast(&mut st, format!("new world, seed {seed}, {}x{}, {how}", w.map.w, w.map.h));
                 }
             }
         }
         // ---------- simulate (bounded work per frame so the UI stays responsive)
-        if !st.paused {
-            acc += st.speed as f64 * get_frame_time().min(0.1) as f64;
+        if !st.paused && st.picker.is_none() {
             let t0 = get_time();
-            while acc >= 1.0 {
-                w.step();
-                acc -= 1.0;
-                if get_time() - t0 > 0.03 {
-                    acc = acc.min(1.0);
-                    break;
+            if st.fast {
+                // fast mode: as many seasons as fit in ~1/4 s, at least one
+                loop {
+                    step(&mut w, &pool);
+                    if get_time() - t0 > 0.25 || w.bands.is_empty() {
+                        break;
+                    }
+                }
+                acc = 0.0;
+            } else {
+                acc += st.speed as f64 * get_frame_time().min(0.1) as f64;
+                while acc >= 1.0 {
+                    step(&mut w, &pool);
+                    acc -= 1.0;
+                    if get_time() - t0 > 0.03 {
+                        acc = acc.min(1.0);
+                        break;
+                    }
                 }
             }
         }
@@ -280,8 +410,15 @@ async fn run(a: cli::Args) {
             }
         }
         // ---------- draw
-        mt.refresh(&w, st.overlay, st.item);
-        render::draw_world(&w, &view, &mt, st.overlay, st.item, selected);
+        if let (Some(p), Some(pk)) = (pv.as_ref(), st.picker.as_ref()) {
+            mt.refresh(p, st.overlay, None, false);
+            render::draw_world(p, &view, &mt, st.overlay, None, None, false);
+            draw_starts(p, &view, pk, m, st.wants_pointer);
+        } else {
+            mt.refresh(&w, st.overlay, st.item, st.fast);
+            let bands = !st.fast || view.zoom >= 4.0 || w.bands.len() < 3000;
+            render::draw_world(&w, &view, &mt, st.overlay, st.item, selected, bands);
+        }
         if get_time() < st.toast_until {
             let tw = measure_text(&st.toast, None, 20, 1.0).width;
             draw_rectangle(screen_width() / 2.0 - tw / 2.0 - 8.0, screen_height() - 40.0, tw + 16.0, 28.0, Color::new(0.0, 0.0, 0.0, 0.7));
@@ -298,4 +435,46 @@ async fn run(a: cli::Args) {
         }
         next_frame().await
     }
+}
+
+/// Start markers and the hover readout in the start picker.
+fn draw_starts(w: &World, v: &View, pk: &ui::Picker, m: Vec2, over_ui: bool) {
+    let r = (v.zoom * 0.5).max(5.0);
+    if pk.mode == 1 {
+        if let Some(&(x, y)) = pk.starts.first() {
+            // the founders spread over a few cells around the start
+            let a = v.to_screen(x as f32 - 3.0, y as f32 - 3.0);
+            let b = v.to_screen(x as f32 + 4.0, y as f32 + 4.0);
+            draw_rectangle_lines(a.x, a.y, b.x - a.x, b.y - a.y, 3.0, WHITE);
+            let c = v.to_screen(x as f32 + 0.5, y as f32 + 0.5);
+            draw_circle(c.x, c.y, r, Color::new(1.0, 0.85, 0.2, 1.0));
+            draw_circle_lines(c.x, c.y, r, 2.0, BLACK);
+        }
+    } else if pk.mode == 2 {
+        for (k, &(x, y)) in pk.starts.iter().enumerate() {
+            let c = v.to_screen(x as f32 + 0.5, y as f32 + 0.5);
+            draw_circle(c.x, c.y, r + 3.0, BLACK);
+            draw_circle(c.x, c.y, r, render::lineage_color(k as u32));
+            let t = format!("{}", k + 1);
+            draw_text(&t, c.x + r + 3.0, c.y - r, 22.0, BLACK);
+            draw_text(&t, c.x + r + 2.0, c.y - r - 1.0, 22.0, WHITE);
+        }
+    }
+    if over_ui {
+        return;
+    }
+    let c = v.to_world(m);
+    if c.x < 0.0 || c.y < 0.0 || c.x as usize >= w.map.w || c.y as usize >= w.map.h {
+        return;
+    }
+    let (x, y) = (c.x as usize, c.y as usize);
+    let i = y * w.map.w + x;
+    let (txt, col) = match w.map.start_check(x, y) {
+        civ_core::StartCheck::Ok => (format!("({x},{y}) {} {:.0}C - good land", w.map.biome_at(i).name(), w.map.temp[i]), GREEN),
+        civ_core::StartCheck::Poor => (format!("({x},{y}) {} {:.0}C - poor land", w.map.biome_at(i).name(), w.map.temp[i]), ORANGE),
+        civ_core::StartCheck::Uninhabitable => (format!("({x},{y}) {} - uninhabitable", w.map.biome_at(i).name()), RED),
+    };
+    let tw = measure_text(&txt, None, 18, 1.0).width;
+    draw_rectangle(m.x + 14.0, m.y + 8.0, tw + 10.0, 24.0, Color::new(0.0, 0.0, 0.0, 0.75));
+    draw_text(&txt, m.x + 19.0, m.y + 25.0, 18.0, col);
 }

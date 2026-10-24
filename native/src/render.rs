@@ -122,38 +122,50 @@ pub fn lineage_color(lineage: u32) -> Color {
     macroquad::color::hsl_to_rgb(h, 0.75, 0.6)
 }
 
-/// Builds the RGBA pixels of the map for an overlay.
+/// Overlays that do not change as the world runs (only redrawn when switched to).
+pub fn static_overlay(overlay: u8) -> bool {
+    matches!(overlay, 0 | 4 | 5)
+}
+
+/// Builds the RGBA pixels of the map for an overlay (rows in parallel on native builds).
 pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
     let m = &w.map;
     let n = m.w * m.h;
     let mut px = vec![0u8; n * 4];
-    // per-cell aggregates from bands
-    let mut pop = vec![0u32; n];
-    let mut know = vec![0u32; n];
-    let mut herd = vec![false; n];
-    for b in &w.bands {
-        let c = b.cell(m.w);
-        pop[c] += b.pop;
-        if overlay == 8 && b.herd > 0.05 {
-            // grazing range of a herding band
-            let (bx, by) = (b.x as i32, b.y as i32);
-            for dy in -1..=1i32 {
-                for dx in -1..=1i32 {
-                    let (x, y) = (bx + dx, by + dy);
-                    if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h {
-                        herd[y as usize * m.w + x as usize] = true;
+    // per-cell aggregates from bands (only what the overlay shows)
+    let mut pop = vec![0u32; if overlay == 3 { n } else { 0 }];
+    let mut know = vec![0u32; if overlay == 1 { n } else { 0 }];
+    let mut herd = vec![false; if overlay == 8 { n } else { 0 }];
+    if matches!(overlay, 1 | 3 | 8) {
+        for b in &w.bands {
+            let c = b.cell(m.w);
+            if overlay == 3 {
+                pop[c] += b.pop;
+            }
+            if overlay == 8 && b.herd > 0.05 {
+                // grazing range of a herding band
+                let (bx, by) = (b.x as i32, b.y as i32);
+                for dy in -1..=1i32 {
+                    for dx in -1..=1i32 {
+                        let (x, y) = (bx + dx, by + dy);
+                        if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h {
+                            herd[y as usize * m.w + x as usize] = true;
+                        }
                     }
                 }
             }
-        }
-        // know-how is shown over each band's home range (2 cells), not just its own cell
-        let (bx, by) = (b.x as i32, b.y as i32);
-        for dy in -2..=2i32 {
-            for dx in -2..=2i32 {
-                let (x, y) = (bx + dx, by + dy);
-                if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h && dx * dx + dy * dy <= 5 {
-                    let j = y as usize * m.w + x as usize;
-                    know[j] = know[j].max(b.n_items());
+            if overlay == 1 {
+                // know-how is shown over each band's home range (2 cells), not just its own cell
+                let (bx, by) = (b.x as i32, b.y as i32);
+                let nk = b.n_items();
+                for dy in -2..=2i32 {
+                    for dx in -2..=2i32 {
+                        let (x, y) = (bx + dx, by + dy);
+                        if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h && dx * dx + dy * dy <= 5 {
+                            let j = y as usize * m.w + x as usize;
+                            know[j] = know[j].max(nk);
+                        }
+                    }
                 }
             }
         }
@@ -161,7 +173,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
     let max_know = know.iter().copied().max().unwrap_or(1).max(1) as f32;
     let cf = item.and_then(|it| w.cell_first.get(&it));
     let now = w.tick.max(1) as f32;
-    for y in 0..m.h {
+    let fill_row = |y: usize, row: &mut [u8]| {
         for x in 0..m.w {
             let i = m.idx(x, y);
             let land = m.is_land(i);
@@ -243,36 +255,79 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                 },
                 _ => c,
             };
-            let o = (y * m.w + x) * 4;
-            px[o] = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
-            px[o + 1] = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
-            px[o + 2] = (c[2].clamp(0.0, 1.0) * 255.0) as u8;
-            px[o + 3] = 255;
+            let o = x * 4;
+            row[o] = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
+            row[o + 1] = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
+            row[o + 2] = (c[2].clamp(0.0, 1.0) * 255.0) as u8;
+            row[o + 3] = 255;
         }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        px.par_chunks_mut(m.w * 4).enumerate().for_each(|(y, row)| fill_row(y, row));
+    }
+    #[cfg(target_arch = "wasm32")]
+    for (y, row) in px.chunks_mut(m.w * 4).enumerate() {
+        fill_row(y, row);
     }
     px
 }
 
+/// The map texture, rebuilt when the overlay or the world changes. On big maps a rebuild is
+/// costly, so while the world runs it is redrawn at most every `min_dt` seconds (adaptive: a few
+/// times the last rebuild's cost, so drawing never takes more than a fraction of the frame), and
+/// overlays that do not change over time (terrain, deposits, temperature) are never redrawn.
 pub struct MapTex {
     pub tex: Texture2D,
-    pub key: (u32, u8, Option<Item>, usize),
+    pub key: (u32, u8, Option<Item>, usize, u64),
+    /// wall time of the last rebuild, and how long it took (s)
+    pub at: f64,
+    pub cost: f64,
 }
 impl MapTex {
+    fn key(w: &World, overlay: u8, item: Option<Item>) -> (u32, u8, Option<Item>, usize, u64) {
+        let tick = if static_overlay(overlay) { 0 } else { w.tick };
+        (tick, overlay, item, w.map.w * w.map.h, w.cfg.seed)
+    }
     pub fn new(w: &World, overlay: u8, item: Option<Item>) -> MapTex {
+        let t0 = get_time();
         let px = map_pixels(w, overlay, item);
         let tex = Texture2D::from_rgba8(w.map.w as u16, w.map.h as u16, &px);
         tex.set_filter(FilterMode::Nearest);
-        MapTex { tex, key: (w.tick, overlay, item, w.map.w * w.map.h) }
+        let now = get_time();
+        MapTex { tex, key: Self::key(w, overlay, item), at: now, cost: now - t0 }
     }
-    pub fn refresh(&mut self, w: &World, overlay: u8, item: Option<Item>) {
-        let key = (w.tick, overlay, item, w.map.w * w.map.h);
-        if key != self.key {
-            *self = MapTex::new(w, overlay, item);
+    /// `fast`: fast mode (redraw the map at most every 2 s).
+    pub fn refresh(&mut self, w: &World, overlay: u8, item: Option<Item>, fast: bool) {
+        let key = Self::key(w, overlay, item);
+        if key == self.key {
+            return;
         }
+        let same_view = (key.1, key.2, key.3, key.4) == (self.key.1, self.key.2, self.key.3, self.key.4);
+        if same_view {
+            let min_dt = if fast { 2.0 } else { (4.0 * self.cost).min(0.5) };
+            if get_time() - self.at < min_dt {
+                return;
+            }
+        }
+        let t0 = get_time();
+        let px = map_pixels(w, overlay, item);
+        if key.3 == self.key.3 && self.tex.width() as usize == w.map.w {
+            self.tex.update_from_bytes(w.map.w as u32, w.map.h as u32, &px);
+        } else {
+            self.tex = Texture2D::from_rgba8(w.map.w as u16, w.map.h as u16, &px);
+            self.tex.set_filter(FilterMode::Nearest);
+        }
+        let now = get_time();
+        self.key = key;
+        self.at = now;
+        self.cost = now - t0;
     }
 }
 
-pub fn draw_world(w: &World, v: &View, mt: &MapTex, overlay: u8, item: Option<Item>, selected: Option<u32>) {
+/// `bands`: draw the bands (off in the start picker; in fast mode only when zoomed in or few).
+pub fn draw_world(w: &World, v: &View, mt: &MapTex, overlay: u8, item: Option<Item>, selected: Option<u32>, bands: bool) {
     clear_background(Color::from_rgba(12, 18, 30, 255));
     let p0 = v.to_screen(0.0, 0.0);
     draw_texture_ex(
@@ -282,7 +337,12 @@ pub fn draw_world(w: &World, v: &View, mt: &MapTex, overlay: u8, item: Option<It
         WHITE,
         DrawTextureParams { dest_size: Some(vec2(w.map.w as f32 * v.zoom, w.map.h as f32 * v.zoom)), ..Default::default() },
     );
-    // bands: disc area ~ population; colour = founding lineage; orange ring = keeps fire
+    if !bands {
+        return;
+    }
+    // bands: disc area ~ population; colour = founding lineage; orange ring = keeps fire. With
+    // tens of thousands on screen the outlines are left off (they would be a pixel wide anyway)
+    let crowded = w.bands.len() > 15000 && v.zoom < 3.0;
     for b in &w.bands {
         let p = v.to_screen(b.x as f32 + 0.5, b.y as f32 + 0.5);
         if p.x < -20.0 || p.y < -20.0 || p.x > screen_width() + 20.0 || p.y > screen_height() + 20.0 {
@@ -296,6 +356,12 @@ pub fn draw_world(w: &World, v: &View, mt: &MapTex, overlay: u8, item: Option<It
             }
         }
         draw_circle(p.x, p.y, r, col);
+        if crowded {
+            if Some(b.id) == selected {
+                draw_circle_lines(p.x, p.y, r + 4.0, 2.0, WHITE);
+            }
+            continue;
+        }
         if b.flame {
             draw_circle_lines(p.x, p.y, r + 1.0, 1.2, Color::from_rgba(255, 150, 40, 230));
         } else {

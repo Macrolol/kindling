@@ -10,7 +10,52 @@ pub enum FileReq {
     Save,
     OpenLoad,
     Load(String),
-    New(u64),
+    /// a new world: seed, map size, chosen starts (empty: random), founders (0: default)
+    New { seed: u64, w: usize, h: usize, starts: Vec<(u16, u16)>, founders: usize },
+    /// generate a world's map and open the start picker on it
+    Preview { seed: u64, w: usize, h: usize },
+}
+
+/// Start picker state (the preview world itself is held by the main loop).
+pub struct Picker {
+    pub seed: u64,
+    pub w: usize,
+    pub h: usize,
+    /// 0 random (as before), 1 one shared start area, 2 each lineage placed individually
+    pub mode: u8,
+    pub starts: Vec<(u16, u16)>,
+    pub founders: usize,
+    pub note: String,
+}
+
+impl Picker {
+    /// A click on cell (x, y) of the preview map.
+    pub fn click(&mut self, map: &civ_core::map::Map, x: usize, y: usize) {
+        use civ_core::StartCheck;
+        let chk = map.start_check(x, y);
+        let what = if x < map.w && y < map.h { map.biome_at(y * map.w + x).name() } else { "off the map" };
+        if chk == StartCheck::Uninhabitable {
+            self.note = format!("({x},{y}) is {what}: nobody can live there - pick land");
+            return;
+        }
+        if self.mode == 0 {
+            self.mode = 1;
+        }
+        let p = (x as u16, y as u16);
+        if self.mode == 1 {
+            self.starts = vec![p];
+        } else if self.starts.len() < 24 {
+            self.starts.push(p);
+        } else {
+            self.note = "24 lineages at most - undo one first".into();
+            return;
+        }
+        self.note = if chk == StartCheck::Poor {
+            format!("warning: ({x},{y}) {what} is poor land (cold, hot or little food) - the founders may struggle")
+        } else {
+            format!("({x},{y}) {what}: good land")
+        };
+    }
 }
 
 pub struct UiState {
@@ -41,6 +86,15 @@ pub struct UiState {
     #[allow(dead_code)]
     pub autosave_keep: u32,
     pub follow: bool,
+    /// fast mode: more sim per frame, the map redrawn every 2 s, bands drawn only zoomed in
+    pub fast: bool,
+    /// sim worker threads (0 = all cores; native only)
+    #[allow(dead_code)]
+    pub threads: usize,
+    /// map size for a new world
+    pub new_w: usize,
+    pub new_h: usize,
+    pub picker: Option<Picker>,
 }
 impl Default for UiState {
     fn default() -> Self {
@@ -68,6 +122,11 @@ impl Default for UiState {
             autosave_min: 10.0,
             autosave_keep: 3,
             follow: false,
+            fast: false,
+            threads: 0,
+            new_w: 256,
+            new_h: 160,
+            picker: None,
         }
     }
 }
@@ -82,6 +141,15 @@ fn items_ever(w: &World) -> Vec<Item> {
 
 /// Draws all windows. Returns a band id to jump to, if one was clicked.
 pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Option<u32>) -> Option<u32> {
+    if st.picker.is_some() {
+        picker(ctx, st, w);
+        if st.show_legend {
+            legend(ctx, st, w);
+        }
+        st.wants_pointer = ctx.wants_pointer_input() || ctx.is_pointer_over_area();
+        st.wants_kb = ctx.wants_keyboard_input();
+        return None;
+    }
     let mut jump = None;
     egui::TopBottomPanel::top("top").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -98,6 +166,9 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
             }
             ui.add(egui::Slider::new(&mut st.speed, 0.5..=400.0).logarithmic(true).show_value(false));
             fixed(ui, 112.0, format!("{:>6.1} seasons/s", st.speed));
+            ui.toggle_value(&mut st.fast, "⚡ fast").on_hover_text(
+                "Fast mode (X): as much sim per frame as possible; the map is redrawn every 2 s and bands only when zoomed in",
+            );
             ui.separator();
             egui::ComboBox::from_id_salt("overlay")
                 .width(110.0)
@@ -207,10 +278,21 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
         egui::Window::new("Load / new world").open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut st.new_seed).prefix("seed "));
-                if ui.button("New world").clicked() {
-                    st.req = Some(FileReq::New(st.new_seed));
+                ui.add(egui::DragValue::new(&mut st.new_w).range(32..=2048).prefix("map ").suffix(" w"));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut st.new_h).range(24..=2048).suffix(" h"));
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Choose start…").on_hover_text("Show the new map and place the founders yourself").clicked() {
+                    st.req = Some(FileReq::Preview { seed: st.new_seed, w: st.new_w, h: st.new_h });
+                }
+                if ui.button("New world (random start)").clicked() {
+                    st.req = Some(FileReq::New { seed: st.new_seed, w: st.new_w, h: st.new_h, starts: vec![], founders: 0 });
                 }
             });
+            if st.new_w * st.new_h > 1_000_000 {
+                ui.label("big map: slow to generate and to run (use fast mode)");
+            }
             ui.separator();
             #[cfg(target_arch = "wasm32")]
             if ui.button("Open a .civsave file…").clicked() {
@@ -231,7 +313,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
         egui::Window::new("Help").default_pos([400.0, 200.0]).show(ctx, |ui| {
             ui.label(
                 "Drag to pan, wheel to zoom, click a band to inspect it.\n\
-                 Space pause · +/- speed · 1–9 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
+                 Space pause · +/- speed · X fast mode · 1–9 overlays · F follow selected · Ctrl+S save · Ctrl+O load\n\n\
                  Discs are bands (size ~ people, colour = founding lineage, orange ring = keeps a fire).\n\
                  Nothing is scripted: each band experiments with what it has; physics of the materials\n\
                  decides what works. Know-how spreads by teaching between neighbours and is forgotten\n\
@@ -415,6 +497,12 @@ fn stats(ui: &mut egui::Ui, w: &World, st: &mut UiState) {
 }
 
 fn settings(ui: &mut egui::Ui, w: &mut World, st: &mut UiState) {
+    #[cfg(not(target_arch = "wasm32"))]
+    ui.horizontal(|ui| {
+        ui.label("Threads");
+        ui.add(egui::DragValue::new(&mut st.threads).range(0..=256)).on_hover_text("sim worker threads; 0 = all cores");
+        ui.label(if st.threads == 0 { "(all cores)" } else { "" });
+    });
     ui.label("Changes apply immediately and are recorded in the save.");
     let fields = w.params.fields();
     let mut v = serde_json::to_value(w.params).unwrap_or_default();
@@ -630,4 +718,96 @@ fn legend(ctx: &egui::Context, st: &UiState, w: &World) {
             }
             band_key(ui, st.overlay == 2);
         });
+}
+
+/// The start picker window (the map behind it is the new world's).
+fn picker(ctx: &egui::Context, st: &mut UiState, w: &World) {
+    let mut go = false;
+    let mut back = false;
+    let p = st.picker.as_mut().unwrap();
+    egui::Window::new("Choose where people start").default_pos([8.0, 40.0]).default_width(380.0).show(ctx, |ui| {
+        ui.label(format!("Seed {} · map {}×{}", p.seed, p.w, p.h));
+        ui.horizontal(|ui| {
+            ui.label("Overlay");
+            egui::ComboBox::from_id_salt("pick_overlay")
+                .width(120.0)
+                .selected_text(OVERLAYS[st.overlay as usize])
+                .show_ui(ui, |ui| {
+                    for (i, n) in OVERLAYS.iter().enumerate() {
+                        if matches!(i, 0 | 4 | 5 | 8) {
+                            ui.selectable_value(&mut st.overlay, i as u8, *n);
+                        }
+                    }
+                });
+            ui.toggle_value(&mut st.show_legend, "Legend");
+        });
+        ui.separator();
+        ui.radio_value(&mut p.mode, 0, "Random (as before: a rich region drawn by the seed)");
+        ui.radio_value(&mut p.mode, 1, "One shared start area (click once; all lineages spread from it)");
+        ui.radio_value(&mut p.mode, 2, "Place each founding lineage (click once per lineage)");
+        if p.mode == 1 && p.starts.len() > 1 {
+            p.starts.truncate(1);
+        }
+        if p.mode != 2 {
+            ui.horizontal(|ui| {
+                ui.label("founding bands");
+                ui.add(egui::DragValue::new(&mut p.founders).range(1..=24));
+            });
+        }
+        match p.mode {
+            0 => ui.label("Click the map to choose a start instead."),
+            1 => ui.label(match p.starts.first() {
+                Some(&(x, y)) => format!("start area around ({x},{y})"),
+                None => "click the map to place the start area".into(),
+            }),
+            _ => ui.label(format!("{} lineages placed (each starts on its own cell)", p.starts.len())),
+        };
+        if p.mode == 2 {
+            egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                for (k, &(x, y)) in p.starts.iter().enumerate() {
+                    let i = y as usize * w.map.w + x as usize;
+                    let warn = if w.map.start_check(x as usize, y as usize) == civ_core::StartCheck::Poor { "  (poor land)" } else { "" };
+                    ui.label(format!("lineage {}: ({x},{y}) {}{warn}", k + 1, w.map.biome_at(i).name()));
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Undo").clicked() {
+                p.starts.pop();
+            }
+            if ui.button("Clear").clicked() {
+                p.starts.clear();
+            }
+        });
+        if !p.note.is_empty() {
+            let col = if p.note.contains("nobody") || p.note.starts_with("warning") { egui::Color32::from_rgb(255, 170, 60) } else { egui::Color32::LIGHT_GREEN };
+            ui.colored_label(col, &p.note);
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            let ready = p.mode == 0 || !p.starts.is_empty();
+            if ui.add_enabled(ready, egui::Button::new("Start this world")).clicked() {
+                go = true;
+            }
+            if ui.button("Back").clicked() {
+                back = true;
+            }
+        });
+        ui.label("Sea and ice are refused. Drag to pan, wheel to zoom.");
+    });
+    if go {
+        let p = st.picker.take().unwrap();
+        let (starts, founders) = match p.mode {
+            0 => (vec![], p.founders),
+            1 => (p.starts, p.founders),
+            _ => {
+                let n = p.starts.len();
+                (p.starts, n)
+            }
+        };
+        st.req = Some(FileReq::New { seed: p.seed, w: p.w, h: p.h, starts, founders });
+    } else if back {
+        st.picker = None;
+        st.show_load = true;
+    }
 }

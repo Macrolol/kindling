@@ -7,6 +7,7 @@ use civ_core::World;
 use std::time::Instant;
 
 pub fn run(a: &Args) {
+    eprintln!("threads: {}", rayon::current_num_threads());
     let mut sums: Vec<Summary> = Vec::new();
     let mut orders: Vec<Vec<Item>> = Vec::new();
     let mut confl: Vec<ConflictStats> = Vec::new();
@@ -16,7 +17,11 @@ pub fn run(a: &Args) {
             let b = std::fs::read(p).expect("read save");
             World::load_bytes(&b).expect("load").0
         } else {
-            World::new(make_config(a, seed), make_params(a))
+            let w = World::new(make_config(a, seed), make_params(a));
+            for m in crate::cli::check_starts(&w, &a.starts) {
+                eprintln!("seed {seed}: {m}");
+            }
+            w
         };
         let t_gen = t0.elapsed().as_secs_f32();
         if std::env::var("KINDLING_PROF").is_ok() {
