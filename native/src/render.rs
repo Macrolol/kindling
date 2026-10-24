@@ -4,6 +4,35 @@ use civ_core::materials::Item;
 use civ_core::World;
 use macroquad::prelude::*;
 
+/// Biomes in legend order with plain names.
+pub const BIOME_KEY: [(Biome, &str); 11] = [
+    (Biome::Ocean, "ocean"),
+    (Biome::Ice, "ice"),
+    (Biome::Tundra, "tundra"),
+    (Biome::Taiga, "taiga (cold forest)"),
+    (Biome::Steppe, "steppe (dry grass)"),
+    (Biome::Grassland, "grassland"),
+    (Biome::TempForest, "temperate forest"),
+    (Biome::Desert, "desert"),
+    (Biome::Savanna, "savanna"),
+    (Biome::TropForest, "tropical forest"),
+    (Biome::Mountain, "mountain"),
+];
+pub const RIVER_RGB: [f32; 3] = [0.25, 0.45, 0.75];
+/// Deposit colours, in drawing order (a later one wins when a cell has several).
+pub const DEPOSIT_KEY: [(u32, [f32; 3], &str); 6] = [
+    (D_STONE as u32, [0.55, 0.55, 0.6], "hard stone (cobbles for hammers)"),
+    (D_CLAY as u32, [0.75, 0.45, 0.3], "clay (pots, kiln lining)"),
+    (D_FLINT as u32, [0.95, 0.95, 0.85], "flint (sharp flakes)"),
+    (D_OBSIDIAN as u32, [0.15, 0.1, 0.25], "obsidian (sharpest edges)"),
+    (D_COPPER as u32, [0.15, 0.85, 0.6], "copper ore"),
+    (D_TIN as u32, [0.55, 0.75, 1.0], "tin ore"),
+];
+/// Temperature overlay range (°C) and population overlay scale (ln people per cell).
+pub const TEMP_LO: f32 = -15.0;
+pub const TEMP_HI: f32 = 30.0;
+pub const POP_LN_MAX: f32 = 6.0;
+
 pub const OVERLAYS: [&str; 6] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature"];
 
 /// Camera: centre in cell coordinates, zoom in screen pixels per cell.
@@ -25,7 +54,7 @@ impl View {
     }
 }
 
-fn biome_rgb(b: Biome) -> [f32; 3] {
+pub fn biome_rgb(b: Biome) -> [f32; 3] {
     use Biome::*;
     match b {
         Ocean => [0.11, 0.22, 0.38],
@@ -94,7 +123,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
             let shade = (1.0 - dz / 900.0).clamp(0.65, 1.25);
             let mut c = biome_rgb(m.biome_at(i));
             if land && m.river[i] {
-                c = lerp3(c, [0.25, 0.45, 0.75], 0.75);
+                c = lerp3(c, RIVER_RGB, 0.75);
             }
             if land {
                 c = [c[0] * shade, c[1] * shade, c[2] * shade];
@@ -117,7 +146,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                 },
                 3 if land => {
                     if pop[i] > 0 {
-                        ramp((pop[i] as f32).ln() / 6.0)
+                        ramp((pop[i] as f32).ln() / POP_LN_MAX)
                     } else {
                         grey(c, 0.55)
                     }
@@ -125,21 +154,14 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                 4 if land => {
                     let d = m.deposits[i];
                     let mut g = grey(c, 0.45);
-                    for (bit, col) in [
-                        (D_STONE, [0.55, 0.55, 0.6]),
-                        (D_CLAY, [0.75, 0.45, 0.3]),
-                        (D_FLINT, [0.95, 0.95, 0.85]),
-                        (D_OBSIDIAN, [0.15, 0.1, 0.25]),
-                        (D_COPPER, [0.15, 0.85, 0.6]),
-                        (D_TIN, [0.55, 0.75, 1.0]),
-                    ] {
-                        if d & bit != 0 {
+                    for (bit, col, _) in DEPOSIT_KEY {
+                        if d as u32 & bit != 0 {
                             g = col;
                         }
                     }
                     g
                 }
-                5 => ramp((m.temp[i] + 15.0) / 45.0),
+                5 => ramp((m.temp[i] - TEMP_LO) / (TEMP_HI - TEMP_LO)),
                 _ => c,
             };
             let o = (y * m.w + x) * 4;

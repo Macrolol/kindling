@@ -26,6 +26,7 @@ pub struct UiState {
     pub show_history: bool,
     pub show_load: bool,
     pub show_help: bool,
+    pub show_legend: bool,
     /// 0 chronicle, 1 all events, 2 selected band only
     pub log_mode: u8,
     pub wants_pointer: bool,
@@ -55,6 +56,7 @@ impl Default for UiState {
             show_history: false,
             show_load: false,
             show_help: false,
+            show_legend: true,
             log_mode: 0,
             wants_pointer: false,
             wants_kb: false,
@@ -84,21 +86,21 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
     egui::TopBottomPanel::top("top").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.strong("Kindling");
-            ui.label(format!(
-                "Y{} {} · pop {} · {} bands · {} things known",
-                w.tick / 4,
-                season_name(w.season()),
-                w.total_pop(),
-                w.bands.len(),
-                w.item_bands.len()
-            ));
+            // fixed-width monospace fields so nothing in the bar shifts as numbers/seasons change
+            fixed(ui, 92.0, format!("Y{:<5} {:<6}", w.tick / 4, season_name(w.season())));
+            fixed(ui, 92.0, format!("pop {:<7}", w.total_pop()));
+            fixed(ui, 86.0, format!("bands {:<5}", w.bands.len()));
+            fixed(ui, 72.0, format!("known {:<3}", w.item_bands.len()));
             ui.separator();
-            if ui.button(if st.paused { "▶ run" } else { "⏸ pause" }).clicked() {
+            let run = if st.paused { "▶ run" } else { "⏸ pause" };
+            if ui.add_sized([70.0, 20.0], egui::Button::new(run)).clicked() {
                 st.paused = !st.paused;
             }
-            ui.add(egui::Slider::new(&mut st.speed, 0.5..=400.0).logarithmic(true).text("seasons/s"));
+            ui.add(egui::Slider::new(&mut st.speed, 0.5..=400.0).logarithmic(true).show_value(false));
+            fixed(ui, 112.0, format!("{:>6.1} seasons/s", st.speed));
             ui.separator();
             egui::ComboBox::from_id_salt("overlay")
+                .width(110.0)
                 .selected_text(OVERLAYS[st.overlay as usize])
                 .show_ui(ui, |ui| {
                     for (i, n) in OVERLAYS.iter().enumerate() {
@@ -111,6 +113,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
                     st.item = items.first().copied();
                 }
                 egui::ComboBox::from_id_salt("item")
+                    .width(170.0)
                     .selected_text(st.item.map(item_name).unwrap_or_default())
                     .show_ui(ui, |ui| {
                         for it in items {
@@ -119,6 +122,7 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
                     });
             }
             ui.separator();
+            ui.toggle_value(&mut st.show_legend, "Legend");
             ui.toggle_value(&mut st.show_inspector, "Inspector");
             ui.toggle_value(&mut st.show_log, "Log");
             ui.toggle_value(&mut st.show_stats, "Stats");
@@ -132,6 +136,10 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
             }
         });
     });
+
+    if st.show_legend {
+        legend(ctx, st, w);
+    }
 
     if st.show_inspector {
         egui::Window::new("Inspector").default_pos([8.0, 40.0]).default_width(420.0).show(ctx, |ui| {
@@ -395,4 +403,137 @@ fn settings(ui: &mut egui::Ui, w: &mut World, st: &mut UiState) {
         ui.add(egui::Slider::new(&mut st.autosave_min, 0.0..=60.0).text("autosave every (min, 0 = off)"));
         ui.add(egui::Slider::new(&mut st.autosave_keep, 1..=10).text("autosaves kept"));
     }
+}
+
+/// A monospace label in a box of fixed width, left-aligned, so its neighbours never move.
+fn fixed(ui: &mut egui::Ui, width: f32, text: String) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 20.0),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.set_min_width(width);
+            ui.add(egui::Label::new(egui::RichText::new(text).monospace()).wrap_mode(egui::TextWrapMode::Extend));
+        },
+    );
+}
+
+fn c32(c: [f32; 3]) -> egui::Color32 {
+    let f = |v: f32| (v.clamp(0.0, 1.0) * 255.0) as u8;
+    egui::Color32::from_rgb(f(c[0]), f(c[1]), f(c[2]))
+}
+
+fn swatch(ui: &mut egui::Ui, c: egui::Color32, text: &str) {
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+        ui.painter().rect_filled(r, 2.0, c);
+        ui.label(text);
+    });
+}
+
+/// Colour ramp bar with tick labels at fractions 0..1.
+fn ramp_bar(ui: &mut egui::Ui, ticks: &[(f32, String)]) {
+    let width = 280.0;
+    let (r, _) = ui.allocate_exact_size(egui::vec2(width, 32.0), egui::Sense::hover());
+    let p = ui.painter();
+    let n = 70;
+    for k in 0..n {
+        let x0 = r.left() + width * k as f32 / n as f32;
+        let x1 = r.left() + width * (k + 1) as f32 / n as f32 + 0.5;
+        let col = c32(crate::render::ramp((k as f32 + 0.5) / n as f32));
+        p.rect_filled(egui::Rect::from_min_max(egui::pos2(x0, r.top()), egui::pos2(x1, r.top() + 14.0)), 0.0, col);
+    }
+    let txt = ui.visuals().text_color();
+    for (i, (f, s)) in ticks.iter().enumerate() {
+        let x = r.left() + width * f.clamp(0.0, 1.0);
+        p.line_segment([egui::pos2(x, r.top() + 14.0), egui::pos2(x, r.top() + 18.0)], egui::Stroke::new(1.0_f32, txt));
+        let align = if i == 0 {
+            egui::Align2::LEFT_TOP
+        } else if i + 1 == ticks.len() {
+            egui::Align2::RIGHT_TOP
+        } else {
+            egui::Align2::CENTER_TOP
+        };
+        p.text(egui::pos2(x, r.top() + 18.0), align, s, egui::FontId::proportional(12.0), txt);
+    }
+}
+
+fn band_key(ui: &mut egui::Ui, item_mode: bool) {
+    ui.separator();
+    ui.label(egui::RichText::new("Bands (dots)").strong());
+    ui.label("Each dot is one band of people. Bigger dot = more people. Colour = family line (bands that split from the same ancestor share a colour).");
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+        ui.painter().circle_filled(r.center(), 5.0, egui::Color32::from_rgb(120, 200, 140));
+        ui.painter().circle_stroke(r.center(), 6.5, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 150, 40)));
+        ui.label("orange ring = keeps a fire going");
+    });
+    if item_mode {
+        swatch(ui, egui::Color32::from_rgb(90, 90, 90), "grey dot = this band can't make the chosen item");
+    }
+}
+
+fn legend(ctx: &egui::Context, st: &UiState, w: &World) {
+    use crate::render::*;
+    let title = format!("Legend: {}", OVERLAYS[st.overlay as usize]);
+    egui::Window::new("Legend")
+        .id(egui::Id::new("legend"))
+        .title_bar(true)
+        .collapsible(true)
+        .resizable(false)
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -8.0])
+        .default_width(300.0)
+        .show(ctx, |ui| {
+            ui.set_width(300.0);
+            ui.label(egui::RichText::new(title).strong());
+            let unreached = c32([0.3, 0.3, 0.3]);
+            match st.overlay {
+                0 => {
+                    ui.label("Natural landscape. Shading shows hills (lit from the north-west).");
+                    egui::Grid::new("biomes").num_columns(2).show(ui, |ui| {
+                        for (k, (b, name)) in BIOME_KEY.iter().enumerate() {
+                            swatch(ui, c32(biome_rgb(*b)), name);
+                            if k % 2 == 1 {
+                                ui.end_row();
+                            }
+                        }
+                        swatch(ui, c32(RIVER_RGB), "river");
+                        ui.end_row();
+                    });
+                }
+                1 => {
+                    let max = w.bands.iter().map(|b| b.n_items()).max().unwrap_or(0).max(1);
+                    ui.label("How many different things the bands living here can make (tools, fire, pots, food preparations...). Painted over each band's home range; the most skilled band nearby wins.");
+                    ramp_bar(ui, &[(0.0, "0".into()), (0.5, format!("{}", max / 2)), (1.0, format!("{max} things (most today)"))]);
+                    swatch(ui, unreached, "grey = nobody lives nearby");
+                }
+                2 => {
+                    let name = st.item.map(item_name).unwrap_or_default();
+                    let now = w.tick / 4;
+                    ui.label(format!("When knowledge of \"{name}\" first reached each place. Dark = got it early, yellow = got it recently. A smooth gradient means the idea spread from band to band."));
+                    ramp_bar(ui, &[(0.0, "year 0".into()), (0.5, format!("year {}", now / 2)), (1.0, format!("year {now} (now)"))]);
+                    swatch(ui, unreached, "grey = has never reached here");
+                }
+                3 => {
+                    ui.label("People living in each map cell (all bands there added up). The scale is logarithmic: each step along the bar multiplies the number of people.");
+                    let t = |n: f32| (n.ln() / POP_LN_MAX, format!("{}", n.round() as u32));
+                    let e = POP_LN_MAX.exp();
+                    ramp_bar(ui, &[t(1.0), t(7.0), t(55.0), (1.0, format!("{}+ people", e.round() as u32))]);
+                    swatch(ui, unreached, "grey = nobody lives here");
+                }
+                4 => {
+                    ui.label("Raw materials in the ground that bands can pick up and work with. If a cell has several, the lowest one in this list is shown.");
+                    for (_, col, name) in DEPOSIT_KEY {
+                        swatch(ui, c32(col), name);
+                    }
+                    swatch(ui, c32([0.25, 0.25, 0.25]), "dark grey = nothing special");
+                }
+                _ => {
+                    ui.label("Average temperature over the year. Seasons swing above and below this; cold places need fire and clothing.");
+                    let f = |t: f32| ((t - TEMP_LO) / (TEMP_HI - TEMP_LO), format!("{t:.0}°C"));
+                    ramp_bar(ui, &[f(TEMP_LO), f(0.0), f(15.0), f(TEMP_HI)]);
+                    ui.label("Colder than -15°C shows as the darkest colour, hotter than 30°C as the brightest.");
+                }
+            }
+            band_key(ui, st.overlay == 2);
+        });
 }
