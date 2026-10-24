@@ -20,7 +20,7 @@ Current: `FORMAT_VERSION = 2`.
   - `map.gen_version` written as 1 for old maps, so `Map::upgrade_legacy` adds the v2 map
     layers (shelf fish, small game, landmass labels) on load.
   - Additive v2 fields that need no migration: `bands[].partners`, `world.landfall`,
-    `world.item_peak`, `world.traded_first`, `small`, the new `YearStats` trade fields, and
+    `world.item_peak`, `world.item_lost`, `world.traded_first`, `small`, the new `YearStats` trade fields, and
     the new `EventKind` values (12 Landfall, 13 LostLocal, 14 FirstTraded; unknown kinds from a
     newer build clamp to the last known one).
   - Not saved, rebuilt on load: toolkits, kits, per-season figures (food, need, stress...),

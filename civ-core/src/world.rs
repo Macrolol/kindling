@@ -154,6 +154,9 @@ pub struct World {
     /// item -> most bands that could make it at once since it last appeared (log thinning)
     #[serde(with = "crate::save::pairs")]
     pub item_peak: BTreeMap<Item, u32>,
+    /// item -> how many times it has been lost to the whole world
+    #[serde(with = "crate::save::pairs")]
+    pub item_lost: BTreeMap<Item, u32>,
     /// materials (bitmask) that have changed hands at least once
     pub traded_first: u32,
     /// goods moved through each cell recently (decays; for the trade overlay)
@@ -1469,7 +1472,12 @@ impl World {
             .collect();
         for it in lost {
             let peak = self.item_peak.remove(&it).unwrap_or(5);
-            let kind = if peak >= 5 { EventKind::LostWorldwide } else { EventKind::LostLocal };
+            let times = self.item_lost.entry(it).or_insert(0);
+            *times += 1;
+            // the chronicle gets the first loss of a widespread item, and any later loss only if
+            // it had become common again (25+ bands); the rest is logged quietly
+            let big = peak >= 5 && (*times == 1 || peak >= 25);
+            let kind = if big { EventKind::LostWorldwide } else { EventKind::LostLocal };
             self.push_event(kind, 0, 0, 0, it, u32::MAX);
         }
         for (&it, &c) in &counts {

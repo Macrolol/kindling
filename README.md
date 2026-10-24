@@ -17,9 +17,9 @@ kindling                                   # viewer, random seed
 kindling --seed 7                          # viewer, fixed seed
 kindling --load saves/x.civsave            # resume a save
 kindling --headless --seeds 1..8 --years 500   # multi-seed stats, no window
-kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-5] [--ui none|inspector,log,stats,settings]
+kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-6] [--map WxH (default 256x160)] [--ui none|inspector,log,stats,settings]
 ```
-Viewer keys: Space pause, +/- speed, F follow, 1–6 overlays (terrain, know-how, item spread, population, deposits, temperature), Ctrl+S save, Ctrl+O load. Wheel zooms, drag pans, click selects a band.
+Viewer keys: Space pause, +/- speed, F follow, 1–7 overlays (terrain, know-how, item spread, population, deposits, temperature, trade), Ctrl+S save, Ctrl+O load. Wheel zooms, drag pans, click selects a band.
 
 Settings can be changed live in the Settings window. Each change is recorded in the world's settings log, which is saved with the world.
 
