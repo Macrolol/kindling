@@ -26,6 +26,9 @@ Updated 2026-10-24 16:55 EDT.
 - s7 (docs/results-v5-seed7-1500y.txt, 632s): no farmers to Y600, first fields Y274 but domestic grain only Y702; farmers 15% Y800 then 52-57% Y900-Y1500; pop 53k Y500 -> 170k Y900, 155-183k after; conflict 0.344%/yr, disease 0.285%/yr; largest lineage 50-69% (61% at Y1500) - dominant lineage persists; iron Y300, bronze only Y656; 2nd continent Y307, 3rd (gap 38) never; lost at sea 21.4k, 3 per landing.
 
 ## Next
-0. Page updated (farming section, v5 vs v4 table, TOC, roadmap); 1500y table still to add.
+0. Page updated (farming section, v5 vs v4 table, TOC, roadmap); 1500y table added.
 1. (done) s7 1500y.
 2. Tests, builds (linux/windows/web), screenshot, Page, report.
+
+- Tests: civ-core 8 pass, 1 ignored. Screenshot dist/screenshot-farming-overlay.png (seed 1, Y500, overlay 8 + legend).
+- Next: rebuild dist (Linux/Windows/web) from this commit, commit dist, report.
