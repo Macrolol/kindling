@@ -49,7 +49,7 @@ impl World {
     }
 
     /// A meeting that may turn hostile. Returns true when it did (no peaceful exchange follows).
-    pub(super) fn confront(&self, bands: &mut [Band], a0: usize, c0: usize, d: i32, rng: &mut Rng, fx: &mut Fx) -> bool {
+    pub(super) fn confront(&self, bands: &mut Pair, a0: usize, c0: usize, d: i32, rng: &mut Rng, fx: &mut Fx) -> bool {
         let p = self.params;
         if p.aggression <= 0.0 {
             return false;
@@ -117,7 +117,7 @@ impl World {
         true
     }
 
-    fn fight(&self, bands: &mut [Band], a: usize, c: usize, r: f32, rng: &mut Rng, fx: &mut Fx) {
+    fn fight(&self, bands: &mut Pair, a: usize, c: usize, r: f32, rng: &mut Rng, fx: &mut Fx) {
         let p = self.params;
         let w = self.map.w;
         let ra = r.powf(1.5);
@@ -211,7 +211,7 @@ impl World {
     }
 
     /// `n` people of band `from` join band `to`; each recipe they know well enough may come with them.
-    fn absorb(&self, bands: &mut [Band], to: usize, from: usize, n: u32, rng: &mut Rng, fx: &mut Fx) {
+    fn absorb(&self, bands: &mut Pair, to: usize, from: usize, n: u32, rng: &mut Rng, fx: &mut Fx) {
         let n = n.min(bands[from].pop);
         bands[from].pop -= n;
         bands[to].pop += n;
@@ -233,7 +233,7 @@ impl World {
 
     /// Band `k` is driven off by band `by`: it leaves for the best ground it can find 2-6 cells
     /// away from them, or, with boats and a coast at hand, puts to sea.
-    fn displace(&self, bands: &mut [Band], k: usize, by: usize, rng: &mut Rng, fx: &mut Fx) {
+    fn displace(&self, bands: &mut Pair, k: usize, by: usize, rng: &mut Rng, fx: &mut Fx) {
         let m = &self.map;
         let (w, h) = (m.w as i32, m.h as i32);
         let b = &bands[k];

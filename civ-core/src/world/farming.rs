@@ -474,7 +474,7 @@ impl World {
     }
 
     /// A meeting can carry sickness from a band in the middle of an outbreak.
-    pub(super) fn spread_disease(&self, bands: &mut [Band], a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
+    pub(super) fn spread_disease(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
         for (x, y) in [(a, c), (c, a)] {
             let s = bands[y].settled;
             if bands[x].sick > 0.15 && bands[y].sick < 0.05 && rng.chance(0.5 * (1.0 - bands[y].immune) * (0.3 + 0.7 * s)) {
@@ -487,7 +487,7 @@ impl World {
     }
 
     /// `src` may show `dst` how to farm or hand over breeding animals.
-    pub(super) fn share_farming(&self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
+    pub(super) fn share_farming(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         let dc = bands[dst].cell(self.map.w);
         let (ssow, sstrain, sgrain) = (bands[src].sow, bands[src].strain, bands[src].stock[Mat::Grain as usize]);
         let dpot = self.crop_pot.get(dc).copied().unwrap_or(0.0);

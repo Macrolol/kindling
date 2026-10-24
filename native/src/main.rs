@@ -10,6 +10,11 @@ use civ_core::{ViewState, World};
 use macroquad::prelude::*;
 use render::{MapTex, View};
 
+// a faster allocator for the many small per-band buffers, especially across threads
+#[cfg(not(target_arch = "wasm32"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 type Loaded = (World, Option<ViewState>, String);
 
 fn load_world_bytes(b: &[u8], name: &str) -> Result<Loaded, String> {

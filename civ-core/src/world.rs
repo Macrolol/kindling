@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod conflict;
 mod fx;
-use fx::{Fx, Layer, Op};
+use fx::{Fx, Layer, Op, Pair};
 /// Most meetings a band has time for in one season (v5).
 const MAX_MEETINGS: u8 = 4;
 pub mod farming;
@@ -628,21 +628,10 @@ impl World {
         if let Some(p) = self.prof.as_mut() {
             p.t[5] += ecs.iter().map(|e| e.1).sum::<f64>();
         }
-        let ecs: Vec<Econ> = ecs.into_iter().map(|e| e.0).collect();
-        {
-            let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
-            for (r, st) in stocks.into_iter().enumerate() {
-                for ec in &ecs {
-                    if ec.ys[r] > 0.01 {
-                        let phi = (ec.h[r] / ec.ys[r]).min(1.0);
-                        for &(c, wt) in &ec.cells {
-                            if let Some(v) = st.get_mut(c) {
-                                *v -= phi * wt * *v;
-                            }
-                        }
-                    }
-                }
-            }
+        let mut ecs: Vec<Econ> = ecs.into_iter().map(|e| e.0).collect();
+        self.share_harvest(&mut ecs);
+        for (b, ec) in bands.iter_mut().zip(&ecs) {
+            b.store = ec.store_after;
         }
         let key = rng.next_u64();
         let tick = self.tick as u64;
@@ -661,6 +650,79 @@ impl World {
         }
     }
 
+    /// Phase 2: take every band's harvest from the stocks. All bands planned against the same
+    /// start-of-season stock, so where home ranges overlap they compete: each cell loses what
+    /// the bands taking from it one after another would have left (`v * prod(1 - a_i)`, as when
+    /// bands ran one by one), shared between them in proportion to what each went for. Bands
+    /// that got less than they planned have their food recomputed.
+    fn share_harvest(&mut self, ecs: &mut [Econ]) {
+        let n = self.plants.len();
+        let mut sum = vec![0f32; n];
+        let mut keep = vec![1f32; n];
+        let mut scale = vec![[1f32; 5]; ecs.len()];
+        let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
+        for (r, st) in stocks.into_iter().enumerate() {
+            let phi = |ec: &Econ| if ec.ys[r] > 0.01 { (ec.h[r] / ec.ys[r]).min(1.0) } else { 0.0 };
+            let mut contested = false;
+            for ec in ecs.iter() {
+                let ph = phi(ec);
+                if ph <= 0.0 {
+                    continue;
+                }
+                for &(c, wt) in &ec.cells {
+                    if c < n && c < st.len() {
+                        let a = (ph * wt).min(1.0);
+                        if sum[c] > 0.0 {
+                            contested = true;
+                        }
+                        sum[c] += a;
+                        keep[c] *= 1.0 - a;
+                    }
+                }
+            }
+            if contested {
+                for (k, ec) in ecs.iter().enumerate() {
+                    let ph = phi(ec);
+                    if ph <= 0.0 {
+                        continue;
+                    }
+                    let (mut want, mut got) = (0f32, 0f32);
+                    for &(c, wt) in &ec.cells {
+                        if c < n && c < st.len() && sum[c] > 0.0 {
+                            let a = (ph * wt).min(1.0);
+                            let v = a * st[c];
+                            want += v;
+                            got += v * (1.0 - keep[c]) / sum[c];
+                        }
+                    }
+                    if want > 1e-9 && got < want * 0.9999 {
+                        scale[k][r] = (got / want).clamp(0.0, 1.0);
+                    }
+                }
+            }
+            for ec in ecs.iter() {
+                if phi(ec) <= 0.0 {
+                    continue;
+                }
+                for &(c, _) in &ec.cells {
+                    if c < n && c < st.len() && sum[c] > 0.0 {
+                        st[c] *= keep[c];
+                        sum[c] = 0.0;
+                        keep[c] = 1.0;
+                    }
+                }
+            }
+        }
+        for (ec, sc) in ecs.iter_mut().zip(&scale) {
+            if sc.iter().any(|&x| x < 1.0) {
+                for r in 0..5 {
+                    ec.h[r] *= sc[r];
+                }
+                ec.finish();
+            }
+        }
+    }
+
     /// Phase 1 of a band's season (read-only on the world).
     fn band_econ(&self, b: &mut Band, s: u32) -> (Econ, f64) {
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
@@ -673,7 +735,6 @@ impl World {
         for &it in &ec.used {
             mark_used(&self.reg, &mut b.known, &b.d.tk, it);
         }
-        b.store = ec.store_after;
         let dt = tk.as_mut().map(|t| t.lap()).unwrap_or(0.0);
         (ec, dt)
     }
@@ -937,24 +998,33 @@ impl World {
             hi
         };
         let h = harvest(e_food);
-        let food = food_of(&h);
         // stored food rots faster in the warm; sealed containers and smoking slow it
         let base = 0.12 + 0.28 * (t / 25.0).clamp(0.0, 1.0);
         // dry grain keeps far better than fresh food (and better still in pits and jars)
         let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share);
-        let mut store = b.store * (1.0 - spoil);
-        let food_ratio = if food >= need {
-            store = (store + food - need).min(pop * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled)));
-            1.0
-        } else {
-            let take = store.min(need - food);
-            store -= take;
-            ((food + take) / need).min(1.0)
-        };
+        let store_cap = pop * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled));
         let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
-        let stress = ((1.0 - food_ratio) * 2.0 + 0.15 * cold).clamp(0.0, 1.0);
-        let farm_food = h[4] * dg[4] + fm.herd_food;
-        Econ { cells, ys, h, food, need, cold, upkeep, needed, used, food_ratio, store_after: store, spare, stress, spoil, farm_food, herd_food: fm.herd_food }
+        let mut ec = Econ {
+            cells,
+            ys,
+            h,
+            food: 0.0,
+            need,
+            cold,
+            upkeep,
+            needed,
+            used,
+            food_ratio: 0.0,
+            store_after: 0.0,
+            spare,
+            stress: 0.0,
+            spoil,
+            farm_food: 0.0,
+            herd_food: fm.herd_food,
+            fin: EconFin { dg, store0: b.store, store_cap },
+        };
+        ec.finish();
+        ec
     }
 
     /// Phase 3 of a band's season: reads the world, writes the band, buffers the rest in `fx`.
@@ -1863,20 +1933,35 @@ impl World {
         if list.is_empty() {
             return;
         }
-        let mut last = vec![0u32; bands.len()];
+        // each meeting goes in the first round where neither band is busy yet (a band in m
+        // meetings needs at most 2m-1 rounds; past 64 rounds, meetings just go one after another)
+        let mut used = vec![0u64; bands.len()];
         let mut rounds: Vec<Vec<(usize, usize, i32, u32)>> = Vec::new();
+        let mut tail: Vec<(usize, usize, i32, u32)> = Vec::new();
         for (k, &(a, c, d)) in list.iter().enumerate() {
-            let r = last[a].max(last[c]);
-            last[a] = r + 1;
-            last[c] = r + 1;
-            if rounds.len() <= r as usize {
-                rounds.push(Vec::new());
+            let free = !(used[a] | used[c]);
+            if free == 0 {
+                tail.push((a, c, d, k as u32));
+                continue;
             }
-            rounds[r as usize].push((a, c, d, k as u32));
+            let r = free.trailing_zeros() as usize;
+            used[a] |= 1 << r;
+            used[c] |= 1 << r;
+            if rounds.len() <= r {
+                rounds.resize_with(r + 1, Vec::new);
+            }
+            rounds[r].push((a, c, d, k as u32));
         }
+        rounds.extend(tail.into_iter().map(|m| vec![m]));
         for round in rounds {
-            let mut pairs: Vec<([Band; 2], i32, u32)> =
-                round.iter().map(|&(a, c, d, k)| ([std::mem::take(&mut bands[a]), std::mem::take(&mut bands[c])], d, k)).collect();
+            // every band meets at most once in a round, so each meeting can hold both of its
+            // bands mutably at once (no copying them out of the list)
+            let mut slots: Vec<Option<&mut Band>> = bands.iter_mut().map(Some).collect();
+            let mut pairs: Vec<(Pair, i32, u32)> = round
+                .iter()
+                .map(|&(a, c, d, k)| (Pair(slots[a].take().unwrap(), slots[c].take().unwrap()), d, k))
+                .collect();
+            drop(slots);
             let fxs: Vec<Fx> = {
                 let me = &*self;
                 fx::par_map(&mut pairs, |(two, d, k)| {
@@ -1886,11 +1971,7 @@ impl World {
                     fx
                 })
             };
-            for (&(a, c, _, _), (two, _, _)) in round.iter().zip(pairs) {
-                let [x, y] = two;
-                bands[a] = x;
-                bands[c] = y;
-            }
+            drop(pairs);
             for f in fxs {
                 self.apply_fx(f, None);
             }
@@ -1900,8 +1981,7 @@ impl World {
     /// One meeting between two bands (index 0 and 1 of `two`), `d` cells apart. `full`: a
     /// chance meeting of neighbours (disease, conflict, teaching, farming, trade); otherwise a
     /// visit between distant partners (teaching and trade).
-    fn meeting(&self, two: &mut [Band; 2], d: i32, rng: &mut Rng, fx: &mut Fx, full: bool) {
-        let bands: &mut [Band] = &mut two[..];
+    fn meeting(&self, bands: &mut Pair, d: i32, rng: &mut Rng, fx: &mut Fx, full: bool) {
         let (a, c) = (0, 1);
         if bands[a].pop == 0 || bands[c].pop == 0 {
             return;
@@ -1925,7 +2005,7 @@ impl World {
     /// Two bands that meet swap what each has spare for what the other values more, pass food to
     /// the hungry, and hear about what each other wants. Nothing has a set price: worth is each
     /// band's own need and shortage (see `want`).
-    fn trade(&self, bands: &mut [Band], a: usize, c: usize, d: i32, rng: &mut Rng, fx: &mut Fx) {
+    fn trade(&self, bands: &mut Pair, a: usize, c: usize, d: i32, rng: &mut Rng, fx: &mut Fx) {
         let tick = self.tick;
         // news of wants travels with every meeting, so goods can pass down a chain of bands
         for (x, y) in [(a, c), (c, a)] {
@@ -2009,7 +2089,7 @@ impl World {
     }
 
     /// Move `q` of material `mi` from one band to another; returns the amount moved.
-    fn pass_good(&self, bands: &mut [Band], from: usize, to: usize, mi: usize, q: f32, d: i32, fx: &mut Fx) -> f32 {
+    fn pass_good(&self, bands: &mut Pair, from: usize, to: usize, mi: usize, q: f32, d: i32, fx: &mut Fx) -> f32 {
         let w = self.map.w;
         let o = bands[from].origin[mi];
         let strain = bands[from].strain;
@@ -2036,7 +2116,7 @@ impl World {
     }
 
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
-    fn exchange(&self, bands: &mut [Band], src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
+    fn exchange(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         // fire can be shared
         if bands[src].flame && !bands[dst].flame && rng.chance(0.5) {
             bands[dst].flame = true;
@@ -2527,8 +2607,39 @@ pub struct Econ {
     /// food from fields and herds, and from the herd alone
     pub farm_food: f32,
     pub herd_food: f32,
+    pub fin: EconFin,
 }
+
+/// What `Econ::finish` needs to turn a harvest into food, store and stress.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EconFin {
+    pub dg: [f32; 5],
+    pub store0: f32,
+    pub store_cap: f32,
+}
+
 impl Econ {
+    /// Food, store and stress from the harvest `h` (called again when bands that share cells
+    /// turn out to have competed for the same stock).
+    pub fn finish(&mut self) {
+        let f = self.fin;
+        let food = (0..5).map(|r| self.h[r] * f.dg[r]).sum::<f32>() + self.herd_food;
+        let need = self.need;
+        let mut store = f.store0 * (1.0 - self.spoil);
+        let food_ratio = if food >= need {
+            store = (store + food - need).min(f.store_cap);
+            1.0
+        } else {
+            let take = store.min(need - food);
+            store -= take;
+            ((food + take) / need).min(1.0)
+        };
+        self.food = food;
+        self.food_ratio = food_ratio;
+        self.store_after = store;
+        self.stress = ((1.0 - food_ratio) * 2.0 + 0.15 * self.cold).clamp(0.0, 1.0);
+        self.farm_food = self.h[4] * f.dg[4] + self.herd_food;
+    }
     pub fn apply(&self, d: &mut crate::band::Derived) {
         d.food_ratio = self.food_ratio;
         d.spare = self.spare;

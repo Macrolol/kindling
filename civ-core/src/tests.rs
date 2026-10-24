@@ -355,3 +355,4 @@ fn same_result_on_any_thread_count() {
     assert!(one.2 >= 20, "too few bands ({}) to exercise the parallel paths", one.2);
     assert_eq!(one, run(4));
 }
+

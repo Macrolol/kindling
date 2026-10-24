@@ -247,7 +247,7 @@ pub(crate) fn par_map<T: Send, R: Send>(v: &mut [T], f: impl Fn(&mut T) -> R + S
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
-        if v.len() >= 32 {
+        if v.len() >= 32 && rayon::current_num_threads() > 1 {
             return v.par_iter_mut().with_min_len(8).map(f).collect();
         }
     }
@@ -277,4 +277,26 @@ pub(crate) fn par_collect<R: Send>(n: usize, f: impl Fn(usize) -> R + Sync + Sen
         }
     }
     (0..n).map(f).collect()
+}
+
+/// The two bands of a meeting, held mutably together (index 0 and 1).
+pub struct Pair<'a>(pub &'a mut Band, pub &'a mut Band);
+impl std::ops::Index<usize> for Pair<'_> {
+    type Output = Band;
+    fn index(&self, i: usize) -> &Band {
+        if i == 0 {
+            self.0
+        } else {
+            self.1
+        }
+    }
+}
+impl std::ops::IndexMut<usize> for Pair<'_> {
+    fn index_mut(&mut self, i: usize) -> &mut Band {
+        if i == 0 {
+            self.0
+        } else {
+            self.1
+        }
+    }
 }
