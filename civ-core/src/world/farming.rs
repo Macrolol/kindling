@@ -312,10 +312,10 @@ impl World {
             }
         } else {
             // ---- practice: farming that pays deepens; farming that does not fades
-            if crop_share > 0.15 && pot > 0.2 {
+            if crop_share > 0.08 && pot > 0.2 {
                 b.sow = (b.sow + 0.02 * (1.0 - b.sow)).min(1.0);
             } else if pot > 0.2 {
-                b.sow -= 0.006;
+                b.sow -= 0.004;
             } else {
                 b.sow -= 0.03; // poor ground for grain: the know-how lapses within a generation
             }
@@ -390,8 +390,8 @@ impl World {
         if b.herd <= 0.0 {
             let game_share = ((ec.h[1] * dg[1]) / food).clamp(0.0, 1.0);
             // keeping animals takes people who stay near them (settled, or tied to fields)
-            if kit.cord != NONE && self.wild[ci] & WILD_HERD != 0 && game_share > 0.12 && gp > 0.45 && self.game[ci] > 5.0 && (b.settled > 0.2 || b.sow > 0.0) {
-                let ch = p.herd_rate * 0.001 * game_share * gp * b.curiosity * (0.5 + b.settled + b.d.stress);
+            if kit.cord != NONE && self.wild[ci] & WILD_HERD != 0 && game_share > 0.1 && gp > 0.4 && self.game[ci] > 5.0 && (b.settled > 0.1 || b.sow > 0.0) {
+                let ch = p.herd_rate * 0.002 * game_share * gp * b.curiosity * (0.5 + b.settled + b.d.stress);
                 if rng.chance(ch) {
                     b.herd = 0.05;
                     b.tame = 0.05;
