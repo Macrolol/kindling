@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 5`.
+Current: `FORMAT_VERSION = 6` (Kindling 0.6.1). v0.5.x and v0.6.0 write format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -66,5 +66,19 @@ Current: `FORMAT_VERSION = 5`.
   - The farming beta build (`dist/kindling-farming-beta-linux-x86_64`) already writes format 5;
     its saves load unchanged (fixture `v5beta_seed4_y180_64x40.civsave`, test
     `v5beta_fixture_loads_and_runs`). The wild-progenitor layer is derived and rebuilt on load.
+- **v6** (Kindling 0.6.1, sparse first-arrival table). Migration `v5_to_v6`:
+  - `world.cell_first` (dense: for each item ever held, one `u32` per map cell, so 10.9 MB per
+    item at 1650×1650) is replaced by `world.cell_first_sparse`: pairs
+    `[item, {w, h, cells: [[cell, tick], ...]}]`, listing only the cells the item has reached,
+    in ascending order. In memory it is a 64×64-tile table (`civ-core/src/world/cell_first.rs`)
+    that allocates a tile only on the item's first arrival there.
+  - The migration rewrites the JSON tree (dense table to cell list, `u32::MAX` = never). Binary
+    format-5 saves (v0.5.x, v0.6.0) skip the JSON tree: they are decoded directly, which reads the
+    legacy dense field and converts it in `World::after_load`. That route gives the same world
+    as the migration path (checked by the fixture test). `migrated_from` reports 5 either way.
+  - Fixture `v6_0_seed4_y150_64x40.civsave` (written by the v0.6.0 release binary) is loaded by
+    `v6_0_fixture_loads_sparse_cell_first`. The test compares the result with the dense table read
+    straight from the file, checks that the JSON migration route gives the same `cell_first` and
+    state hash, and checks that a format-6 round trip writes no dense `cell_first`.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

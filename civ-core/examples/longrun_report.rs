@@ -138,8 +138,8 @@ fn main() {
         let Some((it, v)) = w.cell_first.iter().find(|(i, _)| item_name(**i) == name) else { continue };
         let _ = it;
         let mut by: BTreeMap<(u32, u16), u32> = BTreeMap::new();
-        for (i, &t) in v.iter().enumerate() {
-            if t != u32::MAX { *by.entry((t / 400, w.map.landmass[i])).or_default() += 1; }
+        for (i, t) in v.iter() {
+            *by.entry((t / 400, w.map.landmass[i])).or_default() += 1;
         }
         let mut cum = vec![0u32; nl.max(8)];
         let mut line = Vec::new();

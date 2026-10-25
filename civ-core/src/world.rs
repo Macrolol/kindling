@@ -14,6 +14,8 @@ use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 
+mod cell_first;
+pub use cell_first::CellFirst;
 mod conflict;
 mod fx;
 use fx::{Fx, Layer, Op, Pair};
@@ -272,9 +274,13 @@ pub struct World {
     pub events: VecDeque<Event>,
     pub chronicle: Vec<Event>,
     pub firsts: Vec<First>,
-    /// item -> per cell: first tick a band in that cell could make it (u32::MAX = never)
-    #[serde(with = "crate::save::pairs")]
-    pub cell_first: BTreeMap<Item, Vec<u32>>,
+    /// item -> per cell: first tick a band in that cell could make it (sparse since format 6)
+    #[serde(rename = "cell_first_sparse", with = "crate::save::pairs")]
+    pub cell_first: BTreeMap<Item, CellFirst>,
+    /// the dense table of formats 1-5 (`u32::MAX` = never): read from old saves only and moved
+    /// into `cell_first` by `after_load`
+    #[serde(rename = "cell_first", with = "crate::save::pairs", skip_serializing)]
+    cell_first_dense: BTreeMap<Item, Vec<u32>>,
     pub history: Vec<YearStats>,
     pub settings_log: Vec<ParamChange>,
     pub counters: Counters,
@@ -525,6 +531,10 @@ impl World {
     pub fn after_load(&mut self) {
         self.reg.rebuild_index();
         let n = self.map.w * self.map.h;
+        // formats 1-5 kept the first-reach table dense
+        for (it, v) in std::mem::take(&mut self.cell_first_dense) {
+            self.cell_first.insert(it, CellFirst::from_dense(self.map.w, self.map.h, &v));
+        }
         // stage-1 maps gain the newer derived layers (small game, offshore fish, landmasses)
         let legacy = self.map.gen_version < 2;
         self.map.upgrade_legacy();
@@ -2442,7 +2452,7 @@ impl World {
     // ------------------------------------------------------------------ statistics
     fn track_knowledge(&mut self) {
         let w = self.map.w;
-        let n = self.map.w * self.map.h;
+        let (mw, mh) = (self.map.w, self.map.h);
         let tick = self.tick;
         let fire = item(Form::Fire, Mat::Wood);
         for b in &mut self.bands {
@@ -2457,10 +2467,7 @@ impl World {
             }
             b.d.kn_key = Some(key);
             for it in av.iter() {
-                let v = self.cell_first.entry(it).or_insert_with(|| vec![u32::MAX; n]);
-                if v[c] == u32::MAX {
-                    v[c] = tick;
-                }
+                self.cell_first.entry(it).or_insert_with(|| CellFirst::new(mw, mh)).set_first(c, tick);
             }
         }
     }

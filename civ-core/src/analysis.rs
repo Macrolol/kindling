@@ -205,12 +205,10 @@ pub fn summarize(w: &World) -> Summary {
         if let Some(cf) = w.cell_first.get(&f.item) {
             let (fx, fy) = ((f.cell as usize % mw) as f32, (f.cell as usize / mw) as f32);
             let mut pts: Vec<(f32, f32)> = Vec::new();
-            for (c, &t) in cf.iter().enumerate() {
-                if t != u32::MAX {
-                    let (x, y) = ((c % mw) as f32, (c / mw) as f32);
-                    let d = ((x - fx).powi(2) + (y - fy).powi(2)).sqrt();
-                    pts.push((d, (t.saturating_sub(f.tick)) as f32 / 4.0));
-                }
+            for (c, t) in cf.iter() {
+                let (x, y) = ((c % mw) as f32, (c / mw) as f32);
+                let d = ((x - fx).powi(2) + (y - fy).powi(2)).sqrt();
+                pts.push((d, (t.saturating_sub(f.tick)) as f32 / 4.0));
             }
             reached = pts.len() as u32;
             if pts.len() >= 20 {

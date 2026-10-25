@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -128,6 +128,32 @@ fn v4_to_v5(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
             }
         }
     }
+    Ok(v)
+}
+/// v5 -> v6 (sparse first-reach table). Frozen: do not edit.
+/// - `world.cell_first` (pairs of item and a dense per-cell list of first ticks, `u32::MAX` =
+///   never) becomes `world.cell_first_sparse`: pairs of item and `{w, h, cells: [[cell, tick]..]}`
+///   holding only the reached cells, ascending. Nothing else changes.
+/// (Binary v5 saves skip this step: the v6 schema still reads the dense field and `after_load`
+/// converts it, which avoids building a JSON tree of every cell; both routes give the same world.)
+fn v5_to_v6(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let dim = |k: &str| world.get("map").and_then(|m| m.get(k)).and_then(|x| x.as_u64()).unwrap_or(0);
+    let (w, h) = (dim("w"), dim("h"));
+    let mut sparse = Vec::new();
+    if let Some(serde_json::Value::Array(pairs)) = world.remove("cell_first") {
+        for p in pairs {
+            let (Some(it), Some(cells)) = (p.get(0).cloned(), p.get(1).and_then(|c| c.as_array())) else { continue };
+            let reached: Vec<serde_json::Value> = cells
+                .iter()
+                .enumerate()
+                .filter_map(|(c, t)| t.as_u64().filter(|&t| t != u32::MAX as u64).map(|t| json!([c, t])))
+                .collect();
+            sparse.push(json!([it, {"w": w, "h": h, "cells": reached}]));
+        }
+    }
+    world.insert("cell_first_sparse".into(), json!(sparse));
     Ok(v)
 }
 const _: () = assert!(
@@ -275,7 +301,13 @@ impl World {
             migrated_from: None,
             warning: None,
         };
-        let state: SaveState = if h.format_version == FORMAT_VERSION {
+        // v5 -> v6 only moved the first-reach table, which the v6 schema still reads in its old
+        // form; decoding v5 binaries directly keeps big-map saves out of a JSON value tree
+        let direct = h.format_version == FORMAT_VERSION || (h.format_version == 5 && matches!(enc, Enc::Mp(_)));
+        if h.format_version == 5 {
+            info.migrated_from = Some(5);
+        }
+        let state: SaveState = if direct {
             dec::<Envelope<SaveState>>(&enc, b)?.payload
         } else if h.format_version < FORMAT_VERSION {
             let env: Envelope<serde_json::Value> = dec(&enc, b)?;

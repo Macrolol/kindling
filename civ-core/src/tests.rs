@@ -102,7 +102,8 @@ fn v5beta_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v5beta_seed4_y180_64x40.civsave");
     let (mut w, _, info) = World::load_bytes(bytes).expect("beta save loads");
     assert_eq!(info.format_version, 5);
-    assert_eq!(info.migrated_from, None);
+    // format 5 -> 6 only made the first-reach table sparse
+    assert_eq!(info.migrated_from, Some(5));
     assert!(w.total_pop() > 0);
     let n = w.map.w * w.map.h;
     assert_eq!(w.tend.len(), n);
@@ -356,3 +357,85 @@ fn same_result_on_any_thread_count() {
     assert_eq!(one, run(4));
 }
 
+
+
+/// A save written by the v0.6.0 release (format 5, dense first-reach table) must load in v6.1
+/// (format 6, sparse table) by both routes: the binary save decoded directly (the dense field is
+/// read and converted on load) and the same payload as JSON through the frozen `v5_to_v6`
+/// migration. Both must give the same table, which must match the dense one cell by cell, and
+/// the world must run on and round-trip in the new format.
+#[test]
+fn v6_0_fixture_loads_sparse_cell_first() {
+    use std::io::Read;
+    let bytes = include_bytes!("../tests/fixtures/v6_0_seed4_y150_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v6.0 save loads");
+    assert_eq!(info.format_version, 5);
+    assert_eq!(info.migrated_from, Some(5));
+    assert!(w.total_pop() > 0);
+    assert!(!w.cell_first.is_empty(), "first-reach table survives");
+    // the dense original, straight from the file
+    let mut raw = Vec::new();
+    flate2::read::DeflateDecoder::new(&bytes[8..]).read_to_end(&mut raw).unwrap();
+    let env: serde_json::Value = rmp_serde::from_slice(&raw).unwrap();
+    let n = w.map.w * w.map.h;
+    let dense = env["payload"]["world"]["cell_first"].as_array().expect("dense table in a v6.0 save");
+    assert_eq!(dense.len(), w.cell_first.len());
+    let mut reached = 0;
+    for p in dense {
+        let it = p[0].as_u64().unwrap() as Item;
+        let cells = p[1].as_array().unwrap();
+        assert_eq!(cells.len(), n);
+        let cf = &w.cell_first[&it];
+        for (c, t) in cells.iter().enumerate() {
+            let t = t.as_u64().unwrap() as u32;
+            assert_eq!(cf.get(c), t);
+            reached += (t != u32::MAX) as usize;
+        }
+        assert_eq!(cf.iter().count(), cells.iter().filter(|t| t.as_u64() != Some(u32::MAX as u64)).count());
+    }
+    assert!(reached > 0);
+    // the JSON route runs the frozen migration
+    let json = serde_json::to_string(&env).unwrap();
+    let (wj, _, ij) = World::load_bytes(json.as_bytes()).expect("v6.0 save as JSON loads");
+    assert_eq!(ij.migrated_from, Some(5));
+    assert_eq!(wj.cell_first, w.cell_first);
+    assert_eq!(wj.state_hash(), w.state_hash());
+    // runs on, then round-trips in format 6 with the sparse table
+    for _ in 0..40 {
+        w.step();
+    }
+    let again = w.save_bytes(None, "test", "test").expect("saves");
+    let (mut w2, _, info2) = World::load_bytes(&again).expect("reloads");
+    assert_eq!(info2.format_version, crate::save::FORMAT_VERSION);
+    assert_eq!(info2.migrated_from, None);
+    assert_eq!(w2.cell_first, w.cell_first);
+    let js = w.save_json(None, "test", "test").expect("json");
+    assert!(!js.contains("\"cell_first\":"), "the dense field is no longer written");
+    w.step();
+    w2.step();
+    assert_eq!(w.state_hash(), w2.state_hash());
+}
+
+/// The sparse first-reach table: unset cells read as never, the first tick sticks, iteration is
+/// in ascending cell order, and only touched tiles take memory.
+#[test]
+fn cell_first_sparse_basics() {
+    use crate::world::CellFirst;
+    let (w, h) = (150, 70);
+    let mut cf = CellFirst::new(w, h);
+    assert_eq!(cf.get(5), u32::MAX);
+    let empty = cf.bytes();
+    cf.set_first(149 * 1 + 69 * 150, 9);
+    cf.set_first(3, 7);
+    cf.set_first(3, 11);
+    cf.set_first(64 + 150, 5);
+    assert_eq!(cf.get(3), 7);
+    let v: Vec<(usize, u32)> = cf.iter().collect();
+    assert_eq!(v, vec![(3, 7), (214, 5), (69 * 150 + 149, 9)]);
+    assert!(cf.bytes() < empty + 3 * 64 * 64 * 4 + 1);
+    let mut dense = vec![u32::MAX; w * h];
+    for &(c, t) in &v {
+        dense[c] = t;
+    }
+    assert_eq!(CellFirst::from_dense(w, h, &dense), cf);
+}

@@ -210,7 +210,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                         grey(c, 0.55)
                     }
                 }
-                2 if land => match cf.map(|v| v[i]) {
+                2 if land => match cf.map(|v| v.get(i)) {
                     Some(t) if t != u32::MAX => ramp(t as f32 / now),
                     _ => grey(c, 0.55),
                 },
