@@ -38,3 +38,32 @@ The step adds no behaviour, but the extra neutral entries shift the craft-leanin
 slightly, and the sim is chaotic, so individual seeds diverge (iron and farming are the seed-level
 outcomes most sensitive to this). The war and disease rates are unchanged and all targets but
 farming seeds are met. I'm tracking farming seeds over the next steps rather than tuning for it.
+
+## D2. Terrain cost and river travel (done, commit 635f603, run 40209240376)
+- `civ-core/src/world/terrain.rs`: the cost of a step between neighbouring cells is
+  `1 + max(|climb| - 150 m, 0) / 400 m + max(height - 1500 m, 0) / 1000 m`, summed along the line
+  between two cells. Ranges and high plateaus become barriers and passes matter.
+- River systems (8-connected river cells) are labelled on load. A band with a boat on a river
+  travels along the same river for a third of the land cost (at least 1), and can scout 2-6 cells
+  along it.
+- The cost shows up in moves (a mild effort penalty on candidate cells), meetings and teaching
+  (`teach_rate x kin / (1 + cost)`), and partner visits (effective distance compared to reach;
+  rivers and sea routes shorten it for bands with boats).
+- Not built from the river section: rafts for heavy loads, fish weirs.
+- Test `terrain_cost_and_rivers`.
+
+| metric | v7 | D1 | D2 |
+|---|---|---|---|
+| pop | 918,614 | 876,123 | 840,996 (-9.4% vs target) |
+| war %/yr | 0.363 | 0.363 | 0.353 |
+| disease %/yr | 0.116 | 0.116 | 0.109 |
+| farming seeds | 9 | 7 | 9 |
+| crossings | 4/10 | 4/10 | 4/10 (Y132, Y138, Y205, Y371) |
+| iron seeds (median) | 10 (Y253) | 6 (Y299) | 8 (Y230) |
+| bronze seeds (median) | 4 (Y339) | 6 (Y307) | 6 (Y360) |
+| tau | 0.137 | 0.139 | 0.138 |
+| lineage max share, mean / worst | 27.7% / 42% | 29.1% / 45% | 28.5% / 42% |
+
+Farming seeds are back to 9, which supports reading D1's dip as seed-level noise. The tau of
+discovery order is unchanged: terrain slows contact but every world still finds things in a
+similar order.
