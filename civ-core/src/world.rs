@@ -1969,7 +1969,7 @@ impl World {
                             if k > a {
                                 seen += 1;
                                 let d = dx.abs().max(dy.abs());
-                                let kin = if b.lineage == bs[k].lineage { 1.3 } else { 1.0 };
+                                let kin = if b.lineage == bs[k].lineage && !crate::diag_flag("nokin") { 1.3 } else { 1.0 };
                                 let pc = p.teach_rate * kin / (1.0 + d as f32);
                                 if r2.chance(pc) {
                                     out.push((a, k, d));
@@ -2125,7 +2125,7 @@ impl World {
                 }
             }
         }
-        let kin = bands[a].lineage == bands[c].lineage;
+        let kin = bands[a].lineage == bands[c].lineage && !crate::diag_flag("nokin");
         let pstr = bands[a].partner(bands[c].id).map(|p| p.strength).unwrap_or(0.0);
         let close = kin || pstr >= 0.3;
         // best good each side could pass the other, and what it is worth to both

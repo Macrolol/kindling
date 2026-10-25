@@ -323,7 +323,7 @@ impl Band {
         for x in &self.grudges {
             if x.id == o.id {
                 g = g.max(x.w);
-            } else if x.lineage == o.lineage {
+            } else if x.lineage == o.lineage && !crate::diag_flag("nokin") {
                 g = g.max(0.3 * x.w);
             }
         }

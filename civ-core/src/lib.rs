@@ -16,3 +16,9 @@ mod tests;
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;
 pub use world::World;
+
+#[doc(hidden)]
+pub fn diag_flag(k: &str) -> bool {
+    static F: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    F.get_or_init(|| std::env::var("KDIAG").unwrap_or_else(|_| "nokin".into())).split(',').any(|x| x == k)
+}

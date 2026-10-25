@@ -33,7 +33,7 @@ impl World {
         let ties = a.partner(c.id).map(|p| p.strength).unwrap_or(0.0);
         let kin = if a.close_kin(c) {
             0.2
-        } else if a.lineage == c.lineage {
+        } else if a.lineage == c.lineage && !crate::diag_flag("nokin") {
             0.7
         } else {
             1.0
