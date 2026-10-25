@@ -4,6 +4,52 @@ use crate::materials::*;
 use crate::physics::{Action, Inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// A small, fast, deterministic hasher (FxHash) for the hot item and recipe lookups. The
+/// default SipHash showed up at ~6% of a single-threaded run. Nothing iterates these maps, so
+/// the hash order never reaches the simulation.
+#[derive(Default, Clone, Copy)]
+pub struct FastHasher(u64);
+impl Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.add(b as u64);
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.add(i as u64);
+    }
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.add(i as u64);
+    }
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.add(i as u64);
+    }
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add(i);
+    }
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64);
+    }
+}
+impl FastHasher {
+    #[inline]
+    fn add(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+pub type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -78,7 +124,7 @@ impl Recipe {
 pub struct Registry {
     pub recipes: Vec<Recipe>,
     #[serde(skip)]
-    index: HashMap<(u8, Inputs), u32>,
+    index: FastMap<(u8, Inputs), u32>,
 }
 impl Registry {
     pub fn rebuild_index(&mut self) {
@@ -127,7 +173,7 @@ pub struct Toolkit {
     pub producible: ItemSet,
     /// for each produced item: the known-list index of the recipe used, and the raw materials
     /// (bitmask over Mat) its whole production chain needs, and chain length
-    pub via: HashMap<Item, (u16, u32, u8)>,
+    pub via: FastMap<Item, (u16, u32, u8)>,
 }
 
 /// Compute the closure of producible items. `raws` = raw items directly at hand; `flame` = the band
@@ -177,9 +223,15 @@ pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> 
 
 /// Mark every recipe in the production chain of `it` as used this season.
 pub fn mark_used(reg: &Registry, known: &mut [Known], tk: &Toolkit, it: Item) {
-    let mut stack = vec![it];
+    // fixed stack (no allocation): each popped recipe pushes at most 4 inputs and at most 64
+    // entries are popped, as before
+    let mut stack = [NONE; 4 * 64 + 1];
+    let mut sp = 1usize;
+    stack[0] = it;
     let mut guard = 0;
-    while let Some(i) = stack.pop() {
+    while sp > 0 {
+        sp -= 1;
+        let i = stack[sp];
         guard += 1;
         if guard > 64 {
             break;
@@ -194,8 +246,9 @@ pub fn mark_used(reg: &Registry, known: &mut [Known], tk: &Toolkit, it: Item) {
             }
             kn.used = true;
             for &j in reg.recipes[kn.recipe as usize].inputs.iter() {
-                if j != NONE {
-                    stack.push(j);
+                if j != NONE && sp < stack.len() {
+                    stack[sp] = j;
+                    sp += 1;
                 }
             }
         }

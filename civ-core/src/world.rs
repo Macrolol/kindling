@@ -1993,7 +1993,7 @@ impl World {
         self.prof_lap(&mut tk, 11);
         // partners keep visiting each other after they drift apart: a standing relationship
         // reaches further than chance meetings (much further by boat)
-        let idx: std::collections::HashMap<u32, usize> = bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+        let idx: crate::knowledge::FastMap<u32, usize> = bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
         let mut far: Vec<(usize, usize, i32)> = Vec::new();
         for (a, b) in bands.iter().enumerate() {
             for pt in &b.partners {
@@ -2222,13 +2222,16 @@ impl World {
         if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
             bands[dst].far_shore = bands[src].far_shore;
         }
+        // the recipes dst already knows, sorted once (a linear `knows` per candidate was ~5% of a run)
+        let mut dk: Vec<u32> = bands[dst].known.iter().map(|k| k.recipe).collect();
+        dk.sort_unstable();
         let cands: Vec<(u32, f32)> = bands[src]
             .known
             .iter()
             .filter(|k| k.skill >= 0.25)
             .filter(|k| {
                 let out = self.reg.recipes[k.recipe as usize].output;
-                !bands[dst].d.tk.producible.has(out) && !bands[dst].knows(k.recipe)
+                !bands[dst].d.tk.producible.has(out) && dk.binary_search(&k.recipe).is_err()
             })
             .map(|k| (k.recipe, k.skill))
             .collect();
@@ -2370,7 +2373,7 @@ impl World {
         // tiny bands merge with a neighbour or vanish (the neighbour: the first band in the list
         // of 4+ people within one cell; found through the occupancy grid rather than a scan of
         // every band)
-        let mut grid: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        let mut grid: crate::knowledge::FastMap<usize, Vec<usize>> = Default::default();
         let has_tiny = bands.iter().any(|b| b.pop > 0 && b.pop < 4);
         if has_tiny {
             for (j, b) in bands.iter().enumerate().take(n0) {
