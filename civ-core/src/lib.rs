@@ -9,9 +9,9 @@ pub mod params;
 pub mod physics;
 pub mod rng;
 pub mod save;
-pub mod world;
 #[cfg(test)]
 mod tests;
+pub mod world;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;

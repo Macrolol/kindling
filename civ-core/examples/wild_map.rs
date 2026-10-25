@@ -6,9 +6,18 @@ use civ_core::world::farming::{crop_potential, wild_progenitors, WILD_GRAIN, WIL
 use civ_core::world::World;
 
 fn main() {
-    let a: Vec<u64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
+    let a: Vec<u64> = std::env::args()
+        .skip(1)
+        .map(|s| s.parse().unwrap())
+        .collect();
     for seed in a[0]..=a[1] {
-        let w = World::new(Config { seed, ..Default::default() }, Params::default());
+        let w = World::new(
+            Config {
+                seed,
+                ..Default::default()
+            },
+            Params::default(),
+        );
         let m = &w.map;
         let n = m.w * m.h;
         let start = w.bands[0].cell(m.w);
@@ -51,7 +60,11 @@ fn main() {
             let near = cells
                 .iter()
                 .filter(|&&i| m.landmass[i] == start_lm)
-                .map(|&i| ((i % m.w) as i32 - sx).abs().max(((i / m.w) as i32 - sy).abs()))
+                .map(|&i| {
+                    ((i % m.w) as i32 - sx)
+                        .abs()
+                        .max(((i / m.w) as i32 - sy).abs())
+                })
                 .min();
             line += &format!(
                 " | {name}: {} cells ({:.0}% of land), {patches} patches, {on_start} on the start landmass, nearest {}",

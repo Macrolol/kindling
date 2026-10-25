@@ -71,7 +71,10 @@ pub struct Outcome {
 }
 
 fn o(out: Item, p: f32) -> Option<Outcome> {
-    Some(Outcome { out, p: p.clamp(0.0, 1.0) })
+    Some(Outcome {
+        out,
+        p: p.clamp(0.0, 1.0),
+    })
 }
 
 pub fn apply(action: Action, inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
@@ -93,7 +96,11 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
     let (tf, tm) = (form(t), mat(t));
     let tp = tm.props();
     let hands = tool == NONE;
-    let (of, om) = if hands { (Form::Raw, Mat::Wood) } else { (form(tool), mat(tool)) };
+    let (of, om) = if hands {
+        (Form::Raw, Mat::Wood)
+    } else {
+        (form(tool), mat(tool))
+    };
     let op = om.props();
     match tf {
         Form::Raw => {
@@ -117,7 +124,13 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             if tp.fibrous >= 8.0 && hands {
                 return o(item(Form::Cord, tm), 0.6);
             }
-            if tp.fibrous >= 5.0 && of == Form::Edge && cut_q(om) > 0.3 && tp.food < 2.0 && tp.workable >= 5.0 && tm != Mat::Wood {
+            if tp.fibrous >= 5.0
+                && of == Form::Edge
+                && cut_q(om) > 0.3
+                && tp.food < 2.0
+                && tp.workable >= 5.0
+                && tm != Mat::Wood
+            {
                 return o(item(Form::Cord, tm), 0.5 * cut_q(om) + 0.2);
             }
             // mould a plastic material into a container
@@ -129,7 +142,8 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
                 return o(item(Form::Shaft, tm), 0.4);
             }
             // fell and hollow out a log with an axe: a dugout (floats because wood floats)
-            if ctx.water && tp.float >= 5.0 && tp.tough >= 5.0 && of == Form::Axe && cut_q(om) > 0.4 {
+            if ctx.water && tp.float >= 5.0 && tp.tough >= 5.0 && of == Form::Axe && cut_q(om) > 0.4
+            {
                 return o(item(Form::Boat, tm), 0.04 + 0.2 * cut_q(om));
             }
             // carve with an edge harder than the material
@@ -150,7 +164,12 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
                 return o(item(Form::Point, tm), 0.5);
             }
             // pressure flaking: press a fine flaking stone with a softer, tough tool
-            if tp.fracture >= 5.0 && !hands && op.hard < tp.hard && op.tough >= 4.0 && op.hard >= 3.0 {
+            if tp.fracture >= 5.0
+                && !hands
+                && op.hard < tp.hard
+                && op.tough >= 4.0
+                && op.hard >= 3.0
+            {
                 return o(item(Form::Point, tm), 0.05 * tp.fracture);
             }
             None
@@ -202,7 +221,9 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     }
     // a watertight skin lashed over a frame of shafts: a skin boat
     if ctx.water && n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
-        if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
+        if let Some(sk) = items.iter().copied().find(|&i| {
+            form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0
+        }) {
             return o(item(Form::Boat, mat(sk)), 0.06);
         }
     }
@@ -213,7 +234,9 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     }
     // bundles of buoyant reeds bound tightly with cord: a reed boat
     if ctx.water && n == 2 && count(Form::Cord) == 1 {
-        if let Some(r) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().float >= 5.0 && mat(i).props().fibrous >= 8.0) {
+        if let Some(r) = items.iter().copied().find(|&i| {
+            form(i) == Form::Raw && mat(i).props().float >= 5.0 && mat(i).props().fibrous >= 8.0
+        }) {
             return o(item(Form::Boat, mat(r)), 0.03);
         }
     }
@@ -226,15 +249,25 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if n == 3 && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         if let Some(fb) = items.iter().copied().find(|&i| {
             let p = mat(i).props();
-            form(i) == Form::Raw && mat(i) != Mat::Hide && p.fibrous >= 8.0 && p.tough >= 4.0 && p.food < 1.0
+            form(i) == Form::Raw
+                && mat(i) != Mat::Hide
+                && p.fibrous >= 8.0
+                && p.tough >= 4.0
+                && p.food < 1.0
         }) {
             return o(item(Form::Garment, mat(fb)), 0.25);
         }
     }
     // friction fire: rub a shaft against dry wood (tinder helps)
-    if items.contains(&item(Form::Shaft, Mat::Wood)) && raw(Mat::Wood) && (n == 2 || raw(Mat::Fibre)) {
+    if items.contains(&item(Form::Shaft, Mat::Wood))
+        && raw(Mat::Wood)
+        && (n == 2 || raw(Mat::Fibre))
+    {
         let tinder = if raw(Mat::Fibre) { 0.15 } else { 0.0 };
-        return o(item(Form::Fire, Mat::Wood), 0.03 + 0.25 * ctx.dryness + tinder);
+        return o(
+            item(Form::Fire, Mat::Wood),
+            0.03 + 0.25 * ctx.dryness + tinder,
+        );
     }
     if n == 2 {
         if let Some(f) = find(Form::Fire) {
@@ -250,7 +283,8 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
                 return o(item(Form::Kiln, om), 0.015 * om.props().refractory);
             }
             // a chamber built of already-fired pieces (sherds, bricks) holds far more heat
-            if ofm == Form::Vessel && om.props().refractory >= 8.0 && om.props().fires_to.is_none() {
+            if ofm == Form::Vessel && om.props().refractory >= 8.0 && om.props().fires_to.is_none()
+            {
                 return o(item(Form::Kiln, om), 0.004 * om.props().refractory);
             }
         }
@@ -295,7 +329,10 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
             if let Some(to) = p.reduces_to {
                 if reducing && temp >= p.reduce_t {
                     // iron only just reduces at the best kiln heat: most charges come out as slag
-                    return o(item(Form::Raw, to), if to == Mat::Iron { 0.02 } else { 0.12 });
+                    return o(
+                        item(Form::Raw, to),
+                        if to == Mat::Iron { 0.02 } else { 0.12 },
+                    );
                 }
             }
         }
@@ -311,7 +348,11 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
         || metal_or_ore(b, Mat::Copper, Mat::CopperOre) && metal_or_ore(a, Mat::Tin, Mat::TinOre);
     if cu {
         let ores = [a, b].iter().any(|m| m.props().reduces_to.is_some());
-        let need = if ores { Mat::CopperOre.props().reduce_t } else { Mat::Bronze.props().melt };
+        let need = if ores {
+            Mat::CopperOre.props().reduce_t
+        } else {
+            Mat::Bronze.props().melt
+        };
         if temp >= need && (!ores || reducing) {
             return o(item(Form::Raw, Mat::Bronze), if ores { 0.08 } else { 0.4 });
         }

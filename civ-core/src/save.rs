@@ -31,7 +31,10 @@ pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 /// loads as its default.
 fn v1_to_v2(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     const NMAT_V2: usize = 18;
-    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let world = v
+        .get_mut("world")
+        .and_then(|w| w.as_object_mut())
+        .ok_or("payload has no world")?;
     if let Some(m) = world.get_mut("map").and_then(|m| m.as_object_mut()) {
         m.entry("gen_version").or_insert(serde_json::json!(1));
     }
@@ -44,7 +47,8 @@ fn v1_to_v2(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
                     a.push(serde_json::json!(0.0));
                 }
             }
-            b.entry("origin").or_insert(serde_json::json!(vec![u32::MAX; NMAT_V2]));
+            b.entry("origin")
+                .or_insert(serde_json::json!(vec![u32::MAX; NMAT_V2]));
         }
     }
     Ok(v)
@@ -56,7 +60,10 @@ fn v1_to_v2(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 /// - `bands[].far_shore` is new: none known.
 fn v2_to_v3(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     const CRAFT_LEN_V3: usize = 21;
-    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let world = v
+        .get_mut("world")
+        .and_then(|w| w.as_object_mut())
+        .ok_or("payload has no world")?;
     if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
         for b in bands {
             let Some(b) = b.as_object_mut() else { continue };
@@ -85,7 +92,10 @@ fn v2_to_v3(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 /// Everything else in v4 is additive (conflict counters, YearStats fields, EventKind 17..23,
 /// params aggression / lethality / grudge_memory, which take their defaults).
 fn v3_to_v4(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
-    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let world = v
+        .get_mut("world")
+        .and_then(|w| w.as_object_mut())
+        .ok_or("payload has no world")?;
     if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
         for b in bands {
             let Some(b) = b.as_object_mut() else { continue };
@@ -105,7 +115,10 @@ fn v3_to_v4(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 ///   fresh on load (fertility 1, nothing tended); maps below gen 4 gain iron ore on load.
 fn v4_to_v5(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
-    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let world = v
+        .get_mut("world")
+        .and_then(|w| w.as_object_mut())
+        .ok_or("payload has no world")?;
     if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
         for b in bands {
             let Some(b) = b.as_object_mut() else { continue };
@@ -137,10 +150,13 @@ const _: () = assert!(
 
 pub fn migrate(mut v: serde_json::Value, from: u32) -> Result<serde_json::Value, String> {
     if from < SUPPORT_FLOOR {
-        return Err(format!("save format v{from} is older than the support floor v{SUPPORT_FLOOR}"));
+        return Err(format!(
+            "save format v{from} is older than the support floor v{SUPPORT_FLOOR}"
+        ));
     }
     for ver in from..FORMAT_VERSION {
-        v = MIGRATIONS[(ver - SUPPORT_FLOOR) as usize](v).map_err(|e| format!("migration v{ver}->v{}: {e}", ver + 1))?;
+        v = MIGRATIONS[(ver - SUPPORT_FLOOR) as usize](v)
+            .map_err(|e| format!("migration v{ver}->v{}: {e}", ver + 1))?;
     }
     Ok(v)
 }
@@ -208,7 +224,12 @@ pub fn format_unix_time(secs: f64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 enum Enc {
@@ -217,7 +238,12 @@ enum Enc {
 }
 
 impl World {
-    pub fn save_bytes(&self, view: Option<&ViewState>, app_version: &str, created_at: &str) -> Result<Vec<u8>, String> {
+    pub fn save_bytes(
+        &self,
+        view: Option<&ViewState>,
+        app_version: &str,
+        created_at: &str,
+    ) -> Result<Vec<u8>, String> {
         let env = Envelope {
             magic: MAGIC.into(),
             format_version: FORMAT_VERSION,
@@ -227,13 +253,19 @@ impl World {
         };
         let mp = rmp_serde::to_vec_named(&env).map_err(|e| e.to_string())?;
         let mut out = MAGIC_BYTES.to_vec();
-        let mut enc = flate2::write::DeflateEncoder::new(out.split_off(8), flate2::Compression::new(6));
+        let mut enc =
+            flate2::write::DeflateEncoder::new(out.split_off(8), flate2::Compression::new(6));
         enc.write_all(&mp).map_err(|e| e.to_string())?;
         let body = enc.finish().map_err(|e| e.to_string())?;
         out.extend_from_slice(&body);
         Ok(out)
     }
-    pub fn save_json(&self, view: Option<&ViewState>, app_version: &str, created_at: &str) -> Result<String, String> {
+    pub fn save_json(
+        &self,
+        view: Option<&ViewState>,
+        app_version: &str,
+        created_at: &str,
+    ) -> Result<String, String> {
         let env = Envelope {
             magic: MAGIC.into(),
             format_version: FORMAT_VERSION,
@@ -248,7 +280,8 @@ impl World {
         let enc = if b.len() >= 8 && &b[..8] == MAGIC_BYTES {
             let mut d = flate2::read::DeflateDecoder::new(&b[8..]);
             let mut raw = Vec::new();
-            d.read_to_end(&mut raw).map_err(|e| format!("decompress: {e}"))?;
+            d.read_to_end(&mut raw)
+                .map_err(|e| format!("decompress: {e}"))?;
             Enc::Mp(raw)
         } else if b.iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'{') {
             Enc::Json
@@ -280,7 +313,8 @@ impl World {
         } else if h.format_version < FORMAT_VERSION {
             let env: Envelope<serde_json::Value> = dec(&enc, b)?;
             info.migrated_from = Some(h.format_version);
-            serde_json::from_value(migrate(env.payload, h.format_version)?).map_err(|e| e.to_string())?
+            serde_json::from_value(migrate(env.payload, h.format_version)?)
+                .map_err(|e| e.to_string())?
         } else {
             info.warning = Some(format!(
                 "save is format v{} (newer than this build's v{FORMAT_VERSION}); loaded best-effort",
@@ -298,10 +332,20 @@ impl World {
 pub mod pairs {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::BTreeMap;
-    pub fn serialize<K: Serialize + Ord, V: Serialize, S: Serializer>(m: &BTreeMap<K, V>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<K: Serialize + Ord, V: Serialize, S: Serializer>(
+        m: &BTreeMap<K, V>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         s.collect_seq(m.iter())
     }
-    pub fn deserialize<'de, K: Deserialize<'de> + Ord, V: Deserialize<'de>, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<K, V>, D::Error> {
+    pub fn deserialize<
+        'de,
+        K: Deserialize<'de> + Ord,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+    >(
+        d: D,
+    ) -> Result<BTreeMap<K, V>, D::Error> {
         let v: Vec<(K, V)> = Vec::deserialize(d)?;
         Ok(v.into_iter().collect())
     }

@@ -5,7 +5,11 @@ pub fn now_string() -> String {
     civ_core::save::format_unix_time(macroquad::miniquad::date::now())
 }
 pub fn stamp() -> String {
-    now_string().replace([':', '-'], "").replace('T', "-").trim_end_matches('Z').to_string()
+    now_string()
+        .replace([':', '-'], "")
+        .replace('T', "-")
+        .trim_end_matches('Z')
+        .to_string()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,7 +40,12 @@ mod imp {
                     return None;
                 }
                 let m = e.metadata().ok()?;
-                let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+                let t = m
+                    .modified()
+                    .ok()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_secs();
                 Some((p.display().to_string(), t, m.len()))
             })
             .collect();
@@ -77,7 +86,14 @@ mod imp {
         1
     }
     pub fn download(name: &str, bytes: &[u8]) {
-        unsafe { civ_download(bytes.as_ptr(), bytes.len() as u32, name.as_ptr(), name.len() as u32) }
+        unsafe {
+            civ_download(
+                bytes.as_ptr(),
+                bytes.len() as u32,
+                name.as_ptr(),
+                name.len() as u32,
+            )
+        }
     }
     pub fn pick_file() {
         unsafe { civ_pick_file() }

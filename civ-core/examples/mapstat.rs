@@ -13,21 +13,53 @@ fn main() {
         let el = t.elapsed().as_secs_f32();
         let land: Vec<usize> = (0..w * h).filter(|&i| m.is_land(i)).collect();
         let mut c = [0usize; NBIOME];
-        for &i in &land { c[m.biome[i] as usize] += 1; }
-        let conts: Vec<u32> = m.landmass_size.iter().skip(1).copied().filter(|&s| s >= Map::CONTINENT_CELLS).collect();
-        let islands = m.landmass_size.iter().skip(1).filter(|&&s| s < Map::CONTINENT_CELLS && s >= 3).count();
-        let cu = land.iter().filter(|&&i| m.has(i, civ_core::map::D_COPPER)).count();
-        let sn = land.iter().filter(|&&i| m.has(i, civ_core::map::D_TIN)).count();
-        let ob = land.iter().filter(|&&i| m.has(i, civ_core::map::D_OBSIDIAN)).count();
+        for &i in &land {
+            c[m.biome[i] as usize] += 1;
+        }
+        let conts: Vec<u32> = m
+            .landmass_size
+            .iter()
+            .skip(1)
+            .copied()
+            .filter(|&s| s >= Map::CONTINENT_CELLS)
+            .collect();
+        let islands = m
+            .landmass_size
+            .iter()
+            .skip(1)
+            .filter(|&&s| s < Map::CONTINENT_CELLS && s >= 3)
+            .count();
+        let cu = land
+            .iter()
+            .filter(|&&i| m.has(i, civ_core::map::D_COPPER))
+            .count();
+        let sn = land
+            .iter()
+            .filter(|&&i| m.has(i, civ_core::map::D_TIN))
+            .count();
+        let ob = land
+            .iter()
+            .filter(|&&i| m.has(i, civ_core::map::D_OBSIDIAN))
+            .count();
         print!("seed {seed:>2}: land {:.0}% lat {:.0}..{:.0} | continents {:?} islands {} | cu {cu} sn {sn} obs {ob} | {:.2}s |", 100.0 * land.len() as f32 / (w * h) as f32, m.lat_n, m.lat_s, conts, islands, el);
         for b in 1..NBIOME {
             let f = c[b] as f64 / land.len() as f64;
             tot[b] += f;
-            print!(" {} {:.0}", Biome::from_u8(b as u8).name().get(..4).unwrap_or("ice"), 100.0 * f);
+            print!(
+                " {} {:.0}",
+                Biome::from_u8(b as u8).name().get(..4).unwrap_or("ice"),
+                100.0 * f
+            );
         }
         println!();
     }
     print!("mean %:");
-    for b in 1..NBIOME { print!(" {} {:.1}", Biome::from_u8(b as u8).name(), 100.0 * tot[b] / (s1 - s0 + 1) as f64); }
+    for b in 1..NBIOME {
+        print!(
+            " {} {:.1}",
+            Biome::from_u8(b as u8).name(),
+            100.0 * tot[b] / (s1 - s0 + 1) as f64
+        );
+    }
     println!();
 }

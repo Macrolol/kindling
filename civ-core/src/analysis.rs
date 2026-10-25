@@ -148,7 +148,16 @@ pub struct LandmassSummary {
     pub gap: Option<u32>,
 }
 
-pub const STAGES: [&str; 8] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze", "iron"];
+pub const STAGES: [&str; 8] = [
+    "none",
+    "stone tools",
+    "fire-making",
+    "hafted tools",
+    "pottery",
+    "copper",
+    "bronze",
+    "iron",
+];
 
 fn stage_of(items: &[Item]) -> usize {
     let has = |f: &dyn Fn(Item) -> bool| items.iter().any(|&i| f(i));
@@ -160,7 +169,9 @@ fn stage_of(items: &[Item]) -> usize {
         5
     } else if has(&|i| mat(i) == Mat::Ceramic) {
         4
-    } else if has(&|i| matches!(form(i), Form::Spear | Form::Axe) && mat(i) != Mat::Wood || form(i) == Form::Axe) {
+    } else if has(&|i| {
+        matches!(form(i), Form::Spear | Form::Axe) && mat(i) != Mat::Wood || form(i) == Form::Axe
+    }) {
         3
     } else if has(&|i| form(i) == Form::Fire) {
         2
@@ -180,14 +191,25 @@ pub fn summarize(w: &World) -> Summary {
         .iter()
         .flat_map(|b| b.d.tk.producible.iter().collect::<Vec<_>>())
         .collect();
-    let ever: Vec<Item> = w.firsts.iter().filter(|f| f.recipe != u32::MAX).map(|f| f.item).collect();
+    let ever: Vec<Item> = w
+        .firsts
+        .iter()
+        .filter(|f| f.recipe != u32::MAX)
+        .map(|f| f.item)
+        .collect();
     let mut firsts = Vec::new();
     let first_inputs = |it: Item| -> Vec<Item> {
         w.firsts
             .iter()
             .find(|f| f.item == it && f.recipe != u32::MAX)
             .and_then(|f| w.reg.recipes.get(f.recipe as usize))
-            .map(|r| r.inputs.iter().copied().filter(|&i| i != NONE && form(i) != Form::Raw).collect())
+            .map(|r| {
+                r.inputs
+                    .iter()
+                    .copied()
+                    .filter(|&i| i != NONE && form(i) != Form::Raw)
+                    .collect()
+            })
             .unwrap_or_default()
     };
     for f in &w.firsts {
@@ -199,8 +221,20 @@ pub fn summarize(w: &World) -> Summary {
                 todo.extend(first_inputs(i));
             }
         }
-        let inv: u32 = w.reg.recipes.iter().filter(|r| r.output == f.item).map(|r| r.inventions).sum();
-        let tr: u32 = w.reg.recipes.iter().filter(|r| r.output == f.item).map(|r| r.transfers).sum();
+        let inv: u32 = w
+            .reg
+            .recipes
+            .iter()
+            .filter(|r| r.output == f.item)
+            .map(|r| r.inventions)
+            .sum();
+        let tr: u32 = w
+            .reg
+            .recipes
+            .iter()
+            .filter(|r| r.output == f.item)
+            .map(|r| r.transfers)
+            .sum();
         let (mut reached, mut r, mut speed) = (0u32, None, None);
         if let Some(cf) = w.cell_first.get(&f.item) {
             let (fx, fy) = ((f.cell as usize % mw) as f32, (f.cell as usize / mw) as f32);
@@ -215,7 +249,10 @@ pub fn summarize(w: &World) -> Summary {
             reached = pts.len() as u32;
             if pts.len() >= 20 {
                 let n = pts.len() as f32;
-                let (mx, my) = (pts.iter().map(|p| p.0).sum::<f32>() / n, pts.iter().map(|p| p.1).sum::<f32>() / n);
+                let (mx, my) = (
+                    pts.iter().map(|p| p.0).sum::<f32>() / n,
+                    pts.iter().map(|p| p.1).sum::<f32>() / n,
+                );
                 let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
                 for &(a, b) in &pts {
                     sxy += (a - mx) * (b - my);
@@ -225,7 +262,11 @@ pub fn summarize(w: &World) -> Summary {
                 if sxx > 0.0 && syy > 0.0 {
                     r = Some(sxy / (sxx * syy).sqrt());
                 }
-                let mut sp: Vec<f32> = pts.iter().filter(|p| p.0 > 3.0 && p.1 > 0.0).map(|p| p.0 / p.1).collect();
+                let mut sp: Vec<f32> = pts
+                    .iter()
+                    .filter(|p| p.0 > 3.0 && p.1 > 0.0)
+                    .map(|p| p.0 / p.1)
+                    .collect();
                 sp.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 if !sp.is_empty() {
                     speed = Some(sp[sp.len() / 2]);
@@ -273,7 +314,11 @@ pub fn summarize(w: &World) -> Summary {
         y0 = y0.min(b.y);
         y1 = y1.max(b.y);
     }
-    let range = if w.bands.is_empty() { 0 } else { (x1 - x0 + 1) as u32 * (y1 - y0 + 1) as u32 };
+    let range = if w.bands.is_empty() {
+        0
+    } else {
+        (x1 - x0 + 1) as u32 * (y1 - y0 + 1) as u32
+    };
     let last = w.history.last();
     let _ = now;
     let m = &w.map;
@@ -285,7 +330,13 @@ pub fn summarize(w: &World) -> Summary {
             lpop[l] += b.pop;
         }
     }
-    let lf = |l: usize| w.landfall.get(l).copied().filter(|&t| t != u32::MAX).map(|t| t as f32 / 4.0);
+    let lf = |l: usize| {
+        w.landfall
+            .get(l)
+            .copied()
+            .filter(|&t| t != u32::MAX)
+            .map(|t| t as f32 / 4.0)
+    };
     // sea gaps from the home landmass (breadth-first over sea cells, 8-connected)
     let home = w.landfall.iter().position(|&t| t == 0).unwrap_or(1);
     let mut gap = vec![None::<u32>; nl];
@@ -307,7 +358,8 @@ pub fn summarize(w: &World) -> Summary {
             for dy in -1..=1 {
                 for dx in -1..=1 {
                     let (nx, ny) = (x + dx, y + dy);
-                    if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= mw as i32 || ny >= m.h as i32 {
+                    if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= mw as i32 || ny >= m.h as i32
+                    {
                         continue;
                     }
                     let j = ny as usize * mw + nx as usize;
@@ -330,7 +382,13 @@ pub fn summarize(w: &World) -> Summary {
     for l in 1..nl {
         let sz = m.landmass_size[l];
         if sz >= crate::map::Map::CONTINENT_CELLS {
-            continents.push(LandmassSummary { id: l as u32, cells: sz, landfall_year: lf(l), pop_now: lpop[l], gap: gap[l] });
+            continents.push(LandmassSummary {
+                id: l as u32,
+                cells: sz,
+                landfall_year: lf(l),
+                pop_now: lpop[l],
+                gap: gap[l],
+            });
         } else {
             islands += 1;
             if lf(l).is_some() {
@@ -355,7 +413,11 @@ pub fn summarize(w: &World) -> Summary {
         dsum += h.trade_dist;
         trade.goods_dist_max_ever = trade.goods_dist_max_ever.max(h.goods_dist_max);
     }
-    trade.mean_dist = if trade.trades > 0 { dsum / trade.trades as f32 } else { 0.0 };
+    trade.mean_dist = if trade.trades > 0 {
+        dsum / trade.trades as f32
+    } else {
+        0.0
+    };
     if let Some(h) = last {
         trade.trades_last = h.trades;
         trade.partnerships_last = h.partnerships;
@@ -363,7 +425,10 @@ pub fn summarize(w: &World) -> Summary {
     }
     for e in &w.chronicle {
         if e.kind == crate::world::EventKind::FirstTraded as u8 {
-            trade.first_traded.push((e.tick as f32 / 4.0, crate::materials::mat(e.item).props().name.to_string()));
+            trade.first_traded.push((
+                e.tick as f32 / 4.0,
+                crate::materials::mat(e.item).props().name.to_string(),
+            ));
         }
     }
     let mut farming = FarmSummary::default();
@@ -377,7 +442,9 @@ pub fn summarize(w: &World) -> Summary {
                 if k == K::FirstCultivation as u8 {
                     farming.first_cultivation = Some(yr(e.tick));
                 }
-                farming.origins.push((yr(e.tick), format!("{:?} {:.0}C", m.biome_at(c), m.temp[c])));
+                farming
+                    .origins
+                    .push((yr(e.tick), format!("{:?} {:.0}C", m.biome_at(c), m.temp[c])));
             } else if k == K::FirstDomestic as u8 && mat(e.item) == Mat::Grain {
                 farming.first_domestic_grain = Some(yr(e.tick));
             } else if k == K::FirstHerding as u8 {
@@ -418,9 +485,16 @@ pub fn summarize(w: &World) -> Summary {
             farming.farmer_density = h.farmer_density;
             farming.forager_density = h.forager_density;
         }
-        farming.peak_farm_food_share = w.history.iter().map(|h| h.farm_food_share).fold(0.0, f32::max);
+        farming.peak_farm_food_share = w
+            .history
+            .iter()
+            .map(|h| h.farm_food_share)
+            .fold(0.0, f32::max);
     }
-    let biome_pct = bc.into_iter().map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32)).collect();
+    let biome_pct = bc
+        .into_iter()
+        .map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32))
+        .collect();
     Summary {
         seed: w.cfg.seed,
         years: w.year(),
@@ -438,10 +512,18 @@ pub fn summarize(w: &World) -> Summary {
         deaths: w.counters.deaths,
         lost_worldwide: lost,
         firsts,
-        self_invented_frac: if allk > 0 { selfk as f32 / allk as f32 } else { 0.0 },
+        self_invented_frac: if allk > 0 {
+            selfk as f32 / allk as f32
+        } else {
+            0.0
+        },
         own_find_share: {
             let t = w.counters.inventions + w.counters.transfers;
-            if t > 0 { w.counters.inventions as f32 / t as f32 } else { 0.0 }
+            if t > 0 {
+                w.counters.inventions as f32 / t as f32
+            } else {
+                0.0
+            }
         },
         origin: w
             .firsts
@@ -465,11 +547,25 @@ pub fn summarize(w: &World) -> Summary {
             scouts_lost: w.counters.scouts_lost,
             crossings: w.counters.crossings,
             seacraft_mean: {
-                let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
-                if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }
+                let v: Vec<f32> = w
+                    .bands
+                    .iter()
+                    .filter(|b| b.d.kit.boat_q > 0.0)
+                    .map(|b| b.seacraft)
+                    .collect();
+                if v.is_empty() {
+                    0.0
+                } else {
+                    v.iter().sum::<f32>() / v.len() as f32
+                }
             },
             bands_with_boats: w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).count() as u32,
-            first_boat: w.firsts.iter().filter(|f| form(f.item) == Form::Boat).map(|f| f.tick as f32 / 4.0).reduce(f32::min),
+            first_boat: w
+                .firsts
+                .iter()
+                .filter(|f| form(f.item) == Form::Boat)
+                .map(|f| f.tick as f32 / 4.0)
+                .reduce(f32::min),
         },
         range_cells: range,
         continents,

@@ -18,7 +18,8 @@ impl World {
             _ => 0.3,
         };
         let need = a.d.need.max(1.0);
-        let hunger = (1.0 - a.d.food_ratio).clamp(0.0, 1.0) + 0.4 * (1.0 - a.store / need).clamp(0.0, 1.0);
+        let hunger =
+            (1.0 - a.d.food_ratio).clamp(0.0, 1.0) + 0.4 * (1.0 - a.store / need).clamp(0.0, 1.0);
         let crowd = (self.crowd(a.cell(self.map.w), a) as f32 / (a.pop as f32 + 10.0)).min(2.0);
         // what the other band has that we lack: food put by, goods we use and are out of
         let lure = (c.store / c.d.need.max(1.0)).clamp(0.0, 2.0) * hunger;
@@ -49,7 +50,15 @@ impl World {
     }
 
     /// A meeting that may turn hostile. Returns true when it did (no peaceful exchange follows).
-    pub(super) fn confront(&self, bands: &mut Pair, a0: usize, c0: usize, d: i32, rng: &mut Rng, fx: &mut Fx) -> bool {
+    pub(super) fn confront(
+        &self,
+        bands: &mut Pair,
+        a0: usize,
+        c0: usize,
+        d: i32,
+        rng: &mut Rng,
+        fx: &mut Fx,
+    ) -> bool {
         let p = self.params;
         if p.aggression <= 0.0 {
             return false;
@@ -129,10 +138,19 @@ impl World {
         let fl = (p.lethality * rng.range(0.05, 0.16) * (0.6 + qw)).min(0.45);
         let fw = (p.lethality * rng.range(0.01, 0.05) * (0.6 + ql)).min(0.2);
         // defenders in a settled village have walls, banks and houses to fall back behind
-        let shelter = |k: usize| if k == c { 1.0 - 0.4 * bands[k].settled } else { 1.0 };
+        let shelter = |k: usize| {
+            if k == c {
+                1.0 - 0.4 * bands[k].settled
+            } else {
+                1.0
+            }
+        };
         let (fl, fw) = (fl * shelter(lose), fw * shelter(win));
-        let dl = ((bands[lose].pop as f32 * fl).round() as u32).max(1).min(bands[lose].pop);
-        let dw = ((bands[win].pop as f32 * fw).round() as u32).min(bands[win].pop.saturating_sub(1));
+        let dl = ((bands[lose].pop as f32 * fl).round() as u32)
+            .max(1)
+            .min(bands[lose].pop);
+        let dw =
+            ((bands[win].pop as f32 * fw).round() as u32).min(bands[win].pop.saturating_sub(1));
         for (k, dead) in [(lose, dl), (win, dw)] {
             let b = &mut bands[k];
             let f = dead as f32 / b.pop.max(1) as f32;
@@ -156,7 +174,9 @@ impl World {
         for &m in TRADE_MATS.iter() {
             let mi = m as usize;
             // (grain is food whoever takes it, and seed for anyone who farms)
-            if bands[lose].stock[mi] > 0.2 && (bands[win].d.uses & (1 << mi) != 0 || m == Mat::Grain) {
+            if bands[lose].stock[mi] > 0.2
+                && (bands[win].d.uses & (1 << mi) != 0 || m == Mat::Grain)
+            {
                 let q = 0.5 * bands[lose].stock[mi];
                 bands[lose].stock[mi] -= q;
                 bands[win].stock[mi] = (bands[win].stock[mi] + q).min(1.5);
@@ -171,7 +191,8 @@ impl World {
             bands[lose].herd *= 0.7;
             let (wh, wp) = (bands[win].herd, bands[win].pop as f32);
             let nh = wh + animals / wp.max(1.0);
-            bands[win].tame = (wh * bands[win].tame + (animals / wp.max(1.0)) * bands[lose].tame) / nh.max(1e-6);
+            bands[win].tame =
+                (wh * bands[win].tame + (animals / wp.max(1.0)) * bands[lose].tame) / nh.max(1e-6);
             bands[win].herd = nh;
         }
         // whatever ties there were are broken; both remember
@@ -183,10 +204,17 @@ impl World {
         bands[win].add_grudge(&lb, 0.1 + 3.0 * fw);
         let cell = bands[lose].cell(w);
         fx.ops.push(Op::Conflict(cell as u32, deaths as f32));
-        fx.ops.push(Op::Conflict(bands[win].cell(w) as u32, 0.5 * deaths as f32));
+        fx.ops
+            .push(Op::Conflict(bands[win].cell(w) as u32, 0.5 * deaths as f32));
         // the first fight anywhere, and each new bloodiest one, go in the chronicle
         let it = bands[win].d.kit.hunt;
-        fx.ops.push(Op::Fight { win: wid, lose: lid, cell: cell as u32, item: it, deaths });
+        fx.ops.push(Op::Fight {
+            win: wid,
+            lose: lid,
+            cell: cell as u32,
+            item: it,
+            deaths,
+        });
         // what becomes of the losers
         let left = bands[lose].pop;
         if left < 8 {
@@ -222,7 +250,13 @@ impl World {
         let tb = &mut bands[to];
         for kn in moved {
             if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.5 * share) {
-                tb.known.push(Known { skill: kn.skill * 0.6, from: fid, since: tick, kin: false, ..kn });
+                tb.known.push(Known {
+                    skill: kn.skill * 0.6,
+                    from: fid,
+                    since: tick,
+                    kin: false,
+                    ..kn
+                });
                 tb.d.known_ver += 1;
                 fx.counters.transfers += 1;
                 fx.acc.transfers += 1;
@@ -274,7 +308,9 @@ impl World {
                 if i == 0 && aim.is_none() {
                     continue;
                 }
-                let Some((c, s)) = self.voyage(b, rng, aim) else { continue };
+                let Some((c, s)) = self.voyage(b, rng, aim) else {
+                    continue;
+                };
                 let (lx, ly) = ((c % m.w) as f32 - x as f32, (c / m.w) as f32 - y as f32);
                 if aim.is_none() && (ax != 0.0 || ay != 0.0) && lx * ax + ly * ay < 0.0 {
                     continue;
@@ -306,7 +342,13 @@ impl World {
             self.note_crossing(from as usize, b, fx);
             self.forget_reached_shore(b);
             let (bid, boat) = (b.id, b.d.kit.boat);
-            fx.ops.push(Op::FledBySea { band: bid, by: oid, cell: best.0 as u32, boat, from });
+            fx.ops.push(Op::FledBySea {
+                band: bid,
+                by: oid,
+                cell: best.0 as u32,
+                boat,
+                from,
+            });
             return;
         }
         let by_sea = 0;

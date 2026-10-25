@@ -133,7 +133,10 @@ pub struct Toolkit {
 /// Compute the closure of producible items. `raws` = raw items directly at hand; `flame` = the band
 /// keeps a captured fire (gives `fire` while wood is at hand).
 pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> Toolkit {
-    let mut tk = Toolkit { avail: *raws, ..Default::default() };
+    let mut tk = Toolkit {
+        avail: *raws,
+        ..Default::default()
+    };
     for i in raws.iter() {
         tk.via.insert(i, (u16::MAX, 1u32 << (i % 32), 0));
     }

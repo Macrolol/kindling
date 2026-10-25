@@ -40,7 +40,9 @@ fn main() {
     let a = cli::parse_args();
     #[cfg(not(target_arch = "wasm32"))]
     if a.threads > 0 {
-        let _ = rayon::ThreadPoolBuilder::new().num_threads(a.threads).build_global();
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(a.threads)
+            .build_global();
     }
     #[cfg(not(target_arch = "wasm32"))]
     if a.headless {
@@ -64,7 +66,14 @@ fn toast(st: &mut ui::UiState, msg: String) {
 }
 
 fn view_state(v: &View, sel: Option<u32>, st: &ui::UiState) -> ViewState {
-    ViewState { cx: v.cx, cy: v.cy, zoom: v.zoom, selected: sel, overlay: st.overlay, item: st.item }
+    ViewState {
+        cx: v.cx,
+        cy: v.cy,
+        zoom: v.zoom,
+        selected: sel,
+        overlay: st.overlay,
+        item: st.item,
+    }
 }
 
 /// One season on the chosen thread pool (native) or on the global one.
@@ -91,7 +100,9 @@ fn demo_starts(w: &World, n: usize) -> Vec<(u16, u16)> {
         let y = (k * 104729 + 7) % mh;
         k += 1;
         if w.map.start_check(x, y) == civ_core::StartCheck::Ok
-            && v.iter().all(|&(a, b): &(u16, u16)| (a as i64 - x as i64).abs() + (b as i64 - y as i64).abs() > (mw as i64 / 6))
+            && v.iter().all(|&(a, b): &(u16, u16)| {
+                (a as i64 - x as i64).abs() + (b as i64 - y as i64).abs() > (mw as i64 / 6)
+            })
         {
             v.push((x as u16, y as u16));
         }
@@ -134,7 +145,15 @@ async fn run(a: cli::Args) {
     if a.screenshot.is_some() && a.ui == "picker" {
         let p = World::new(cli::make_config(&a, a.seeds.0), w.params);
         let starts = demo_starts(&p, 4);
-        let mut pk = ui::Picker { seed: a.seeds.0, w: p.map.w, h: p.map.h, mode: 2, starts: vec![], founders: 6, note: String::new() };
+        let mut pk = ui::Picker {
+            seed: a.seeds.0,
+            w: p.map.w,
+            h: p.map.h,
+            mode: 2,
+            starts: vec![],
+            founders: 6,
+            note: String::new(),
+        };
         for &(x, y) in &starts {
             pk.click(&p.map, x as usize, y as usize);
         }
@@ -146,7 +165,11 @@ async fn run(a: cli::Args) {
         for _ in 0..a.shot_years * 4 {
             w.step();
         }
-        selected = w.bands.iter().max_by_key(|b| (b.n_items(), b.pop)).map(|b| b.id);
+        selected = w
+            .bands
+            .iter()
+            .max_by_key(|b| (b.n_items(), b.pop))
+            .map(|b| b.id);
         st.paused = true;
         st.show_log = a.ui != "none";
         st.show_inspector = a.ui != "none";
@@ -181,7 +204,11 @@ async fn run(a: cli::Args) {
             view = View::fit(&w);
             if let Some(v) = vs {
                 if v.zoom > 0.0 {
-                    view = View { cx: v.cx, cy: v.cy, zoom: v.zoom };
+                    view = View {
+                        cx: v.cx,
+                        cy: v.cy,
+                        zoom: v.zoom,
+                    };
                 }
                 selected = v.selected;
                 st.overlay = v.overlay.min(8);
@@ -211,8 +238,22 @@ async fn run(a: cli::Args) {
         #[cfg(not(target_arch = "wasm32"))]
         if st.threads != pool_n {
             pool_n = st.threads;
-            pool = if pool_n == 0 { None } else { cli::make_pool(pool_n) };
-            toast(&mut st, format!("sim threads: {}", if pool_n == 0 { "all cores".to_string() } else { pool_n.to_string() }));
+            pool = if pool_n == 0 {
+                None
+            } else {
+                cli::make_pool(pool_n)
+            };
+            toast(
+                &mut st,
+                format!(
+                    "sim threads: {}",
+                    if pool_n == 0 {
+                        "all cores".to_string()
+                    } else {
+                        pool_n.to_string()
+                    }
+                ),
+            );
         }
         if let Some(id) = jump {
             selected = Some(id);
@@ -225,7 +266,9 @@ async fn run(a: cli::Args) {
             prev_params = w.params;
         }
         // ---------- input
-        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl) || is_key_down(KeyCode::LeftSuper);
+        let ctrl = is_key_down(KeyCode::LeftControl)
+            || is_key_down(KeyCode::RightControl)
+            || is_key_down(KeyCode::LeftSuper);
         if !st.wants_kb {
             if ctrl && is_key_pressed(KeyCode::S) {
                 st.req = Some(ui::FileReq::Save);
@@ -246,22 +289,50 @@ async fn run(a: cli::Args) {
                 if is_key_pressed(KeyCode::F) {
                     st.follow = !st.follow;
                 }
+                if is_key_pressed(KeyCode::Home) || is_key_pressed(KeyCode::Key0) {
+                    st.fit_view = true;
+                }
                 if is_key_pressed(KeyCode::X) {
                     st.fast = !st.fast;
                 }
-                for (k, o) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4), (KeyCode::Key6, 5), (KeyCode::Key7, 6), (KeyCode::Key8, 7), (KeyCode::Key9, 8)] {
+                for (k, o) in [
+                    (KeyCode::Key1, 0),
+                    (KeyCode::Key2, 1),
+                    (KeyCode::Key3, 2),
+                    (KeyCode::Key4, 3),
+                    (KeyCode::Key5, 4),
+                    (KeyCode::Key6, 5),
+                    (KeyCode::Key7, 6),
+                    (KeyCode::Key8, 7),
+                    (KeyCode::Key9, 8),
+                ] {
                     if is_key_pressed(k) {
                         st.overlay = o;
                     }
                 }
             }
         }
+        {
+            let cur = match pv.as_ref() {
+                Some(p) if st.picker.is_some() => p,
+                _ => &w,
+            };
+            if std::mem::take(&mut st.fit_view) {
+                view = View::fit(cur);
+                st.follow = false;
+            }
+        }
+        let zmin = View::min_zoom(match pv.as_ref() {
+            Some(p) if st.picker.is_some() => p,
+            _ => &w,
+        });
         let m: Vec2 = mouse_position().into();
         if !st.wants_pointer {
             let (_, wy) = mouse_wheel();
             if wy != 0.0 {
                 let before = view.to_world(m);
-                view.zoom = (view.zoom * if wy > 0.0 { 1.15 } else { 1.0 / 1.15 }).clamp(1.0, 80.0);
+                view.zoom = (view.zoom * if wy > 0.0 { 1.15 } else { 1.0 / 1.15 })
+                    .clamp(zmin, View::MAX_ZOOM);
                 let after = view.to_world(m);
                 view.cx += before.x - after.x;
                 view.cy += before.y - after.y;
@@ -303,7 +374,11 @@ async fn run(a: cli::Args) {
             last_autosave = get_time();
             let name = saveio::autosave_name(st.autosave_keep);
             let r = w
-                .save_bytes(Some(&view_state(&view, selected, &st)), saveio::APP_VERSION, &saveio::now_string())
+                .save_bytes(
+                    Some(&view_state(&view, selected, &st)),
+                    saveio::APP_VERSION,
+                    &saveio::now_string(),
+                )
                 .and_then(|b| saveio::write(&name, &b));
             match r {
                 Ok(p) => toast(&mut st, format!("autosaved {p}")),
@@ -313,8 +388,18 @@ async fn run(a: cli::Args) {
         if let Some(req) = st.req.take() {
             match req {
                 ui::FileReq::Save => {
-                    let name = format!("kindling-s{}-y{}-{}.{}", w.cfg.seed, w.tick / 4, saveio::stamp(), saveio::EXT);
-                    let r = w.save_bytes(Some(&view_state(&view, selected, &st)), saveio::APP_VERSION, &saveio::now_string());
+                    let name = format!(
+                        "kindling-s{}-y{}-{}.{}",
+                        w.cfg.seed,
+                        w.tick / 4,
+                        saveio::stamp(),
+                        saveio::EXT
+                    );
+                    let r = w.save_bytes(
+                        Some(&view_state(&view, selected, &st)),
+                        saveio::APP_VERSION,
+                        &saveio::now_string(),
+                    );
                     #[cfg(not(target_arch = "wasm32"))]
                     let r = r.and_then(|b| saveio::write(&name, &b));
                     #[cfg(target_arch = "wasm32")]
@@ -351,7 +436,15 @@ async fn run(a: cli::Args) {
                     c.starts.clear();
                     let p = World::new(c, w.params);
                     view = View::fit(&p);
-                    st.picker = Some(ui::Picker { seed, w: p.map.w, h: p.map.h, mode: 0, starts: vec![], founders: p.cfg.founders, note: String::new() });
+                    st.picker = Some(ui::Picker {
+                        seed,
+                        w: p.map.w,
+                        h: p.map.h,
+                        mode: 0,
+                        starts: vec![],
+                        founders: p.cfg.founders,
+                        note: String::new(),
+                    });
                     st.show_load = false;
                     st.show_legend = true;
                     if !render::static_overlay(st.overlay) && st.overlay != 8 {
@@ -359,7 +452,13 @@ async fn run(a: cli::Args) {
                     }
                     pv = Some(p);
                 }
-                ui::FileReq::New { seed, w: mw, h: mh, starts, founders } => {
+                ui::FileReq::New {
+                    seed,
+                    w: mw,
+                    h: mh,
+                    starts,
+                    founders,
+                } => {
                     let p = w.params;
                     let mut c = cli::make_config(&a, seed);
                     c.map_w = mw.clamp(32, 2048);
@@ -377,10 +476,14 @@ async fn run(a: cli::Args) {
                     let how = if starts.is_empty() {
                         "random start".to_string()
                     } else {
-                        let s: Vec<String> = starts.iter().map(|(x, y)| format!("{x},{y}")).collect();
+                        let s: Vec<String> =
+                            starts.iter().map(|(x, y)| format!("{x},{y}")).collect();
                         format!("starts {}", s.join(";"))
                     };
-                    toast(&mut st, format!("new world, seed {seed}, {}x{}, {how}", w.map.w, w.map.h));
+                    toast(
+                        &mut st,
+                        format!("new world, seed {seed}, {}x{}, {how}", w.map.w, w.map.h),
+                    );
                 }
             }
         }
@@ -409,16 +512,18 @@ async fn run(a: cli::Args) {
             }
         }
         if st.follow {
-            if let Some(b) = selected.and_then(|id| w.band_index(id)).map(|i| &w.bands[i]) {
+            if let Some(b) = selected
+                .and_then(|id| w.band_index(id))
+                .map(|i| &w.bands[i])
+            {
                 view.cx = b.x as f32 + 0.5;
                 view.cy = b.y as f32 + 0.5;
             }
         }
         // ---------- draw
-        if let (Some(p), Some(pk)) = (pv.as_ref(), st.picker.as_ref()) {
+        if let (Some(p), Some(_)) = (pv.as_ref(), st.picker.as_ref()) {
             mt.refresh(p, st.overlay, None, false);
             render::draw_world(p, &view, &mt, st.overlay, None, None, false);
-            draw_starts(p, &view, pk, m, st.wants_pointer);
         } else {
             mt.refresh(&w, st.overlay, st.item, st.fast);
             let bands = !st.fast || view.zoom >= 4.0 || w.bands.len() < 3000;
@@ -426,15 +531,35 @@ async fn run(a: cli::Args) {
         }
         if get_time() < st.toast_until {
             let tw = measure_text(&st.toast, None, 20, 1.0).width;
-            draw_rectangle(screen_width() / 2.0 - tw / 2.0 - 8.0, screen_height() - 40.0, tw + 16.0, 28.0, Color::new(0.0, 0.0, 0.0, 0.7));
-            draw_text(&st.toast, screen_width() / 2.0 - tw / 2.0, screen_height() - 20.0, 20.0, WHITE);
+            draw_rectangle(
+                screen_width() / 2.0 - tw / 2.0 - 8.0,
+                screen_height() - 40.0,
+                tw + 16.0,
+                28.0,
+                Color::new(0.0, 0.0, 0.0, 0.7),
+            );
+            draw_text(
+                &st.toast,
+                screen_width() / 2.0 - tw / 2.0,
+                screen_height() - 20.0,
+                20.0,
+                WHITE,
+            );
         }
         egui_macroquad::draw();
+        // start markers go on top of the windows, so the legend or the picker panel never hides one
+        if let (Some(p), Some(pk)) = (pv.as_ref(), st.picker.as_ref()) {
+            draw_starts(p, &view, pk, m, st.wants_pointer);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = &a.screenshot {
             if frame == 90 {
                 get_screen_data().export_png(path);
-                eprintln!("screenshot written to {path} (Y{}, {} bands)", w.tick / 4, w.bands.len());
+                eprintln!(
+                    "screenshot written to {path} (Y{}, {} bands)",
+                    w.tick / 4,
+                    w.bands.len()
+                );
                 std::process::exit(0);
             }
         }
@@ -475,11 +600,34 @@ fn draw_starts(w: &World, v: &View, pk: &ui::Picker, m: Vec2, over_ui: bool) {
     let (x, y) = (c.x as usize, c.y as usize);
     let i = y * w.map.w + x;
     let (txt, col) = match w.map.start_check(x, y) {
-        civ_core::StartCheck::Ok => (format!("({x},{y}) {} {:.0}C - good land", w.map.biome_at(i).name(), w.map.temp[i]), GREEN),
-        civ_core::StartCheck::Poor => (format!("({x},{y}) {} {:.0}C - poor land", w.map.biome_at(i).name(), w.map.temp[i]), ORANGE),
-        civ_core::StartCheck::Uninhabitable => (format!("({x},{y}) {} - uninhabitable", w.map.biome_at(i).name()), RED),
+        civ_core::StartCheck::Ok => (
+            format!(
+                "({x},{y}) {} {:.0}C - good land",
+                w.map.biome_at(i).name(),
+                w.map.temp[i]
+            ),
+            GREEN,
+        ),
+        civ_core::StartCheck::Poor => (
+            format!(
+                "({x},{y}) {} {:.0}C - poor land",
+                w.map.biome_at(i).name(),
+                w.map.temp[i]
+            ),
+            ORANGE,
+        ),
+        civ_core::StartCheck::Uninhabitable => (
+            format!("({x},{y}) {} - uninhabitable", w.map.biome_at(i).name()),
+            RED,
+        ),
     };
     let tw = measure_text(&txt, None, 18, 1.0).width;
-    draw_rectangle(m.x + 14.0, m.y + 8.0, tw + 10.0, 24.0, Color::new(0.0, 0.0, 0.0, 0.75));
+    draw_rectangle(
+        m.x + 14.0,
+        m.y + 8.0,
+        tw + 10.0,
+        24.0,
+        Color::new(0.0, 0.0, 0.0, 0.75),
+    );
     draw_text(&txt, m.x + 19.0, m.y + 25.0, 18.0, col);
 }

@@ -12,13 +12,31 @@ fn main() {
     let (mut w, _view, info) = World::load_bytes(&bytes).expect("load");
     w.refresh_all_toolkits();
     println!("== {path}");
-    println!("format v{} app {} created {} migrated_from {:?} warning {:?}", info.format_version, info.app_version, info.created_at, info.migrated_from, info.warning);
+    println!(
+        "format v{} app {} created {} migrated_from {:?} warning {:?}",
+        info.format_version, info.app_version, info.created_at, info.migrated_from, info.warning
+    );
     let yr = w.tick as f32 / 4.0;
-    println!("year {:.1} | map {}x{} seed {} founders {} | bands {} pop {}", yr, w.map.w, w.map.h, w.cfg.seed, w.cfg.founders, w.bands.len(), w.bands.iter().map(|b| b.pop).sum::<u32>());
+    println!(
+        "year {:.1} | map {}x{} seed {} founders {} | bands {} pop {}",
+        yr,
+        w.map.w,
+        w.map.h,
+        w.cfg.seed,
+        w.cfg.founders,
+        w.bands.len(),
+        w.bands.iter().map(|b| b.pop).sum::<u32>()
+    );
     println!("\n-- settings now: {:?}", w.params);
     println!("-- settings change log ({} entries):", w.settings_log.len());
     for c in &w.settings_log {
-        println!("   Y{:.1} {} {} -> {}", c.tick as f32 / 4.0, c.name, c.old, c.new);
+        println!(
+            "   Y{:.1} {} {} -> {}",
+            c.tick as f32 / 4.0,
+            c.name,
+            c.old,
+            c.new
+        );
     }
     println!("\n-- world firsts ({}):", w.firsts.len());
     for f in &w.firsts {
@@ -33,12 +51,19 @@ fn main() {
     }
     let known_items: BTreeSet<Item> = w.firsts.iter().map(|f| f.item).collect();
     println!("\n-- items any band can make/has now ({}):", have.len());
-    let mut v: Vec<_> = have.iter().filter(|(i, _)| form(**i) != Form::Raw).collect();
+    let mut v: Vec<_> = have
+        .iter()
+        .filter(|(i, _)| form(**i) != Form::Raw)
+        .collect();
     v.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
     for (i, n) in v {
         println!("   {:<32} {} bands", item_name(*i), n);
     }
-    let lost: Vec<String> = known_items.iter().filter(|i| !have.contains_key(i)).map(|&i| item_name(i)).collect();
+    let lost: Vec<String> = known_items
+        .iter()
+        .filter(|i| !have.contains_key(i))
+        .map(|&i| item_name(i))
+        .collect();
     println!("-- found once but held by no band now: {}", lost.join(", "));
 
     // history by century
@@ -110,7 +135,9 @@ fn main() {
         }
         if a.has(cu_ore) {
             s_ore += 1;
-            let charf = a.iter().any(|i| form(i) == Form::Fire && mat(i).props().fuel_t >= 900.0);
+            let charf = a
+                .iter()
+                .any(|i| form(i) == Form::Fire && mat(i).props().fuel_t >= 900.0);
             if charf {
                 s_ore_char += 1;
                 if a.iter().any(|i| form(i) == Form::Kiln) {
@@ -147,13 +174,31 @@ fn main() {
             }
         }
     }
-    for mm in [Mat::CopperOre, Mat::TinOre, Mat::Copper, Mat::Tin, Mat::Obsidian, Mat::Charcoal] {
-        println!("   stock held now {:<10?} {:>8.1} units, farthest from source {} cells", mm, held[mm as usize], far[mm as usize]);
+    for mm in [
+        Mat::CopperOre,
+        Mat::TinOre,
+        Mat::Copper,
+        Mat::Tin,
+        Mat::Obsidian,
+        Mat::Charcoal,
+    ] {
+        println!(
+            "   stock held now {:<10?} {:>8.1} units, farthest from source {} cells",
+            mm, held[mm as usize], far[mm as usize]
+        );
     }
     let t = civ_core::analysis::summarize(&w);
-    let ft: Vec<String> = t.trade.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
+    let ft: Vec<String> = t
+        .trade
+        .first_traded
+        .iter()
+        .map(|(y, m)| format!("{m} Y{y:.0}"))
+        .collect();
     println!("   first traded: {}", ft.join(", "));
-    println!("   max carried metal/obsidian distance ever {:.0}", t.trade.goods_dist_max_ever);
+    println!(
+        "   max carried metal/obsidian distance ever {:.0}",
+        t.trade.goods_dist_max_ever
+    );
 
     // reachability: everything physics allows from all raw materials in the world, under all fires/kilns
     reach(&w.reg, &known_items);
@@ -169,11 +214,24 @@ fn reach(reg: &Registry, known: &BTreeSet<Item>) {
         let mut new = Vec::new();
         let mut consider = |a: Action, inp: [Item; 4], new: &mut Vec<Item>| {
             let inp = canonical(a, inp);
-            for ctx in [Ctx { dryness: 0.6, water: true }, Ctx { dryness: 0.6, water: false }] {
+            for ctx in [
+                Ctx {
+                    dryness: 0.6,
+                    water: true,
+                },
+                Ctx {
+                    dryness: 0.6,
+                    water: false,
+                },
+            ] {
                 if let Some(o) = apply(a, &inp, &ctx) {
                     let e = best.entry(o.out).or_insert((0.0, String::new(), round));
                     if o.p > e.0 {
-                        let names: Vec<String> = inp.iter().filter(|&&i| i != NONE).map(|&i| item_name(i)).collect();
+                        let names: Vec<String> = inp
+                            .iter()
+                            .filter(|&&i| i != NONE)
+                            .map(|&i| item_name(i))
+                            .collect();
                         *e = (o.p, format!("{} {}", a.name(), names.join(" + ")), e.2);
                     }
                     if !set.contains(&o.out) {
@@ -182,9 +240,21 @@ fn reach(reg: &Registry, known: &BTreeSet<Item>) {
                 }
             }
         };
-        let fires: Vec<Item> = v.iter().copied().filter(|&i| form(i) == Form::Fire).collect();
-        let kilns: Vec<Item> = v.iter().copied().filter(|&i| form(i) == Form::Kiln).collect();
-        let pool: Vec<Item> = v.iter().copied().filter(|&i| !matches!(form(i), Form::Fire | Form::Kiln | Form::Cooked)).collect();
+        let fires: Vec<Item> = v
+            .iter()
+            .copied()
+            .filter(|&i| form(i) == Form::Fire)
+            .collect();
+        let kilns: Vec<Item> = v
+            .iter()
+            .copied()
+            .filter(|&i| form(i) == Form::Kiln)
+            .collect();
+        let pool: Vec<Item> = v
+            .iter()
+            .copied()
+            .filter(|&i| !matches!(form(i), Form::Fire | Form::Kiln | Form::Cooked))
+            .collect();
         let mut cpool = pool.clone();
         cpool.extend(fires.iter().copied());
         for &t in &pool {
@@ -222,7 +292,11 @@ fn reach(reg: &Registry, known: &BTreeSet<Item>) {
     let _ = reg;
     println!("\n-- reachable by physics from the world's raw materials: {} items (non-raw); never found in this world:", best.len());
     for (it, (p, how, _)) in &best {
-        if !known.contains(it) && form(*it) != Form::Raw || (form(*it) == Form::Raw && !known.contains(it) && !matches!(mat(*it), m if (m as usize) < NRAW)) {
+        if !known.contains(it) && form(*it) != Form::Raw
+            || (form(*it) == Form::Raw
+                && !known.contains(it)
+                && !matches!(mat(*it), m if (m as usize) < NRAW))
+        {
             println!("   {:<32} p {:.2}  via {}", item_name(*it), p, how);
         }
     }

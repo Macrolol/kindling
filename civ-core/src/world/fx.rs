@@ -21,21 +21,74 @@ pub(crate) enum Layer {
 pub(crate) enum Op {
     Event(EventKind, u32, u32, u32, Item, u32),
     /// a world-first, unless an earlier band beat it: then `els` (if any) is logged instead
-    First { item: Item, band: u32, cell: u32, recipe: u32, kind: EventKind, els: Option<EventKind> },
+    First {
+        item: Item,
+        band: u32,
+        cell: u32,
+        recipe: u32,
+        kind: EventKind,
+        els: Option<EventKind>,
+    },
     /// a recipe found by experiment (inserted into the registry and learned at apply time)
-    Invent { action: Action, inputs: Inputs, out: Item, p: f32, cell: u32 },
+    Invent {
+        action: Action,
+        inputs: Inputs,
+        out: Item,
+        p: f32,
+        cell: u32,
+    },
     RecipeTransfer(u32),
-    FarmOrigin { band: u32, cell: u32 },
-    Flag { flag: u32, kind: EventKind, band: u32, cell: u32 },
-    Epidemic { band: u32, from: u32, cell: u32 },
-    Fight { win: u32, lose: u32, cell: u32, item: Item, deaths: u32 },
-    FledBySea { band: u32, by: u32, cell: u32, boat: Item, from: u32 },
-    TradedFirst { mi: usize, from: u32, to: u32, cell: u32 },
+    FarmOrigin {
+        band: u32,
+        cell: u32,
+    },
+    Flag {
+        flag: u32,
+        kind: EventKind,
+        band: u32,
+        cell: u32,
+    },
+    Epidemic {
+        band: u32,
+        from: u32,
+        cell: u32,
+    },
+    Fight {
+        win: u32,
+        lose: u32,
+        cell: u32,
+        item: Item,
+        deaths: u32,
+    },
+    FledBySea {
+        band: u32,
+        by: u32,
+        cell: u32,
+        boat: Item,
+        from: u32,
+    },
+    TradedFirst {
+        mi: usize,
+        from: u32,
+        to: u32,
+        cell: u32,
+    },
     Cell(Layer, u32, f32),
     /// `v += k * (to - v)` (only while `v < to` if `below`), clamped to 0..1: a band's step on a
     /// farm layer, applied to the live value so shared cells compound as in v5
-    Toward { l: Layer, c: u32, k: f32, to: f32, below: bool },
-    TradeLine { from: u32, to: u32, d: i32, q: f32 },
+    Toward {
+        l: Layer,
+        c: u32,
+        k: f32,
+        to: f32,
+        below: bool,
+    },
+    TradeLine {
+        from: u32,
+        to: u32,
+        d: i32,
+        q: f32,
+    },
     Conflict(u32, f32),
     Drift(Box<Band>, u32, u32),
 }
@@ -52,12 +105,36 @@ pub(crate) struct Fx {
 
 impl Fx {
     #[inline]
-    pub fn push_event(&mut self, kind: EventKind, band: u32, other: u32, cell: u32, it: Item, recipe: u32) {
-        self.ops.push(Op::Event(kind, band, other, cell, it, recipe));
+    pub fn push_event(
+        &mut self,
+        kind: EventKind,
+        band: u32,
+        other: u32,
+        cell: u32,
+        it: Item,
+        recipe: u32,
+    ) {
+        self.ops
+            .push(Op::Event(kind, band, other, cell, it, recipe));
     }
     #[inline]
-    pub fn first(&mut self, item: Item, band: u32, cell: u32, recipe: u32, kind: EventKind, els: Option<EventKind>) {
-        self.ops.push(Op::First { item, band, cell, recipe, kind, els });
+    pub fn first(
+        &mut self,
+        item: Item,
+        band: u32,
+        cell: u32,
+        recipe: u32,
+        kind: EventKind,
+        els: Option<EventKind>,
+    ) {
+        self.ops.push(Op::First {
+            item,
+            band,
+            cell,
+            recipe,
+            kind,
+            els,
+        });
     }
     #[inline]
     pub fn cell(&mut self, l: Layer, c: usize, d: f32) {
@@ -68,7 +145,13 @@ impl Fx {
     #[inline]
     pub fn toward(&mut self, l: Layer, c: usize, k: f32, to: f32, below: bool) {
         if k != 0.0 {
-            self.ops.push(Op::Toward { l, c: c as u32, k, to, below });
+            self.ops.push(Op::Toward {
+                l,
+                c: c as u32,
+                k,
+                to,
+                below,
+            });
         }
     }
     #[inline]
@@ -111,16 +194,37 @@ impl World {
         for op in fx.ops {
             match op {
                 Op::Event(k, b, o, c, it, r) => self.push_event(k, b, o, c, it, r),
-                Op::First { item, band: b, cell, recipe, kind, els } => {
+                Op::First {
+                    item,
+                    band: b,
+                    cell,
+                    recipe,
+                    kind,
+                    els,
+                } => {
                     if !self.firsts.iter().any(|f| f.item == item) {
-                        self.firsts.push(First { item, tick: self.tick, band: b, cell, recipe });
+                        self.firsts.push(First {
+                            item,
+                            tick: self.tick,
+                            band: b,
+                            cell,
+                            recipe,
+                        });
                         self.push_event(kind, b, 0, cell, item, recipe);
                     } else if let Some(e) = els {
                         self.push_event(e, b, 0, cell, item, recipe);
                     }
                 }
-                Op::Invent { action, inputs, out, p, cell } => {
-                    let Some(b) = band.as_deref_mut() else { continue };
+                Op::Invent {
+                    action,
+                    inputs,
+                    out,
+                    p,
+                    cell,
+                } => {
+                    let Some(b) = band.as_deref_mut() else {
+                        continue;
+                    };
                     let rid = match self.reg.find(action, &inputs) {
                         Some(r) => r,
                         None => self.reg.insert(Recipe {
@@ -140,13 +244,26 @@ impl World {
                     }
                     self.reg.recipes[rid as usize].inventions += 1;
                     Self::reinforce_craft(b, &self.reg.recipes[rid as usize], 1.35);
-                    b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, kin: true, used: true });
+                    b.known.push(Known {
+                        recipe: rid,
+                        skill: 0.35,
+                        since: self.tick,
+                        from: FROM_SELF,
+                        kin: true,
+                        used: true,
+                    });
                     b.d.known_ver += 1;
                     b.inventions += 1;
                     self.counters.inventions += 1;
                     self.year_acc.inventions += 1;
                     if !self.firsts.iter().any(|f| f.item == out) {
-                        self.firsts.push(First { item: out, tick: self.tick, band: b.id, cell, recipe: rid });
+                        self.firsts.push(First {
+                            item: out,
+                            tick: self.tick,
+                            band: b.id,
+                            cell,
+                            recipe: rid,
+                        });
                         self.push_event(EventKind::FirstInvention, b.id, 0, cell, out, rid);
                     } else {
                         self.push_event(EventKind::Invention, b.id, 0, cell, out, rid);
@@ -162,23 +279,46 @@ impl World {
                     let first = self.farm_starts.is_empty();
                     self.farm_starts.push((self.tick, cell, b));
                     self.counters.farm_origins += 1;
-                    let k = if first { EventKind::FirstCultivation } else { EventKind::FarmingOrigin };
+                    let k = if first {
+                        EventKind::FirstCultivation
+                    } else {
+                        EventKind::FarmingOrigin
+                    };
                     self.push_event(k, b, 0, cell, NONE, self.farm_starts.len() as u32);
                 }
-                Op::Flag { flag, kind, band: b, cell } => {
+                Op::Flag {
+                    flag,
+                    kind,
+                    band: b,
+                    cell,
+                } => {
                     if self.farm_flags & flag == 0 {
                         self.farm_flags |= flag;
                         self.push_event(kind, b, 0, cell, NONE, u32::MAX);
                     }
                 }
-                Op::Epidemic { band: b, from, cell } => {
+                Op::Epidemic {
+                    band: b,
+                    from,
+                    cell,
+                } => {
                     let first = self.counters.epidemics == 0;
                     self.counters.epidemics += 1;
                     self.year_acc.epidemics += 1;
-                    let k = if first { EventKind::FirstEpidemic } else { EventKind::Epidemic };
+                    let k = if first {
+                        EventKind::FirstEpidemic
+                    } else {
+                        EventKind::Epidemic
+                    };
                     self.push_event(k, b, from, cell, NONE, u32::MAX);
                 }
-                Op::Fight { win, lose, cell, item: it, deaths } => {
+                Op::Fight {
+                    win,
+                    lose,
+                    cell,
+                    item: it,
+                    deaths,
+                } => {
                     self.counters.fights += 1;
                     self.year_acc.fights += 1;
                     if self.counters.fights == 1 {
@@ -188,9 +328,16 @@ impl World {
                     } else {
                         self.push_event(EventKind::Fight, win, lose, cell, it, deaths);
                     }
-                    self.counters.max_fight_deaths = self.counters.max_fight_deaths.max(deaths as u64);
+                    self.counters.max_fight_deaths =
+                        self.counters.max_fight_deaths.max(deaths as u64);
                 }
-                Op::FledBySea { band: b, by, cell, boat, from } => {
+                Op::FledBySea {
+                    band: b,
+                    by,
+                    cell,
+                    boat,
+                    from,
+                } => {
                     self.counters.fled_by_sea += 1;
                     if self.counters.fled_by_sea == 1 {
                         self.push_event(EventKind::FirstSeaRefuge, b, by, cell, boat, from);
@@ -201,7 +348,14 @@ impl World {
                 Op::TradedFirst { mi, from, to, cell } => {
                     if self.traded_first & (1 << mi) == 0 {
                         self.traded_first |= 1 << mi;
-                        self.push_event(EventKind::FirstTraded, from, to, cell, raw(ALL_MATS[mi]), u32::MAX);
+                        self.push_event(
+                            EventKind::FirstTraded,
+                            from,
+                            to,
+                            cell,
+                            raw(ALL_MATS[mi]),
+                            u32::MAX,
+                        );
                     }
                 }
                 Op::Toward { l, c, k, to, below } => {
@@ -242,7 +396,10 @@ impl World {
                         let steps = d.max(1);
                         for k in 0..=steps {
                             let t = k as f32 / steps as f32;
-                            let (x, y) = ((x0 + (x1 - x0) * t).round() as usize, (y0 + (y1 - y0) * t).round() as usize);
+                            let (x, y) = (
+                                (x0 + (x1 - x0) * t).round() as usize,
+                                (y0 + (y1 - y0) * t).round() as usize,
+                            );
                             self.trade_flow[y * w + x] += q;
                         }
                     }
@@ -266,7 +423,10 @@ impl World {
 
 /// Runs `f` over every element, in parallel when the `parallel` feature is on. Results come back
 /// in input order either way.
-pub(crate) fn par_map<T: Send, R: Send>(v: &mut [T], f: impl Fn(&mut T) -> R + Sync + Send) -> Vec<R> {
+pub(crate) fn par_map<T: Send, R: Send>(
+    v: &mut [T],
+    f: impl Fn(&mut T) -> R + Sync + Send,
+) -> Vec<R> {
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
@@ -283,7 +443,8 @@ pub(crate) fn par_scale(v: &mut [f32], k: f32) {
     {
         use rayon::prelude::*;
         if v.len() >= 65536 {
-            v.par_chunks_mut(16384).for_each(|c| c.iter_mut().for_each(|x| *x *= k));
+            v.par_chunks_mut(16384)
+                .for_each(|c| c.iter_mut().for_each(|x| *x *= k));
             return;
         }
     }

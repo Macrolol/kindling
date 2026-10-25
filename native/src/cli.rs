@@ -84,7 +84,9 @@ pub fn parse_args() -> Args {
             "--report" => a.report = next.parse().unwrap_or(0),
             "--map" => {
                 let mut it = next.split('x');
-                if let (Some(Ok(w)), Some(Ok(h))) = (it.next().map(|x| x.parse()), it.next().map(|x| x.parse())) {
+                if let (Some(Ok(w)), Some(Ok(h))) =
+                    (it.next().map(|x| x.parse()), it.next().map(|x| x.parse()))
+                {
                     a.map = Some((w, h));
                 }
             }
@@ -118,7 +120,10 @@ pub fn parse_args() -> Args {
 }
 
 pub fn make_config(a: &Args, seed: u64) -> Config {
-    let mut c = Config { seed, ..Default::default() };
+    let mut c = Config {
+        seed,
+        ..Default::default()
+    };
     if let Some((w, h)) = a.map {
         c.map_w = w.clamp(32, 2048);
         c.map_h = h.clamp(24, 2048);
@@ -144,7 +149,11 @@ pub fn check_starts(w: &civ_core::World, starts: &[(u16, u16)]) -> Vec<String> {
             }
         }
     }
-    if !starts.is_empty() && starts.iter().all(|&(x, y)| w.map.start_check(x as usize, y as usize) == civ_core::StartCheck::Uninhabitable) {
+    if !starts.is_empty()
+        && starts.iter().all(|&(x, y)| {
+            w.map.start_check(x as usize, y as usize) == civ_core::StartCheck::Uninhabitable
+        })
+    {
         out.push("no usable start: founders placed at random".into());
     }
     out
@@ -163,7 +172,10 @@ pub fn make_pool(n: usize) -> Option<rayon::ThreadPool> {
 pub fn make_params(a: &Args) -> Params {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(p) = &a.config {
-        match std::fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|s| Params::from_json_compat(&s)) {
+        match std::fs::read_to_string(p)
+            .map_err(|e| e.to_string())
+            .and_then(|s| Params::from_json_compat(&s))
+        {
             Ok(x) => return x,
             Err(e) => eprintln!("config {p}: {e} (using defaults)"),
         }

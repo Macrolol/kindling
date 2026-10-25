@@ -70,7 +70,11 @@ pub struct Band {
     pub forgotten: u32,
     // ---- derived each season; the parts the next season reads before recomputing them are
     // saved as `carry` (v5, additive: absent in older saves and beta saves, which start fresh)
-    #[serde(rename = "carry", serialize_with = "ser_carry", deserialize_with = "de_carry")]
+    #[serde(
+        rename = "carry",
+        serialize_with = "ser_carry",
+        deserialize_with = "de_carry"
+    )]
     pub d: Derived,
 }
 
@@ -167,9 +171,24 @@ impl Default for Kit {
 impl Kit {
     pub fn used_items(&self) -> [Item; 18] {
         [
-            self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
-            self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
-            self.boat, self.net, self.trap, self.cooked_grain,
+            self.hunt,
+            self.cut,
+            self.dig,
+            self.vessel,
+            self.axe,
+            self.garment,
+            self.fire,
+            self.kiln,
+            self.cord,
+            self.hammer,
+            self.point,
+            self.cooked[0],
+            self.cooked[1],
+            self.cooked[2],
+            self.boat,
+            self.net,
+            self.trap,
+            self.cooked_grain,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -315,7 +334,12 @@ impl Band {
             }
             self.partners.swap_remove(wi);
         }
-        self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded });
+        self.partners.push(Partner {
+            id,
+            strength: by.min(1.0),
+            since: tick,
+            traded,
+        });
     }
     /// Grudge this band holds against `o`: in full against that band, a little against its people.
     pub fn grudge_vs(&self, o: &Band) -> f32 {
@@ -335,13 +359,23 @@ impl Band {
             return;
         }
         if self.grudges.len() >= MAX_GRUDGES {
-            let (wi, ww) = self.grudges.iter().enumerate().min_by(|a, b| a.1.w.total_cmp(&b.1.w)).map(|(i, x)| (i, x.w)).unwrap();
+            let (wi, ww) = self
+                .grudges
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.w.total_cmp(&b.1.w))
+                .map(|(i, x)| (i, x.w))
+                .unwrap();
             if ww >= by {
                 return;
             }
             self.grudges.swap_remove(wi);
         }
-        self.grudges.push(Grudge { id: o.id, lineage: o.lineage, w: by.min(2.0) });
+        self.grudges.push(Grudge {
+            id: o.id,
+            lineage: o.lineage,
+            w: by.min(2.0),
+        });
     }
     /// Close kin: parent and daughter, or sisters split from the same band.
     pub fn close_kin(&self, o: &Band) -> bool {
@@ -371,7 +405,11 @@ pub fn weapon_q(k: &Kit) -> f32 {
             _ => 0.2 * cut_q(m),
         }
     };
-    let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe)) };
+    let axe = if k.axe == NONE {
+        0.0
+    } else {
+        0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe))
+    };
     hunt + 0.3 * axe
 }
 
@@ -400,7 +438,11 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             }
             Form::Shaft => upd(2, 1.0, &mut k.dig),
             Form::Vessel => upd(3, vessel_q(m), &mut k.vessel),
-            Form::Axe => upd(4, score(0.5 * cut_q(m) + 0.5 * durability(m), m), &mut k.axe),
+            Form::Axe => upd(
+                4,
+                score(0.5 * cut_q(m) + 0.5 * durability(m), m),
+                &mut k.axe,
+            ),
             Form::Garment => upd(5, garment_q(m), &mut k.garment),
             Form::Fire => upd(6, m.props().fuel_t, &mut k.fire),
             Form::Kiln => upd(7, m.props().refractory, &mut k.kiln),
@@ -439,7 +481,11 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     let point = if k.point == NONE { 0.0 } else { 1.0 };
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
-    let ceramic = if k.vessel != NONE && mat(k.vessel) == Mat::Ceramic { 1.0 } else { 0.0 };
+    let ceramic = if k.vessel != NONE && mat(k.vessel) == Mat::Ceramic {
+        1.0
+    } else {
+        0.0
+    };
     let netq = q(k.net, &mesh_q);
     let trapq = q(k.trap, &mesh_q);
     k.boat_q = q(k.boat, &boat_q);
@@ -451,8 +497,18 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     // cooking makes more of each food digestible (boiling in pots helps plants most)
     let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
     // grain: boiled into porridge (pots help) or ground on a quern stone and baked
-    let grain = if k.cooked_grain != NONE { 1.3 + 0.15 * ceramic + 0.1 * hammer } else { 1.0 + 0.1 * hammer };
-    k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2), grain];
+    let grain = if k.cooked_grain != NONE {
+        1.3 + 0.15 * ceramic + 0.1 * hammer
+    } else {
+        1.0 + 0.1 * hammer
+    };
+    k.digest = [
+        ck(0, 1.25 + 0.15 * ceramic),
+        ck(1, 1.2),
+        ck(2, 1.15),
+        ck(1, 1.2),
+        grain,
+    ];
     // field work: digging stick to plant, a sharp edge as a sickle, an axe to clear ground
     k.farm_m = 0.5 + 0.3 * dig + 0.35 * cut + 0.2 * axe;
     k.smoke = fire > 0.0 && (k.cooked[1] != NONE || k.cooked[2] != NONE);
