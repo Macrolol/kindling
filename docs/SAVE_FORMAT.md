@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 8` (Kindling 0.8 development). v0.7.0 writes format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 9` (Kindling 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -102,5 +102,16 @@ Current: `FORMAT_VERSION = 8` (Kindling 0.8 development). v0.7.0 writes format 7
     makes the same insertion on load. JSON saves run the migration. `migrated_from` reports 7.
   - Fixture `v7_0_seed4_y150_96x60.civsave` (written by the v0.7.0 release binary) is loaded by
     `v7_0_fixture_gains_new_materials_in_place`, which checks both routes agree leaning by leaning.
+- **v9** (Kindling 0.9 development, human motivations). Migration `v8_to_v9`:
+  - `bands[].far_shore_year` is new: the year a band's far shore was last seen or confirmed
+    (rumours now fade after `RUMOUR_YEARS`, 50). A rumour already held is treated as old news,
+    heard 40 years before the save, so it fades within about a decade unless confirmed.
+  - Additive v9 fields: `world.landfalls` (per landmass: when, which band, by sea or on foot, from
+    which landmass, the sea gap from settled land; empty for older saves, whose landfalls the
+    analysis reports as reached "[?]"), `YearStats.eff_lineages`.
+  - Binary format-5..8 saves are decoded directly and dated in place (`age_old_rumours`); JSON
+    saves run the migration. `migrated_from` reports 8.
+  - Fixture `v8_0_seed4_y150_96x60.civsave` (written by the v0.8.0 code) is loaded by
+    `v8_0_fixture_loads_and_runs`, which checks both routes agree.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

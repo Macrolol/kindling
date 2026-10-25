@@ -555,7 +555,7 @@ fn v8_0_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v8_0_seed4_y150_96x60.civsave");
     let (mut w, _, info) = World::load_bytes(bytes).expect("v8.0 save loads");
     assert_eq!(info.format_version, 8);
-    assert!(info.migrated_from.is_none() || info.migrated_from == Some(8));
+    assert_eq!(info.migrated_from, Some(8));
     assert_eq!(w.year(), 150.0);
     let mut raw = Vec::new();
     flate2::read::DeflateDecoder::new(&bytes[8..]).read_to_end(&mut raw).unwrap();
@@ -569,8 +569,22 @@ fn v8_0_fixture_loads_and_runs() {
     for (a, b) in wj.bands.iter().zip(&w.bands) {
         assert_eq!((a.id, a.pop, a.x, a.y, a.lineage), (b.id, b.pop, b.x, b.y, b.lineage));
         assert_eq!(a.far_shore, b.far_shore);
+        assert_eq!(a.far_shore_year, b.far_shore_year);
         assert_eq!(a.known.len(), b.known.len());
+        // (v9) rumours already held are old news: heard 40 years before the save
+        if b.far_shore.is_some() {
+            assert_eq!(b.far_shore_year, 110);
+        }
     }
+    // the fixture predates boats, so give a few of its bands a rumour and run the migration
+    let mut env2 = env.clone();
+    for b in env2["payload"]["world"]["bands"].as_array_mut().unwrap().iter_mut().take(5) {
+        b["far_shore"] = serde_json::json!(17);
+    }
+    let (wm, _, im) = World::load_bytes(serde_json::to_string(&env2).unwrap().as_bytes()).expect("loads");
+    assert_eq!(im.migrated_from, Some(8));
+    assert!(wm.bands.iter().take(5).all(|b| b.far_shore == Some(17) && b.far_shore_year == 110));
+    assert!(wm.bands.iter().skip(5).all(|b| b.far_shore.is_some() || b.far_shore_year == 0));
     let s = crate::analysis::summarize(&w);
     assert!(s.continents.iter().all(|c| c.by_sea.is_none()));
     let pop = w.total_pop();

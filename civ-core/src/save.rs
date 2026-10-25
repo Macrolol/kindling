@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 8;
+pub const FORMAT_VERSION: u32 = 9;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -206,6 +206,34 @@ fn v7_to_v8(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     }
     Ok(v)
 }
+/// v8 -> v9 (rumours age). Frozen: do not edit.
+/// - `bands[].far_shore_year` is new. A rumour already held is treated as old news, heard 40
+///   years before the save (`RUMOUR_YEARS` was 50 when this was written), so it fades within
+///   about a decade unless someone sees that land again.
+/// Everything else new in v9 (landfall records, lineage stats) is additive.
+fn v8_to_v9(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    let year = world.get("tick").and_then(|t| t.as_u64()).unwrap_or(0) / 4;
+    let heard = year.saturating_sub(40).min(u16::MAX as u64);
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            if b.get("far_shore").is_some_and(|f| !f.is_null()) {
+                b.insert("far_shore_year".into(), serde_json::json!(heard));
+            }
+        }
+    }
+    Ok(v)
+}
+/// The same as `v8_to_v9`, for saves decoded straight into the current schema.
+fn age_old_rumours(w: &mut World) {
+    let heard = (w.tick / 4).saturating_sub(40).min(u16::MAX as u32) as u16;
+    for b in &mut w.bands {
+        if b.far_shore.is_some() {
+            b.far_shore_year = heard;
+        }
+    }
+}
 /// The same re-pointing as `v6_to_v7`, for saves decoded straight into the current schema.
 fn iron_to_bloom(w: &mut World) {
     use crate::materials::{item, Form, Mat};
@@ -365,8 +393,9 @@ impl World {
         // form; decoding v5 binaries directly keeps big-map saves out of a JSON value tree
         // v6 -> v7 only re-points a few recipes, done in place below for binaries, too
         // v7 -> v8 only lengthens per-material vectors, which `Band::fit_vectors` does on load
-        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6 | 7) && matches!(enc, Enc::Mp(_)));
-        if matches!(h.format_version, 5 | 6 | 7) {
+        // v8 -> v9 only dates the rumours already held, done in place below
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6 | 7 | 8) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5 | 6 | 7 | 8) {
             info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {
@@ -385,6 +414,9 @@ impl World {
         let mut w = state.world;
         if direct && h.format_version < 7 {
             iron_to_bloom(&mut w);
+        }
+        if direct && h.format_version < 9 {
+            age_old_rumours(&mut w);
         }
         w.after_load();
         Ok((w, state.view, info))

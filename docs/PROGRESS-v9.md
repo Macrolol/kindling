@@ -31,3 +31,20 @@ identical to v0.8.0 on all 10 seeds (pop 891377, war 0.356 %/yr, disease 0.111 %
 tau 0.14). Honest reading of v0.8.0: boat-borne continent crossings in 4/10 worlds (s1 Y172 gap 5,
 s2 Y195 gap 10, s7 Y302 gap 14, s8 Y188 gap 1); s1's Y143 "crossing" was on foot. Effective
 lineages 5.39, largest lineage 25.8 %.
+
+## Step 2 (P1): rumours fade, look-outs keep looking, curiosity weights them
+
+- `Band::far_shore_year` dates a rumour. It fades after `RUMOUR_YEARS` (50) unless seen again
+  (`sight_shore`): a sighting of the same landmass refreshes it; a different shore replaces it
+  unless the held one is nearer and still fresh (under 25 years old).
+- Coastal bands keep watching after they have seen a shore, with chance `0.25 x curiosity`
+  (capped at 0.9), and scouting no longer stops once a rumour is held.
+- A rumour is passed to a neighbour (chance 0.3, keeping its date) only if the neighbour has none
+  and the shore lies within twice the neighbour's boat range. A band without a boat accepts
+  rumours only of very near shores, so landlubbers rarely relay them.
+- Save format 9: migration `v8_to_v9` dates held rumours 40 years before the save; binary
+  format-5..8 saves get the same in place (`age_old_rumours`). The v8 fixture test checks both.
+- Local seed 1 x 500y: pop 148301, #2 by sea Y157 (gap 3), #3 by sea Y198 (gap 5), war 0.351
+  %/yr, disease 0.136 %/yr, effective lineages 5.58 (largest 25 %), items 67.
+
+CI: _pending_

@@ -26,6 +26,14 @@ pub mod terrain;
 pub use farming::{crop_potential, graze_potential};
 
 pub const EVENT_CAP: usize = 40_000;
+/// (v9) Years a rumour of a far shore lasts without anyone seeing that land again.
+pub const RUMOUR_YEARS: u32 = 50;
+
+/// Straight-line distance between two cells, in cells.
+pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
+    let (dx, dy) = ((a % w) as f32 - (b % w) as f32, (a / w) as f32 - (b / w) as f32);
+    (dx * dx + dy * dy).sqrt()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -1836,6 +1844,33 @@ impl World {
         lost
     }
 
+    /// The current year, as stored with a rumour of a far shore.
+    fn year_u16(&self) -> u16 {
+        (self.tick / 4).min(u16::MAX as u32) as u16
+    }
+
+    /// Years since band `b`'s far shore was last seen or confirmed.
+    fn rumour_age(&self, b: &Band) -> u32 {
+        (self.year_u16().saturating_sub(b.far_shore_year)) as u32
+    }
+
+    /// (v9) Band `b` sees, or hears first-hand of, land at cell `c` on another landmass. A
+    /// sighting of the landmass already in mind confirms it (fresh again); a different shore
+    /// replaces it unless the one held is nearer and still fresh.
+    fn sight_shore(&self, b: &mut Band, c: usize) {
+        let m = &self.map;
+        if let Some(f) = b.far_shore {
+            let f = f as usize;
+            let here = b.cell(m.w);
+            let same = m.landmass_of(f) == m.landmass_of(c);
+            if !same && dist_cells(here, f, m.w) < dist_cells(here, c, m.w) && self.rumour_age(b) < RUMOUR_YEARS / 2 {
+                return;
+            }
+        }
+        b.far_shore = Some(c as u32);
+        b.far_shore_year = self.year_u16();
+    }
+
     /// The sea in a coastal band's year: looking out from the shore (or from the fishing grounds)
     /// people may make out land on the horizon; and fishing parties are sometimes blown out to sea
     /// - most drown or wash back, some come ashore somewhere new, a few find their way home with
@@ -1844,6 +1879,10 @@ impl World {
         let m = &self.map;
         let ci = b.cell(m.w);
         b.seacraft *= 0.998; // what is not practised is lost, generation by generation
+        // (v9) news nobody has confirmed for a lifetime or two is forgotten
+        if b.far_shore.is_some() && self.rumour_age(b) > RUMOUR_YEARS {
+            b.far_shore = None;
+        }
         if !self.coastal(ci) {
             return;
         }
@@ -1856,8 +1895,9 @@ impl World {
         }
         let xp = b.seacraft;
         let own_lm = m.landmass_of(ci);
-        // a look out to sea, about once a year
-        if b.far_shore.is_none() && rng.chance(0.25) {
+        // a look out to sea, about once a year, more often for the curious; (v9) people keep
+        // looking even when they already know of land out there
+        if rng.chance((0.25 * b.curiosity).min(0.9)) {
             let mut sight = 3.0 + (m.height.get(ci).copied().unwrap_or(0.0) / 500.0).clamp(0.0, 3.0);
             if q > 0.0 && fish_share > 0.1 {
                 sight += 1.0 + 3.0 * q + 3.0 * xp * q; // seen from out on the fishing grounds
@@ -1877,7 +1917,7 @@ impl World {
                     let c = py as usize * m.w + px as usize;
                     if m.is_land(c) {
                         if sea >= 1.4 && m.landmass_of(c) != own_lm {
-                            b.far_shore = Some(c as u32);
+                            self.sight_shore(b, c);
                             fx.counters.sightings += 1;
                             break 'rays;
                         }
@@ -1896,7 +1936,7 @@ impl World {
         }
         // scouting: seasoned seafarers with good boats sometimes send a party out to look for
         // land beyond the horizon; most find nothing, some do not come back
-        if b.far_shore.is_none() && q > 0.5 && xp > 0.3 && b.pop >= 20 && rng.chance(0.01 * xp) {
+        if q > 0.5 && xp > 0.3 && b.pop >= 20 && rng.chance(0.01 * xp) {
             fx.counters.scouting += 1;
             let found = self.voyage(b, rng, None);
             let sea = found.map(|f| f.1).unwrap_or(Self::boat_range(&b.d.kit, xp));
@@ -1909,7 +1949,7 @@ impl World {
                 fx.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
             } else if let Some((c, sea)) = found {
                 if sea >= 1.4 && self.map.landmass_of(c) != own_lm {
-                    b.far_shore = Some(c as u32);
+                    self.sight_shore(b, c);
                     fx.counters.scout_finds += 1;
                 }
             }
@@ -1965,7 +2005,7 @@ impl World {
             // they make it home and tell of what they saw
             fx.counters.drift_returns += 1;
             if far_lm {
-                b.far_shore = Some(c as u32);
+                self.sight_shore(b, c);
             }
             return;
         }
@@ -2498,9 +2538,14 @@ impl World {
         if bands[src].ride > bands[dst].ride + 0.1 && bands[dst].herd > 0.1 && bands[dst].tame > 0.6 && self.open_land(bands[dst].cell(self.map.w)) && rng.chance(0.2) {
             bands[dst].ride += 0.5 * (bands[src].ride - bands[dst].ride);
         }
-        // so can word of a land across the water
-        if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
-            bands[dst].far_shore = bands[src].far_shore;
+        // so can word of a land across the water - (v9) told with its age, and taken to heart
+        // only by people who could hope to get there (within twice their boats' range)
+        if let (None, Some(f)) = (bands[dst].far_shore, bands[src].far_shore) {
+            let reach = 2.0 * Self::boat_range(&bands[dst].d.kit, bands[dst].seacraft);
+            if dist_cells(bands[dst].cell(self.map.w), f as usize, self.map.w) <= reach && rng.chance(0.3) {
+                bands[dst].far_shore = Some(f);
+                bands[dst].far_shore_year = bands[src].far_shore_year;
+            }
         }
         // a 1024-bit filter of the recipes dst knows: a clear bit means "not known" without the
         // linear `knows` scan (which was ~5% of a run); a set bit falls back to the exact scan
@@ -2633,6 +2678,7 @@ impl World {
                 // habits of hand carry over, each daughter a little different
                 craft: b.craft.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 far_shore: b.far_shore,
+                far_shore_year: b.far_shore_year,
                 // old wrongs are remembered, less sharply, by the daughters
                 grudges: b.grudges.iter().map(|g| Grudge { w: 0.6 * g.w, ..*g }).filter(|g| g.w >= 0.05).collect(),
                 born: self.tick,

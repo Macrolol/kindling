@@ -56,6 +56,9 @@ pub struct Band {
     pub craft: Vec<f32>,
     /// a far shore this band has seen, heard of, or reached (cell); None = none known (v3)
     pub far_shore: Option<u32>,
+    /// (v9) the year that far shore was last seen or confirmed. Passed on with the rumour, so
+    /// news ages as it travels; a shore nobody confirms for `RUMOUR_YEARS` is forgotten.
+    pub far_shore_year: u16,
     /// bands this one bears a grudge against (people killed, stores taken); fades over the
     /// years and is passed on, weaker, to daughter bands (v4)
     pub grudges: Vec<Grudge>,
