@@ -248,3 +248,11 @@ between the bands they join.
   0.322 %/yr; disease 0.108; items 66; prestige mean 0.49, Gini 0.44, top 10% hold 33%, 59% of
   recipes taught by the more prestigious; effective lineages 5.44 (largest 28%, P6 36%);
   foragers 39% of people (P6 94%); 57.7 s.
+- CI (run 40243862106, 10 seeds x 500y, vs step 7): pop 1191364 (1115662); war 0.363 %/yr
+  (0.361); disease 0.121 (0.126); items 69.3 (69.8); tau 0.15; boat-borne crossings 4/10 in the
+  same worlds (s1 Y142, s2 Y191, s7 Y234, s8 Y172; none before Y100); effective lineages 5.15
+  (5.07), largest 28.6% (29.7); ancestry 5.40 founders / 25.6% (5.27 / 26.8); weddings +14%;
+  foragers mean 51% (58%); prestige mean 0.48, Gini 0.34 (0.25-0.44), top 10% of bands hold 23%;
+  59% of recipes taught by the more prestigious band; no rich-get-richer runaway (dominance
+  fell); iron 4 worlds, bronze 4; sim time 601 s (668 s). Results:
+  `results-v9-step8-seeds1-10-500y.txt`.
