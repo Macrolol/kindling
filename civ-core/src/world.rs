@@ -354,6 +354,8 @@ pub struct World {
     year_acc: YearStats,
 }
 
+/// attention every material gets regardless of place and need (see `attention`)
+const ATT_FLOOR: f32 = 0.5;
 fn raw(m: Mat) -> Item {
     item(Form::Raw, m)
 }
@@ -1309,7 +1311,9 @@ impl World {
         let tot = h.iter().sum::<f32>().max(1e-3);
         let hunger = 1.0 + 1.5 * b.d.stress.clamp(0.0, 1.0);
         let f = |r: usize| 2.0 * (h[r] / tot) * hunger;
-        let mut a = [1.0f32; NMAT];
+        // a low floor: what a band notices is mostly what its own country, season and needs put
+        // in front of it, so bands in different places tinker with different things
+        let mut a = [ATT_FLOOR; NMAT];
         let mut add = |mm: Mat, v: f32| a[mm as usize] += v;
         // gathering plants: fibre, containers, digging sticks
         add(Plants, 1.5 * f(0));
@@ -1358,8 +1362,14 @@ impl World {
             Fish => self.seen(2, ci, b) > 3.0,
             mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && m.has(ci, d)),
         };
-        // striking stones catch the eye: green and grey ores (pigments, heavy shiny lumps),
-        // glassy obsidian
+        // striking stones catch the eye where they crop out: green and grey ores (pigments,
+        // heavy shiny lumps), glassy obsidian
+        let lies = |mm: Mat| DEPOSITS.iter().any(|&(d, m2)| m2 == mm && m.has(ci, d));
+        let mut add = |mm: Mat, v: f32| {
+            if lies(mm) {
+                a[mm as usize] += v;
+            }
+        };
         add(CopperOre, 0.8);
         add(TinOre, 0.5);
         // red and yellow ochre is a pigment to most; a band that already smelts metal from
@@ -1367,7 +1377,7 @@ impl World {
         let smelts = [Mat::Copper, Mat::Tin, Mat::Bronze].iter().any(|&mm| b.d.tk.producible.has(raw(mm)));
         add(IronOre, if smelts { 1.0 } else { 0.2 });
         add(Obsidian, 0.5);
-        let carried = 0.3 + 0.6 * b.curiosity;
+        let carried = 0.2 + 0.5 * b.curiosity;
         for (mi, v) in a.iter_mut().enumerate() {
             let mm = ALL_MATS[mi];
             if !here(mm) {
