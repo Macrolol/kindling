@@ -1,6 +1,6 @@
 [package]
 name = "civ-core"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Deterministic engine of the Kindling civilisation simulator: generated world, materials physics, emergent invention, versioned saves"
 license = "MIT"
