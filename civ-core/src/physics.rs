@@ -304,7 +304,7 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
         let (bl, hm) = if form(t1) == Form::Bloom { (t1, t2) } else { (t2, t1) };
         if form(bl) == Form::Bloom && form(hm) == Form::Hammer {
             if mat(hm).props().hard >= 5.0 && temp >= FORGE_T {
-                return o(item(Form::Raw, mat(bl)), 0.05);
+                return o(item(Form::Raw, mat(bl)), 0.10);
             }
             return None;
         }

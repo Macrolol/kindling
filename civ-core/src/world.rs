@@ -1377,10 +1377,15 @@ impl World {
         let smelts = [Mat::Copper, Mat::Tin, Mat::Bronze].iter().any(|&mm| b.d.tk.producible.has(raw(mm)));
         add(IronOre, if smelts { 1.0 } else { 0.2 });
         add(Obsidian, 0.5);
+        // a band that gets spongy iron out of its furnace has that lump on its mind
+        let blooms = b.d.tk.producible.has(item(Form::Bloom, Mat::Iron));
+        if blooms {
+            a[Iron as usize] += 2.0;
+        }
         let carried = 0.2 + 0.5 * b.curiosity;
         for (mi, v) in a.iter_mut().enumerate() {
             let mm = ALL_MATS[mi];
-            if !here(mm) {
+            if !here(mm) && !(blooms && mm == Iron) {
                 *v *= carried;
             }
             // attention is focused: what is on people's minds crowds out the rest
@@ -1459,7 +1464,9 @@ impl World {
                 .map(|&i| {
                     let m = mat(i);
                     let keeps = if matches!(m, Mat::Fibre | Mat::Hide | Mat::Bone) { 0.3 } else if m.is_food() || m.props().fuel_t > 0.0 { 1.0 } else { 1.5 };
-                    att[m as usize].sqrt() * keeps
+                    // a slaggy bloom fresh from the furnace begs to go straight back in the fire
+                    let unfinished = if form(i) == Form::Bloom { 8.0 } else { 1.0 };
+                    att[m as usize].sqrt() * keeps * unfinished
                 })
                 .collect();
             v[rng.weighted(&ws).unwrap_or_else(|| rng.below(v.len()))]
@@ -1470,12 +1477,14 @@ impl World {
             if t1 == t2 {
                 return;
             }
-            let k = if !kilns.is_empty() && rng.chance(0.6) { pick(rng, &kilns) } else { NONE };
+            // a bloom is reworked in the furnace it came out of, in its hottest fire
+            let smithing = form(t1) == Form::Bloom || (t2 != NONE && form(t2) == Form::Bloom);
+            let k = if !kilns.is_empty() && (smithing || rng.chance(0.6)) { pick(rng, &kilns) } else { NONE };
             // the fire: a band that knows a hotter fire (charcoal) mostly banks that one for
             // firing work; otherwise any fire it keeps
             let hottest = fires.iter().copied().max_by_key(|&f| (crate::materials::fire_temp(mat(f), None) * 10.0) as i64);
             let fire = match hottest {
-                Some(f) if rng.chance(0.6) => f,
+                Some(f) if smithing || rng.chance(0.6) => f,
                 _ => fires[rng.below(fires.len())],
             };
             // a band with bellows works them into a hot charcoal furnace
