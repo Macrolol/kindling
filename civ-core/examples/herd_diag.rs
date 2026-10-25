@@ -9,10 +9,7 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let seed: u64 = a[1].parse().unwrap();
     let years: u32 = a[2].parse().unwrap();
-    let mut cfg = Config {
-        seed,
-        ..Default::default()
-    };
+    let mut cfg = Config { seed, ..Default::default() };
     if let Some(m) = a.get(3) {
         let (x, y) = m.split_once('x').unwrap();
         cfg.map_w = x.parse().unwrap();

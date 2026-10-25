@@ -7,21 +7,12 @@ use civ_core::world::World;
 use std::collections::VecDeque;
 
 fn main() {
-    let a: Vec<u64> = std::env::args()
-        .skip(1)
-        .map(|s| s.parse().unwrap())
-        .collect();
+    let a: Vec<u64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
     for m in [Mat::Fibre, Mat::Wood, Mat::Hide] {
         println!("boat_q {:?} = {:.2}", m, boat_q(m));
     }
     for seed in a[0]..=a[1] {
-        let w = World::new(
-            Config {
-                seed,
-                ..Default::default()
-            },
-            Params::default(),
-        );
+        let w = World::new(Config { seed, ..Default::default() }, Params::default());
         let m = &w.map;
         let n = m.w * m.h;
         let start = m.landmass[w.bands[0].cell(m.w)];
@@ -60,16 +51,7 @@ fn main() {
             .filter(|&l| m.landmass_size[l] >= 400 && l as u16 != start)
             .map(|l| format!("L{} {} cells gap {}", l, m.landmass_size[l], best[l]))
             .collect();
-        let small_gap = (1..m.landmass_size.len())
-            .filter(|&l| l as u16 != start && m.landmass_size[l] < 400)
-            .map(|l| best[l])
-            .min()
-            .unwrap_or(u32::MAX);
-        println!(
-            "seed {seed}: start L{start} ({} cells) | continents: {} | nearest island gap {}",
-            m.landmass_size[start as usize],
-            big.join("; "),
-            small_gap
-        );
+        let small_gap = (1..m.landmass_size.len()).filter(|&l| l as u16 != start && m.landmass_size[l] < 400).map(|l| best[l]).min().unwrap_or(u32::MAX);
+        println!("seed {seed}: start L{start} ({} cells) | continents: {} | nearest island gap {}", m.landmass_size[start as usize], big.join("; "), small_gap);
     }
 }

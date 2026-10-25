@@ -3,15 +3,7 @@ use crate::physics::{self, Action, Ctx};
 use crate::{Config, Params, World};
 
 fn small() -> World {
-    World::new(
-        Config {
-            seed: 7,
-            map_w: 80,
-            map_h: 50,
-            ..Default::default()
-        },
-        Params::default(),
-    )
+    World::new(Config { seed: 7, map_w: 80, map_h: 50, ..Default::default() }, Params::default())
 }
 
 #[test]
@@ -47,42 +39,20 @@ fn save_round_trip_continues_identically() {
 
 #[test]
 fn physics_sanity() {
-    let ctx = Ctx {
-        dryness: 0.5,
-        water: true,
-    };
+    let ctx = Ctx { dryness: 0.5, water: true };
     let raw = |m| item(Form::Raw, m);
     // no copper from an open wood fire
-    let inp = physics::canonical(
-        Action::Heat,
-        [raw(Mat::CopperOre), NONE, item(Form::Fire, Mat::Wood), NONE],
-    );
-    assert!(physics::apply(Action::Heat, &inp, &ctx)
-        .map(|o| mat(o.out) != Mat::Copper)
-        .unwrap_or(true));
+    let inp = physics::canonical(Action::Heat, [raw(Mat::CopperOre), NONE, item(Form::Fire, Mat::Wood), NONE]);
+    assert!(physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out) != Mat::Copper).unwrap_or(true));
     // knapping flint with a stone hammer gives an edge
-    let inp = physics::canonical(
-        Action::Shape,
-        [raw(Mat::Flint), item(Form::Hammer, Mat::Stone), NONE, NONE],
-    );
-    assert_eq!(
-        physics::apply(Action::Shape, &inp, &ctx).map(|o| o.out),
-        Some(item(Form::Edge, Mat::Flint))
-    );
+    let inp = physics::canonical(Action::Shape, [raw(Mat::Flint), item(Form::Hammer, Mat::Stone), NONE, NONE]);
+    assert_eq!(physics::apply(Action::Shape, &inp, &ctx).map(|o| o.out), Some(item(Form::Edge, Mat::Flint)));
     // charcoal in a clay kiln smelts copper
     let inp = physics::canonical(
         Action::Heat,
-        [
-            raw(Mat::CopperOre),
-            NONE,
-            item(Form::Fire, Mat::Charcoal),
-            item(Form::Kiln, Mat::Clay),
-        ],
+        [raw(Mat::CopperOre), NONE, item(Form::Fire, Mat::Charcoal), item(Form::Kiln, Mat::Clay)],
     );
-    assert_eq!(
-        physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out)),
-        Some(Mat::Copper)
-    );
+    assert_eq!(physics::apply(Action::Heat, &inp, &ctx).map(|o| mat(o.out)), Some(Mat::Copper));
 }
 
 /// A save written by the v4 build (before farming) must load through v4->v5: stocks grow to the
@@ -114,10 +84,7 @@ fn v4_fixture_loads_and_runs() {
         w.step();
     }
     assert_eq!(w.tick, t0 + 80);
-    assert!(
-        w.tend.iter().any(|&t| t > 0.0),
-        "camps start to tend wild stands"
-    );
+    assert!(w.tend.iter().any(|&t| t > 0.0), "camps start to tend wild stands");
     let again = w.save_bytes(None, "test", "test").expect("saves");
     let (mut w2, _, info2) = World::load_bytes(&again).expect("reloads");
     assert_eq!(info2.format_version, crate::save::FORMAT_VERSION);
@@ -139,10 +106,7 @@ fn v5beta_fixture_loads_and_runs() {
     assert!(w.total_pop() > 0);
     let n = w.map.w * w.map.h;
     assert_eq!(w.tend.len(), n);
-    assert!(
-        w.tend.iter().any(|&t| t > 0.0),
-        "beta tending survives the load"
-    );
+    assert!(w.tend.iter().any(|&t| t > 0.0), "beta tending survives the load");
     for b in &w.bands {
         assert_eq!(b.stock.len(), NMAT);
         assert_eq!(b.craft.len(), crate::band::CRAFT_LEN);
@@ -177,10 +141,7 @@ fn v3_fixture_loads_and_runs() {
         assert_eq!(b.pressed, 0.0);
     }
     assert_eq!(w.counters.fights, 0);
-    assert_eq!(
-        w.params.aggression,
-        crate::params::Params::default().aggression
-    );
+    assert_eq!(w.params.aggression, crate::params::Params::default().aggression);
     let t0 = w.tick;
     for _ in 0..40 {
         w.step();
@@ -241,11 +202,7 @@ fn v1_fixture_loads_and_runs() {
         assert!(b.d.need > 0.0, "need recomputed");
         assert!(b.d.food_ratio > 0.0, "food ratio recomputed");
     }
-    assert_eq!(
-        w.map.gen_version,
-        crate::map::GEN_VERSION,
-        "legacy map upgraded (iron ore added too)"
-    );
+    assert_eq!(w.map.gen_version, crate::map::GEN_VERSION, "legacy map upgraded (iron ore added too)");
     let t0 = w.tick;
     for _ in 0..40 {
         w.step();
@@ -262,15 +219,7 @@ fn v1_fixture_loads_and_runs() {
 #[test]
 #[ignore]
 fn farm_diag() {
-    let mut w = World::new(
-        Config {
-            seed: 2,
-            map_w: 160,
-            map_h: 100,
-            ..Default::default()
-        },
-        Params::default(),
-    );
+    let mut w = World::new(Config { seed: 2, map_w: 160, map_h: 100, ..Default::default() }, Params::default());
     for y in 0..200 {
         for _ in 0..4 {
             w.step();
@@ -288,9 +237,7 @@ fn farm_diag() {
                 );
                 n += 1;
             }
-            if n > 0 {
-                println!("--");
-            }
+            if n > 0 { println!("--"); }
         }
     }
 }
@@ -300,15 +247,7 @@ fn farm_diag() {
 /// totals agree with the bands, and band ids stay unique.
 #[test]
 fn sanity_and_conservation() {
-    let mut w = World::new(
-        Config {
-            seed: 3,
-            map_w: 120,
-            map_h: 80,
-            ..Default::default()
-        },
-        Params::default(),
-    );
+    let mut w = World::new(Config { seed: 3, map_w: 120, map_h: 80, ..Default::default() }, Params::default());
     for t in 0..240 {
         w.step();
         if t % 20 != 19 {
@@ -323,51 +262,24 @@ fn sanity_and_conservation() {
             pop += b.pop;
             let c = b.cell(w.map.w);
             assert!(c < n && w.map.is_land(c), "band {} off land", b.id);
-            assert!(
-                b.store.is_finite() && b.store >= 0.0,
-                "band {} store {}",
-                b.id,
-                b.store
-            );
-            assert!(
-                b.stock.iter().all(|v| v.is_finite() && *v >= -1e-3),
-                "band {} stock",
-                b.id
-            );
+            assert!(b.store.is_finite() && b.store >= 0.0, "band {} store {}", b.id, b.store);
+            assert!(b.stock.iter().all(|v| v.is_finite() && *v >= -1e-3), "band {} stock", b.id);
         }
         assert_eq!(pop, w.total_pop());
         for i in 0..n {
             // tended land carries more wild plants than its natural capacity
             let kp = match w.tend.get(i) {
-                Some(&td) if td > 0.0 => {
-                    crate::world::farming::wild_plant_cap(w.map.k_plants[i], td)
-                }
+                Some(&td) if td > 0.0 => crate::world::farming::wild_plant_cap(w.map.k_plants[i], td),
                 _ => w.map.k_plants[i],
             };
-            for (v, k) in [
-                (w.plants[i], kp),
-                (w.game[i], w.map.k_game[i]),
-                (w.fish[i], w.map.k_fish[i]),
-            ] {
+            for (v, k) in [(w.plants[i], kp), (w.game[i], w.map.k_game[i]), (w.fish[i], w.map.k_fish[i])] {
                 assert!(v.is_finite() && v >= -1e-3, "stock {v} at {i}");
                 // (tending decays after the regrowth step, so the tended cap can sit slightly below)
-                assert!(
-                    v <= k.max(0.0) * 1.02 + 1e-3,
-                    "stock {v} over capacity {k} at {i}"
-                );
+                assert!(v <= k.max(0.0) * 1.02 + 1e-3, "stock {v} over capacity {k} at {i}");
             }
         }
-        assert!(w
-            .trade_flow
-            .iter()
-            .chain(&w.conflict_flow)
-            .all(|v| v.is_finite() && *v >= 0.0));
-        assert!(w
-            .tend
-            .iter()
-            .chain(&w.dom)
-            .chain(&w.fert)
-            .all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
+        assert!(w.trade_flow.iter().chain(&w.conflict_flow).all(|v| v.is_finite() && *v >= 0.0));
+        assert!(w.tend.iter().chain(&w.dom).chain(&w.fert).all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
     }
     assert!(w.total_pop() > 0);
     let last = w.history.last().unwrap();
@@ -380,12 +292,7 @@ fn sanity_and_conservation() {
 #[test]
 fn chosen_starts() {
     use crate::StartCheck;
-    let base = Config {
-        seed: 7,
-        map_w: 80,
-        map_h: 50,
-        ..Default::default()
-    };
+    let base = Config { seed: 7, map_w: 80, map_h: 50, ..Default::default() };
     let m = crate::map::Map::generate(base.map_w, base.map_h, base.seed);
     let good: Vec<(u16, u16)> = (0..m.h)
         .flat_map(|y| (0..m.w).map(move |x| (x, y)))
@@ -393,46 +300,19 @@ fn chosen_starts() {
         .map(|(x, y)| (x as u16, y as u16))
         .collect();
     assert!(good.len() > 10);
-    let sea = (0..m.w * m.h)
-        .find(|&i| !m.is_land(i))
-        .map(|i| ((i % m.w) as u16, (i / m.w) as u16))
-        .unwrap();
-    assert_eq!(
-        m.start_check(sea.0 as usize, sea.1 as usize),
-        StartCheck::Uninhabitable
-    );
+    let sea = (0..m.w * m.h).find(|&i| !m.is_land(i)).map(|i| ((i % m.w) as u16, (i / m.w) as u16)).unwrap();
+    assert_eq!(m.start_check(sea.0 as usize, sea.1 as usize), StartCheck::Uninhabitable);
     // shared area
     let p = good[good.len() / 2];
-    let w = World::new(
-        Config {
-            starts: vec![p],
-            ..base.clone()
-        },
-        Params::default(),
-    );
+    let w = World::new(Config { starts: vec![p], ..base.clone() }, Params::default());
     assert_eq!(w.bands.len(), base.founders);
     for b in &w.bands {
         assert!((b.x as i32 - p.0 as i32).abs() <= 3 && (b.y as i32 - p.1 as i32).abs() <= 3);
     }
-    assert!(w
-        .events
-        .iter()
-        .chain(&w.chronicle)
-        .any(|e| w.event_text(e).contains("(chosen start)")));
+    assert!(w.events.iter().chain(&w.chronicle).any(|e| w.event_text(e).contains("(chosen start)")));
     // one per lineage (more than the default number of founders)
-    let picks: Vec<(u16, u16)> = good
-        .iter()
-        .step_by(good.len() / 8)
-        .take(8)
-        .copied()
-        .collect();
-    let mut w = World::new(
-        Config {
-            starts: picks.clone(),
-            ..base.clone()
-        },
-        Params::default(),
-    );
+    let picks: Vec<(u16, u16)> = good.iter().step_by(good.len() / 8).take(8).copied().collect();
+    let mut w = World::new(Config { starts: picks.clone(), ..base.clone() }, Params::default());
     assert_eq!(w.bands.len(), 8);
     for (b, &(x, y)) in w.bands.iter().zip(&picks) {
         assert_eq!((b.x, b.y), (x, y));
@@ -445,27 +325,13 @@ fn chosen_starts() {
     let (l, _, _) = World::load_bytes(&bytes).unwrap();
     assert_eq!(l.cfg.starts, picks);
     // sea refused: same as no choice at all
-    let a = World::new(
-        Config {
-            starts: vec![sea],
-            ..base.clone()
-        },
-        Params::default(),
-    );
+    let a = World::new(Config { starts: vec![sea], ..base.clone() }, Params::default());
     let b = World::new(base.clone(), Params::default());
-    let pos = |w: &World| {
-        w.bands
-            .iter()
-            .map(|b| (b.x, b.y, b.pop))
-            .collect::<Vec<_>>()
-    };
+    let pos = |w: &World| w.bands.iter().map(|b| (b.x, b.y, b.pop)).collect::<Vec<_>>();
     assert_eq!(pos(&a), pos(&b));
     // parsing
     assert_eq!(crate::parse_starts("3,4").unwrap(), vec![(3, 4)]);
-    assert_eq!(
-        crate::parse_starts(" 3,4 ; 10, 2;").unwrap(),
-        vec![(3, 4), (10, 2)]
-    );
+    assert_eq!(crate::parse_starts(" 3,4 ; 10, 2;").unwrap(), vec![(3, 4), (10, 2)]);
     assert!(crate::parse_starts("3").is_err());
     assert!(crate::parse_starts("a,b").is_err());
 }
@@ -476,20 +342,9 @@ fn chosen_starts() {
 #[test]
 fn same_result_on_any_thread_count() {
     let run = |threads: usize| {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
         pool.install(|| {
-            let mut w = World::new(
-                Config {
-                    seed: 5,
-                    map_w: 120,
-                    map_h: 80,
-                    ..Default::default()
-                },
-                Params::default(),
-            );
+            let mut w = World::new(Config { seed: 5, map_w: 120, map_h: 80, ..Default::default() }, Params::default());
             for _ in 0..320 {
                 w.step();
             }
@@ -497,10 +352,7 @@ fn same_result_on_any_thread_count() {
         })
     };
     let one = run(1);
-    assert!(
-        one.2 >= 20,
-        "too few bands ({}) to exercise the parallel paths",
-        one.2
-    );
+    assert!(one.2 >= 20, "too few bands ({}) to exercise the parallel paths", one.2);
     assert_eq!(one, run(4));
 }
+

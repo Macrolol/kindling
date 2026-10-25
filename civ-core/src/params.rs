@@ -20,14 +20,7 @@ pub struct Config {
 }
 impl Default for Config {
     fn default() -> Self {
-        Config {
-            seed: 1,
-            map_w: 256,
-            map_h: 160,
-            founders: 6,
-            founder_pop: 25,
-            starts: Vec::new(),
-        }
+        Config { seed: 1, map_w: 256, map_h: 160, founders: 6, founder_pop: 25, starts: Vec::new() }
     }
 }
 

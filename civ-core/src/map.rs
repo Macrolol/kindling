@@ -28,10 +28,8 @@ pub const NBIOME: usize = 11;
 impl Biome {
     pub fn from_u8(x: u8) -> Biome {
         use Biome::*;
-        [
-            Ocean, Ice, Tundra, Taiga, Steppe, Grassland, TempForest, Desert, Savanna, TropForest,
-            Mountain,
-        ][(x as usize).min(NBIOME - 1)]
+        [Ocean, Ice, Tundra, Taiga, Steppe, Grassland, TempForest, Desert, Savanna, TropForest, Mountain]
+            [(x as usize).min(NBIOME - 1)]
     }
     pub fn name(self) -> &'static str {
         use Biome::*;
@@ -274,13 +272,7 @@ impl Map {
         let n = self.w * self.h;
         if self.k_small.len() != n {
             self.k_small = (0..n)
-                .map(|i| {
-                    if self.is_land(i) {
-                        small_capacity(self.biome_at(i), self.rain[i])
-                    } else {
-                        0.0
-                    }
-                })
+                .map(|i| if self.is_land(i) { small_capacity(self.biome_at(i), self.rain[i]) } else { 0.0 })
                 .collect();
         }
         if self.gen_version < 2 {
@@ -309,10 +301,7 @@ impl Map {
                 let nz = fbm(seed ^ 0x1e0e, fx * 13.0, fy * 13.0, 3);
                 let hgt = self.height[i];
                 let b = self.biome_at(i);
-                let bog = self.rain[i] > 0.7
-                    && hgt < 350.0
-                    && matches!(b, Biome::Taiga | Biome::TempForest | Biome::Tundra)
-                    && nz > 0.05;
+                let bog = self.rain[i] > 0.7 && hgt < 350.0 && matches!(b, Biome::Taiga | Biome::TempForest | Biome::Tundra) && nz > 0.05;
                 let laterite = matches!(b, Biome::Savanna | Biome::TropForest) && nz > 0.25;
                 let ironstone = hgt > 250.0 && hgt < 2000.0 && nz > 0.45;
                 if bog || laterite || ironstone {
@@ -372,7 +361,7 @@ impl Map {
         let area = (w * h) as f32;
         let land_frac = rng.range(0.27, 0.40);
         let nc = 2 + rng.below(5); // 2..6 continents
-                                   // random sizes (a few big, some small), normalised to the land budget
+        // random sizes (a few big, some small), normalised to the land budget
         let mut sizes: Vec<f32> = (0..nc).map(|_| rng.range(0.15, 1.0).powf(1.6)).collect();
         let tot: f32 = sizes.iter().sum();
         for s in &mut sizes {
@@ -411,36 +400,19 @@ impl Map {
                     break;
                 }
             }
-            blobs.push(Blob {
-                x: best.0,
-                y: best.1,
-                r,
-                ax,
-                rot,
-                amp: 1.0,
-            });
+            blobs.push(Blob { x: best.0, y: best.1, r, ax, rot, amp: 1.0 });
         }
         // island arcs
         let narcs = rng.below(4);
         for _ in 0..narcs {
-            let (mut x, mut y) = (
-                rng.range(0.1, 0.9) * w as f32,
-                rng.range(0.1, 0.9) * h as f32,
-            );
+            let (mut x, mut y) = (rng.range(0.1, 0.9) * w as f32, rng.range(0.1, 0.9) * h as f32);
             let mut dir = rng.range(0.0, std::f32::consts::TAU);
             let k = 4 + rng.below(9);
             let step = rng.range(4.0, 8.0);
             let turn = rng.range(-0.25, 0.25);
             for _ in 0..k {
                 let r = rng.range(1.5, 4.5);
-                blobs.push(Blob {
-                    x,
-                    y,
-                    r,
-                    ax: rng.range(1.0, 1.8),
-                    rot: rng.range(0.0, 3.14),
-                    amp: 0.85,
-                });
+                blobs.push(Blob { x, y, r, ax: rng.range(1.0, 1.8), rot: rng.range(0.0, 3.14), amp: 0.85 });
                 dir += turn + rng.range(-0.2, 0.2);
                 x += dir.cos() * step;
                 y += dir.sin() * step;
@@ -480,28 +452,13 @@ impl Map {
         let hmax = sorted[n - 1];
         let height: Vec<f32> = hraw
             .iter()
-            .map(|&v| {
-                if v >= sea {
-                    ((v - sea) / (hmax - sea).max(1e-3)).powf(1.3) * 4200.0
-                } else {
-                    (v - sea) * 3000.0 - 1.0
-                }
-            })
+            .map(|&v| if v >= sea { ((v - sea) / (hmax - sea).max(1e-3)).powf(1.3) * 4200.0 } else { (v - sea) * 3000.0 - 1.0 })
             .collect();
         // climate: latitude span and a global warm/cold offset vary by seed
         let lat_n = rng.range(48.0, 72.0);
         let lat_s = rng.range(-58.0, -8.0);
         let climate = rng.range(-2.5, 2.5);
-        let mut m = Map {
-            w,
-            h,
-            seed,
-            height,
-            lat_n,
-            lat_s,
-            gen_version: GEN_VERSION,
-            ..Default::default()
-        };
+        let mut m = Map { w, h, seed, height, lat_n, lat_s, gen_version: GEN_VERSION, ..Default::default() };
         // ---- distance to sea (for continentality), BFS
         let mut dsea = vec![u32::MAX; n];
         let mut q = std::collections::VecDeque::new();
@@ -529,8 +486,7 @@ impl Map {
             for x in 0..w {
                 let i = y * w + x;
                 let alt = m.height[i].max(0.0);
-                let t = lat_temp(lat.abs()) + climate - 0.0065 * alt
-                    + 1.5 * fbm(seed ^ 0x7e, x as f32 * sc * 6.0, y as f32 * sc * 6.0, 3);
+                let t = lat_temp(lat.abs()) + climate - 0.0065 * alt + 1.5 * fbm(seed ^ 0x7e, x as f32 * sc * 6.0, y as f32 * sc * 6.0, 3);
                 let cont = (dsea[i] as f32 / 12.0).min(1.0);
                 m.temp[i] = t;
                 m.tamp[i] = (1.5 + 0.22 * lat.abs()) * (0.6 + 0.6 * cont);
@@ -552,15 +508,7 @@ impl Map {
                     m.rain[i] = moist * latf;
                     continue;
                 }
-                let prev = if east_wind {
-                    if x + 1 < w {
-                        x + 1
-                    } else {
-                        x
-                    }
-                } else {
-                    x.saturating_sub(1)
-                };
+                let prev = if east_wind { if x + 1 < w { x + 1 } else { x } } else { x.saturating_sub(1) };
                 let up = (m.height[i] - m.height[y * w + prev].max(0.0)).max(0.0) / 400.0;
                 let r = moist * (0.10 + 0.5 * up.min(1.5));
                 m.rain[i] = (moist * 0.85 + r) * latf;
@@ -631,11 +579,7 @@ impl Map {
         }
         let mut lf: Vec<f32> = order.iter().map(|&i| m.flow[i]).collect();
         lf.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let thr = if lf.is_empty() {
-            1.0
-        } else {
-            lf[(lf.len() as f32 * 0.93) as usize].max(2.0)
-        };
+        let thr = if lf.is_empty() { 1.0 } else { lf[(lf.len() as f32 * 0.93) as usize].max(2.0) };
         m.river = (0..n).map(|i| m.is_land(i) && m.flow[i] >= thr).collect();
         // ---- biomes
         m.biome = (0..n)
@@ -651,21 +595,9 @@ impl Map {
                 } else if t < 0.0 {
                     Biome::Tundra
                 } else if t < 6.0 {
-                    if r > 0.3 {
-                        Biome::Taiga
-                    } else {
-                        Biome::Tundra
-                    }
+                    if r > 0.3 { Biome::Taiga } else { Biome::Tundra }
                 } else if t < 17.0 {
-                    if r < 0.17 {
-                        Biome::Desert
-                    } else if r < 0.28 {
-                        Biome::Steppe
-                    } else if r < 0.42 {
-                        Biome::Grassland
-                    } else {
-                        Biome::TempForest
-                    }
+                    if r < 0.17 { Biome::Desert } else if r < 0.28 { Biome::Steppe } else if r < 0.42 { Biome::Grassland } else { Biome::TempForest }
                 } else if r < 0.16 {
                     Biome::Desert
                 } else if r < 0.46 {
@@ -691,8 +623,7 @@ impl Map {
         }
         // island arcs are volcanic
         for bl in blobs.iter().filter(|b| b.amp < 1.0) {
-            let i = (bl.y.clamp(0.0, h as f32 - 1.0) as usize) * w
-                + bl.x.clamp(0.0, w as f32 - 1.0) as usize;
+            let i = (bl.y.clamp(0.0, h as f32 - 1.0) as usize) * w + bl.x.clamp(0.0, w as f32 - 1.0) as usize;
             if m.is_land(i) && rng.chance(0.3) {
                 volc.push(i);
             }
@@ -721,13 +652,8 @@ impl Map {
                         d |= D_FLINT;
                     }
                     let wet_low = m.rain[i] > 0.6 && hgt < 400.0;
-                    let near_river =
-                        m.river[i] || nbrs8(x, y, w, h).any(|(a, b)| m.river[b * w + a]);
-                    if (near_river
-                        && hgt < 1500.0
-                        && fbm(seed ^ 0xc1, fx * 15.0, fy * 15.0, 2) > -0.2)
-                        || wet_low
-                    {
+                    let near_river = m.river[i] || nbrs8(x, y, w, h).any(|(a, b)| m.river[b * w + a]);
+                    if (near_river && hgt < 1500.0 && fbm(seed ^ 0xc1, fx * 15.0, fy * 15.0, 2) > -0.2) || wet_low {
                         d |= D_CLAY;
                     }
                     let cu = fbm(seed ^ 0xc0, fx * 10.0, fy * 10.0, 4);
@@ -769,11 +695,7 @@ impl Map {
                     break;
                 }
                 c = nx;
-                if step >= 1
-                    && m.river[c]
-                    && m.height[c] < m.height[l]
-                    && hash3(seed ^ 0x7a, (c % w) as i64, (c / w) as i64) % 2 == 0
-                {
+                if step >= 1 && m.river[c] && m.height[c] < m.height[l] && hash3(seed ^ 0x7a, (c % w) as i64, (c / w) as i64) % 2 == 0 {
                     m.deposits[c] |= D_TIN;
                 }
             }
@@ -792,8 +714,7 @@ impl Map {
                     continue;
                 }
                 let cap = m.biome_at(i).capacity();
-                let nz =
-                    1.0 + 0.3 * fbm(seed ^ 0x99, x as f32 * sc * 14.0, y as f32 * sc * 14.0, 3);
+                let nz = 1.0 + 0.3 * fbm(seed ^ 0x99, x as f32 * sc * 14.0, y as f32 * sc * 14.0, 3);
                 let wet = 0.6 + 0.8 * m.rain[i].min(1.0);
                 m.k_plants[i] = cap[0] * nz * wet.min(1.3);
                 m.k_game[i] = cap[1] * (2.0 - nz).max(0.5);
@@ -816,15 +737,7 @@ impl Map {
                 }
             }
         }
-        m.k_small = (0..n)
-            .map(|i| {
-                if m.is_land(i) {
-                    small_capacity(m.biome_at(i), m.rain[i])
-                } else {
-                    0.0
-                }
-            })
-            .collect();
+        m.k_small = (0..n).map(|i| if m.is_land(i) { small_capacity(m.biome_at(i), m.rain[i]) } else { 0.0 }).collect();
         m.add_shelf_fish();
         m.label_landmasses();
         m
@@ -833,15 +746,7 @@ impl Map {
 
 /// Annual mean sea-level temperature by |latitude| (roughly Earth's zonal means).
 fn lat_temp(lat: f32) -> f32 {
-    let pts = [
-        (0.0, 27.0),
-        (15.0, 26.0),
-        (30.0, 20.0),
-        (45.0, 11.5),
-        (60.0, 1.5),
-        (75.0, -11.0),
-        (90.0, -24.0),
-    ];
+    let pts = [(0.0, 27.0), (15.0, 26.0), (30.0, 20.0), (45.0, 11.5), (60.0, 1.5), (75.0, -11.0), (90.0, -24.0)];
     for k in 0..pts.len() - 1 {
         let (a, va) = pts[k];
         let (b, vb) = pts[k + 1];
@@ -871,15 +776,7 @@ pub fn small_capacity(b: Biome, rain: f32) -> f32 {
 }
 fn lat_rain(lat: f32) -> f32 {
     // equatorial wet belt, subtropical dry belt (~25-32 deg), mid-latitude wet, polar dry
-    let pts = [
-        (0.0, 1.0),
-        (12.0, 0.9),
-        (24.0, 0.45),
-        (32.0, 0.5),
-        (45.0, 0.95),
-        (58.0, 0.85),
-        (70.0, 0.5),
-    ];
+    let pts = [(0.0, 1.0), (12.0, 0.9), (24.0, 0.45), (32.0, 0.5), (45.0, 0.95), (58.0, 0.85), (70.0, 0.5)];
     for k in 0..pts.len() - 1 {
         let (a, va) = pts[k];
         let (b, vb) = pts[k + 1];
@@ -895,24 +792,13 @@ pub fn nbrs4(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (us
     const D: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
     D.iter().filter_map(move |&(dx, dy)| {
         let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-        (nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h)
-            .then_some((nx as usize, ny as usize))
+        (nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h).then_some((nx as usize, ny as usize))
     })
 }
 pub fn nbrs8(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (usize, usize)> {
-    const D: [(i32, i32); 8] = [
-        (1, 0),
-        (-1, 0),
-        (0, 1),
-        (0, -1),
-        (1, 1),
-        (-1, -1),
-        (1, -1),
-        (-1, 1),
-    ];
+    const D: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)];
     D.iter().filter_map(move |&(dx, dy)| {
         let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-        (nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h)
-            .then_some((nx as usize, ny as usize))
+        (nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h).then_some((nx as usize, ny as usize))
     })
 }

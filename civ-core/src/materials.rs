@@ -135,190 +135,29 @@ const fn p(name: &'static str) -> Props {
 }
 
 pub static PROPS: [Props; NMAT] = [
-    Props {
-        hard: 2.0,
-        tough: 6.0,
-        sharp: 2.0,
-        workable: 7.0,
-        fibrous: 4.0,
-        fuel_t: 650.0,
-        float: 7.0,
-        ..p("wood")
-    },
-    Props {
-        hard: 6.0,
-        tough: 7.0,
-        fracture: 3.5,
-        sharp: 3.0,
-        workable: 1.0,
-        refractory: 4.0,
-        ..p("stone")
-    },
-    Props {
-        hard: 7.0,
-        tough: 3.5,
-        fracture: 9.0,
-        sharp: 8.0,
-        workable: 0.5,
-        refractory: 3.0,
-        ..p("flint")
-    },
-    Props {
-        hard: 5.5,
-        tough: 1.5,
-        fracture: 10.0,
-        sharp: 10.0,
-        workable: 0.5,
-        ..p("obsidian")
-    },
-    Props {
-        hard: 1.0,
-        tough: 1.0,
-        plastic: 9.0,
-        workable: 8.0,
-        fire_t: 600.0,
-        fires_to: Some(Mat::Ceramic),
-        refractory: 8.0,
-        ..p("clay")
-    },
-    Props {
-        hard: 3.8,
-        tough: 3.0,
-        fracture: 1.0,
-        reduce_t: 1150.0,
-        reduces_to: Some(Mat::Copper),
-        refractory: 2.0,
-        ..p("copper ore")
-    },
-    Props {
-        hard: 6.5,
-        tough: 4.0,
-        fracture: 1.0,
-        reduce_t: 1050.0,
-        reduces_to: Some(Mat::Tin),
-        refractory: 2.0,
-        ..p("tin ore")
-    },
-    Props {
-        hard: 0.5,
-        tough: 3.0,
-        workable: 6.0,
-        fibrous: 9.0,
-        fuel_t: 400.0,
-        float: 6.0,
-        ..p("plant fibre")
-    },
-    Props {
-        hard: 1.0,
-        tough: 6.0,
-        workable: 6.0,
-        fibrous: 6.0,
-        food: 0.5,
-        seal: 7.0,
-        ..p("hide")
-    },
-    Props {
-        hard: 4.0,
-        tough: 5.0,
-        fracture: 2.5,
-        sharp: 4.5,
-        workable: 5.0,
-        ..p("bone")
-    },
-    Props {
-        hard: 0.2,
-        tough: 1.0,
-        food: 9.0,
-        ..p("meat")
-    },
-    Props {
-        hard: 0.5,
-        tough: 1.0,
-        food: 6.0,
-        fibrous: 2.0,
-        ..p("wild plants")
-    },
-    Props {
-        hard: 0.2,
-        tough: 1.0,
-        food: 8.0,
-        ..p("fish")
-    },
-    Props {
-        hard: 1.0,
-        tough: 1.0,
-        fuel_t: 950.0,
-        ..p("charcoal")
-    },
-    Props {
-        hard: 5.5,
-        tough: 2.0,
-        sharp: 1.0,
-        refractory: 9.0,
-        ..p("ceramic")
-    },
-    Props {
-        hard: 3.0,
-        tough: 9.0,
-        sharp: 6.0,
-        malleable: 9.0,
-        melt: 1085.0,
-        ..p("copper")
-    },
-    Props {
-        hard: 1.5,
-        tough: 5.0,
-        sharp: 1.5,
-        malleable: 8.0,
-        melt: 232.0,
-        ..p("tin")
-    },
-    Props {
-        hard: 5.0,
-        tough: 9.0,
-        sharp: 7.5,
-        malleable: 6.0,
-        melt: 950.0,
-        ..p("bronze")
-    },
-    Props {
-        hard: 1.0,
-        tough: 1.0,
-        food: 7.0,
-        ..p("grain")
-    },
-    Props {
-        hard: 0.5,
-        tough: 4.5,
-        workable: 6.0,
-        fibrous: 9.5,
-        ..p("flax")
-    },
-    Props {
-        hard: 0.3,
-        tough: 4.0,
-        workable: 6.0,
-        fibrous: 8.0,
-        seal: 2.0,
-        ..p("wool")
-    },
-    Props {
-        hard: 5.0,
-        tough: 4.0,
-        fracture: 1.0,
-        reduce_t: 1300.0,
-        reduces_to: Some(Mat::Iron),
-        refractory: 2.0,
-        ..p("iron ore")
-    },
-    Props {
-        hard: 5.5,
-        tough: 9.0,
-        sharp: 7.0,
-        malleable: 6.0,
-        melt: 1538.0,
-        ..p("iron")
-    },
+    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, float: 7.0, ..p("wood") },
+    Props { hard: 6.0, tough: 7.0, fracture: 3.5, sharp: 3.0, workable: 1.0, refractory: 4.0, ..p("stone") },
+    Props { hard: 7.0, tough: 3.5, fracture: 9.0, sharp: 8.0, workable: 0.5, refractory: 3.0, ..p("flint") },
+    Props { hard: 5.5, tough: 1.5, fracture: 10.0, sharp: 10.0, workable: 0.5, ..p("obsidian") },
+    Props { hard: 1.0, tough: 1.0, plastic: 9.0, workable: 8.0, fire_t: 600.0, fires_to: Some(Mat::Ceramic), refractory: 8.0, ..p("clay") },
+    Props { hard: 3.8, tough: 3.0, fracture: 1.0, reduce_t: 1150.0, reduces_to: Some(Mat::Copper), refractory: 2.0, ..p("copper ore") },
+    Props { hard: 6.5, tough: 4.0, fracture: 1.0, reduce_t: 1050.0, reduces_to: Some(Mat::Tin), refractory: 2.0, ..p("tin ore") },
+    Props { hard: 0.5, tough: 3.0, workable: 6.0, fibrous: 9.0, fuel_t: 400.0, float: 6.0, ..p("plant fibre") },
+    Props { hard: 1.0, tough: 6.0, workable: 6.0, fibrous: 6.0, food: 0.5, seal: 7.0, ..p("hide") },
+    Props { hard: 4.0, tough: 5.0, fracture: 2.5, sharp: 4.5, workable: 5.0, ..p("bone") },
+    Props { hard: 0.2, tough: 1.0, food: 9.0, ..p("meat") },
+    Props { hard: 0.5, tough: 1.0, food: 6.0, fibrous: 2.0, ..p("wild plants") },
+    Props { hard: 0.2, tough: 1.0, food: 8.0, ..p("fish") },
+    Props { hard: 1.0, tough: 1.0, fuel_t: 950.0, ..p("charcoal") },
+    Props { hard: 5.5, tough: 2.0, sharp: 1.0, refractory: 9.0, ..p("ceramic") },
+    Props { hard: 3.0, tough: 9.0, sharp: 6.0, malleable: 9.0, melt: 1085.0, ..p("copper") },
+    Props { hard: 1.5, tough: 5.0, sharp: 1.5, malleable: 8.0, melt: 232.0, ..p("tin") },
+    Props { hard: 5.0, tough: 9.0, sharp: 7.5, malleable: 6.0, melt: 950.0, ..p("bronze") },
+    Props { hard: 1.0, tough: 1.0, food: 7.0, ..p("grain") },
+    Props { hard: 0.5, tough: 4.5, workable: 6.0, fibrous: 9.5, ..p("flax") },
+    Props { hard: 0.3, tough: 4.0, workable: 6.0, fibrous: 8.0, seal: 2.0, ..p("wool") },
+    Props { hard: 5.0, tough: 4.0, fracture: 1.0, reduce_t: 1300.0, reduces_to: Some(Mat::Iron), refractory: 2.0, ..p("iron ore") },
+    Props { hard: 5.5, tough: 9.0, sharp: 7.0, malleable: 6.0, melt: 1538.0, ..p("iron") },
 ];
 
 impl Mat {
@@ -546,6 +385,8 @@ pub fn garment_q(m: Mat) -> f32 {
 /// Temperature a fire of `fuel` reaches in the open, plus the gain of a kiln lined with `lining`.
 pub fn fire_temp(fuel: Mat, lining: Option<Mat>) -> f32 {
     let base = fuel.props().fuel_t;
-    let k = lining.map(|l| 40.0 * l.props().refractory).unwrap_or(0.0);
+    let k = lining
+        .map(|l| 40.0 * l.props().refractory)
+        .unwrap_or(0.0);
     base + k
 }
