@@ -1,0 +1,218 @@
+Kindling v0.8.0 long-run balance check: 8 seeds x 1500 years on a 1200x1200 map
+GitHub Actions run 40214528455 (Macrolol/kindling), 2026-10-25, all 8 seed jobs succeeded,
+none failed or timed out. Sim time per seed 2,632-10,485 s (sum 51,413 s).
+Compared against the 500-year v0.8.0 results in docs/PROGRESS-v8.md (10 seeds, 256x160 map),
+so absolute numbers differ by map size; rates, shares and dates are what compare.
+
+== Headline per seed (Y1500)
+seed  pop        war%/yr  dis%/yr  farmers%  food from farming  top lineage  crossings (landmass, cells)          iron   bronze  linen sail  riding (people riding)
+1     2,168,886  0.428    0.322    78        58%                46%          Y652 (#5, 695c)                       Y426   Y780    Y675        Y425 (93%)
+2     1,098,924  0.457    0.305    75        54%                31%          none                                  Y249   Y502    Y898        Y297 (93%)
+3     2,191,386  0.441    0.314    73        53%                40%          Y628 (#3, 510c), Y660 (#4, 474c)       Y194   Y403    Y665        Y304 (91%)
+4     2,170,391  0.365    0.277    73        48%                29%          Y490 (#3, 1,084c)                     Y259   Y360    Y568        Y396 (85%)
+5     3,678,028  0.400    0.317    74        55%                66%          Y438 (455c), Y541 (424c), Y810 (448c)  Y319   Y470    Y722        Y363 (90%)
+6     1,506,290  0.407    0.349    78        57%                33%          none                                  Y207   Y409    Y626        Y290 (92%)
+7     3,559,544  0.420    0.294    65        47%                64%          Y550 (692c), Y1003 (447c)              Y274   Y486    Y612        Y290 (81%)
+8     1,852,831  0.403    0.330    75        53%                53%          Y43 (#2, 141,729c, gap 3), Y956 (#3, 103,353c, gap 449)  Y390  Y456  Y871  Y515 (89%)
+(war and disease here are whole-run means; iron = wrought iron; crossings = first landfall on another continent)
+
+== Across seeds vs the 500-year v0.8.0 result
+metric                      500y v0.8.0 (10 seeds, 256x160)   1500y long run (8 seeds, 1200x1200)
+war %/yr                    0.356                             0.415 whole run; Y401-500 0.29-0.39; last century 0.37-0.46
+disease %/yr                0.111                             0.314 whole run; Y401-500 0.07-0.15; last century 0.31-0.41
+farming seeds               9/10                              8/8 (domestic grain Y322-Y627)
+crossings                   4/10, none before Y100            6/8 by headline, but 5 of those are tiny landmasses (424-1,084 cells, 2-13 cells offshore);
+                                                              big-landmass crossings only in seed 8 (Y43 and Y956). Seed 8's Y43 is before Y100.
+iron seeds (median)         4 (Y290)                          8 (Y274), iron before bronze in all 8
+bronze seeds (median)       3 (Y334)                          8 (Y470)
+sails                       none in 500 years                 linen sail in 8/8 (Y568-Y898), woollen sail in 6/8 (Y762-Y1493)
+riding                      8/10, first Y232-Y499             8/8, first Y290-Y515; 81-93% of people ride by Y1500
+tau (discovery order)       0.134                             0.106 over 28 pairs
+lineage max share mean/worst 27.4% / 34%                      46.6% / 66%
+items known worldwide       -                                 82-89 at Y1500, flat over the last centuries
+
+== Per-century detail (from the saves, civ-core/examples/longrun_summary.rs)
+== seed 1 | map 1200x1200 | Y1500 | pop 2168886 bands 117644
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3924   0.004    0.005        0           24          0
+   Y 101-200      58551   0.081    0.020        0           27          0
+   Y 201-300     199390   0.260    0.052        0           32         20
+   Y 301-400     368162   0.314    0.064        2           35        315
+   Y 401-500     592056   0.335    0.150       30           35       5363
+   Y 501-600     901005   0.361    0.241       37           32      17441
+   Y 601-700    1375243   0.360    0.225       34           35      25337
+   Y 701-800    1655478   0.387    0.213       35           40      31705
+   Y 801-900    1819193   0.420    0.254       51           42      44710
+   Y 901-1000   1893557   0.450    0.306       62           43      60697
+   Y1001-1100   1979213   0.458    0.344       70           44      72084
+   Y1101-1200   2131434   0.472    0.376       76           45      84270
+   Y1201-1300   2137539   0.453    0.401       77           44      91743
+   Y1301-1400   2113099   0.442    0.406       77           45      92319
+   Y1401-1500   2168886   0.443    0.408       78           45      93210
+   landfalls on new landmasses: 74 [Y652 Y496 Y518 Y649 Y564 Y280 Y184 Y304 Y194 Y193 Y1389 Y387 Y388 Y1070 Y524 Y600 Y526 Y1310 Y740 Y185 Y1013 Y204 Y468 Y1238 Y926 Y903 Y747 Y594 Y716 Y761 Y404 Y224 Y371 Y490 Y205 Y280 Y250 Y465 Y208 Y1284 Y692 Y419 Y189 Y976 Y892 Y581 Y548 Y616 Y636 Y364 Y467 Y342 Y278 Y1044 Y162 Y202 Y244 Y205 Y488 Y296 Y245 Y577 Y658 Y518 Y418 Y321 Y334 Y335 Y409 Y493 Y686 Y566 Y650 Y772] | crossings 101773 voyages 1640475 lost at sea 160498
+   firsts: fire Y0, fired pottery Y47, dugout canoe Y210, outrigger canoe Y258, plank boat Y550, salt Y251, copper (metal) Y334, tin (metal) Y320, bronze (metal) Y780, iron bloom Y328, wrought iron Y426, sinew-strung bow Y196, carrying frame (plant fibre) Y99, bone beads Y52
+   first herding Y180 plough Y312 epidemic Y258 riding Y425 | riding bands now 105506 (93% of people)
+== seed 2 | map 1200x1200 | Y1500 | pop 1098924 bands 59034
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3893   0.010    0.007        0           22          0
+   Y 101-200      58244   0.163    0.038        0           24          0
+   Y 201-300     186452   0.259    0.052        0           26        103
+   Y 301-400     383788   0.314    0.071        0           26       1041
+   Y 401-500     562397   0.385    0.084        0           27       2918
+   Y 501-600     814816   0.437    0.117       28           29       6704
+   Y 601-700     956576   0.497    0.236       55           29      21067
+   Y 701-800    1008811   0.514    0.320       68           30      34439
+   Y 801-900    1054137   0.456    0.339       75           31      37268
+   Y 901-1000   1046600   0.458    0.354       76           30      39696
+   Y1001-1100   1058811   0.459    0.358       76           31      41099
+   Y1101-1200   1091875   0.461    0.357       76           31      40261
+   Y1201-1300   1079751   0.463    0.359       76           31      41050
+   Y1301-1400   1063484   0.463    0.363       76           32      41354
+   Y1401-1500   1098924   0.464    0.363       75           32      41430
+   landfalls on new landmasses: 39 [Y189 Y468 Y535 Y395 Y517 Y436 Y191 Y303 Y169 Y349 Y195 Y553 Y512 Y256 Y185 Y254 Y318 Y361 Y170 Y176 Y350 Y538 Y162 Y172 Y378 Y338 Y344 Y485 Y491 Y590 Y538 Y189 Y254 Y200 Y242 Y192 Y328 Y450 Y616] | crossings 73837 voyages 913257 lost at sea 90234
+   firsts: fire Y12, fired pottery Y44, dugout canoe Y137, outrigger canoe Y186, plank boat Y377, salt Y82, copper (metal) Y236, tin (metal) Y282, bronze (metal) Y502, iron bloom Y246, wrought iron Y249, sinew-strung bow Y206, carrying frame (plant fibre) Y70, bone beads Y136
+   first herding Y133 plough Y359 epidemic Y230 riding Y297 | riding bands now 53330 (93% of people)
+== seed 3 | map 1200x1200 | Y1500 | pop 2191386 bands 120165
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       4274   0.022    0.014        0           22          0
+   Y 101-200      65638   0.199    0.047        0           24          0
+   Y 201-300     195537   0.328    0.069        0           26        101
+   Y 301-400     410935   0.309    0.064        0           28        539
+   Y 401-500     730247   0.342    0.081        3           27       2789
+   Y 501-600    1199937   0.388    0.123       20           28       9619
+   Y 601-700    1656965   0.399    0.182       28           32      25044
+   Y 701-800    1831686   0.412    0.222       41           34      38639
+   Y 801-900    2044111   0.441    0.291       57           37      59919
+   Y 901-1000   2139576   0.462    0.340       64           39      74922
+   Y1001-1100   2210965   0.474    0.369       72           39      84928
+   Y1101-1200   2278988   0.462    0.383       73           39      90498
+   Y1201-1300   2252862   0.456    0.386       73           39      90969
+   Y1301-1400   2206757   0.460    0.387       73           40      91428
+   Y1401-1500   2191386   0.457    0.386       73           40      91431
+   landfalls on new landmasses: 79 [Y628 Y660 Y410 Y536 Y520 Y678 Y780 Y556 Y598 Y692 Y570 Y569 Y712 Y818 Y540 Y814 Y516 Y647 Y647 Y605 Y651 Y1038 Y688 Y497 Y675 Y677 Y208 Y878 Y606 Y1044 Y648 Y504 Y472 Y486 Y202 Y723 Y626 Y578 Y984 Y759 Y823 Y632 Y707 Y522 Y456 Y450 Y168 Y934 Y650 Y834 Y498 Y563 Y428 Y424 Y201 Y176 Y400 Y659 Y576 Y806 Y676 Y716 Y679 Y654 Y623 Y619 Y606 Y688 Y647 Y551 Y516 Y516 Y469 Y464 Y446 Y389 Y352 Y389 Y244] | crossings 142856 voyages 1637376 lost at sea 161967
+   firsts: fire Y7, fired pottery Y34, dugout canoe Y194, outrigger canoe Y199, plank boat Y388, salt Y311, copper (metal) Y227, tin (metal) Y234, bronze (metal) Y403, iron bloom Y186, wrought iron Y194, sinew-strung bow Y89, carrying frame (plant fibre) Y124, bone beads Y94
+   first herding Y132 plough Y280 epidemic Y211 riding Y304 | riding bands now 105788 (91% of people)
+== seed 4 | map 1200x1200 | Y1500 | pop 2170391 bands 122206
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3796   0.042    0.015        0           21          0
+   Y 101-200      57324   0.200    0.051        0           21          0
+   Y 201-300     238388   0.328    0.078        0           24          5
+   Y 301-400     447352   0.362    0.073        9           26        160
+   Y 401-500     791638   0.341    0.097       37           26       1601
+   Y 501-600    1436705   0.339    0.164       37           24      14654
+   Y 601-700    1847994   0.372    0.203       46           25      32100
+   Y 701-800    2059998   0.362    0.252       61           27      51116
+   Y 801-900    2183077   0.367    0.296       71           29      68089
+   Y 901-1000   2128373   0.370    0.310       73           30      74119
+   Y1001-1100   2205226   0.368    0.312       73           30      74957
+   Y1101-1200   2174515   0.371    0.311       73           29      74711
+   Y1201-1300   2261356   0.366    0.311       74           30      75066
+   Y1301-1400   2201684   0.368    0.314       73           29      76668
+   Y1401-1500   2170391   0.367    0.314       73           29      75825
+   landfalls on new landmasses: 100 [Y490 Y468 Y605 Y754 Y682 Y614 Y883 Y582 Y534 Y300 Y658 Y613 Y540 Y220 Y551 Y567 Y676 Y326 Y182 Y458 Y462 Y284 Y156 Y725 Y542 Y752 Y592 Y798 Y293 Y494 Y568 Y362 Y550 Y346 Y297 Y603 Y627 Y478 Y674 Y661 Y280 Y594 Y260 Y591 Y567 Y592 Y526 Y298 Y610 Y548 Y365 Y683 Y684 Y686 Y617 Y601 Y423 Y286 Y401 Y559 Y391 Y680 Y578 Y562 Y532 Y568 Y889 Y292 Y278 Y600 Y362 Y463 Y791 Y782 Y665 Y710 Y624 Y916 Y890 Y632 Y609 Y629 Y629 Y694 Y692 Y662 Y508 Y336 Y904 Y574 Y364 Y269 Y305 Y602 Y355 Y421 Y379 Y601 Y580 Y592] | crossings 170705 voyages 1827379 lost at sea 190142
+   firsts: fire Y9, fired pottery Y16, dugout canoe Y88, outrigger canoe Y115, plank boat Y327, salt Y106, copper (metal) Y243, tin (metal) Y206, bronze (metal) Y360, iron bloom Y244, wrought iron Y259, sinew-strung bow Y188, carrying frame (plant fibre) Y145, bone beads Y123
+   first herding Y166 plough Y354 epidemic Y277 riding Y396 | riding bands now 98424 (85% of people)
+== seed 5 | map 1200x1200 | Y1500 | pop 3678028 bands 202772
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3570   0.045    0.018        0           26          0
+   Y 101-200      24405   0.109    0.025        0           29          0
+   Y 201-300     136657   0.141    0.029        0           32         27
+   Y 301-400     411585   0.206    0.045        0           37        664
+   Y 401-500     967049   0.287    0.067        3           42       3145
+   Y 501-600    1639935   0.340    0.114       15           50      11996
+   Y 601-700    2078577   0.371    0.147       21           55      26077
+   Y 701-800    2702963   0.410    0.219       46           58      56070
+   Y 801-900    3262142   0.411    0.304       59           62     100925
+   Y 901-1000   3403317   0.411    0.346       65           64     126285
+   Y1001-1100   3559174   0.413    0.366       68           65     138537
+   Y1101-1200   3634117   0.412    0.371       70           65     144774
+   Y1201-1300   3576558   0.412    0.371       73           65     145002
+   Y1301-1400   3656979   0.409    0.379       74           66     151854
+   Y1401-1500   3678028   0.409    0.382       74           66     154638
+   landfalls on new landmasses: 117 [Y438 Y810 Y541 Y917 Y336 Y300 Y558 Y794 Y522 Y996 Y520 Y392 Y874 Y700 Y612 Y711 Y688 Y487 Y808 Y287 Y410 Y687 Y879 Y720 Y790 Y710 Y380 Y834 Y819 Y526 Y781 Y473 Y522 Y391 Y517 Y583 Y415 Y379 Y1216 Y647 Y461 Y1024 Y312 Y794 Y497 Y804 Y588 Y872 Y740 Y680 Y684 Y1128 Y366 Y416 Y862 Y565 Y363 Y365 Y384 Y673 Y972 Y899 Y475 Y705 Y732 Y644 Y889 Y544 Y510 Y773 Y922 Y754 Y864 Y735 Y471 Y859 Y860 Y824 Y602 Y610 Y490 Y395 Y328 Y530 Y434 Y305 Y369 Y385 Y845 Y1030 Y962 Y878 Y908 Y734 Y844 Y778 Y440 Y668 Y599 Y555 Y840 Y622 Y894 Y894 Y914 Y626 Y892 Y565 Y579 Y540 Y390 Y366 Y393 Y362 Y329 Y378 Y384] | crossings 196440 voyages 2379606 lost at sea 239000
+   firsts: fire Y8, fired pottery Y63, dugout canoe Y203, outrigger canoe Y206, plank boat Y387, salt Y230, copper (metal) Y228, tin (metal) Y233, bronze (metal) Y470, iron bloom Y292, wrought iron Y319, sinew-strung bow Y183, carrying frame (plant fibre) Y51, bone beads Y144
+   first herding Y132 plough Y289 epidemic Y250 riding Y363 | riding bands now 175209 (90% of people)
+== seed 6 | map 1200x1200 | Y1500 | pop 1506290 bands 81362
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3077   0.006    0.003        0           22          0
+   Y 101-200      50604   0.107    0.025        0           23          4
+   Y 201-300     145543   0.289    0.068        0           26        428
+   Y 301-400     319686   0.316    0.077        1           33       1888
+   Y 401-500     554127   0.370    0.113       12           34       4681
+   Y 501-600     784099   0.413    0.225       32           31      16040
+   Y 601-700    1007286   0.412    0.255       44           31      22794
+   Y 701-800    1134323   0.410    0.324       63           32      36885
+   Y 801-900    1265419   0.411    0.356       65           32      46226
+   Y 901-1000   1371942   0.409    0.379       70           32      54949
+   Y1001-1100   1389628   0.411    0.387       73           33      57564
+   Y1101-1200   1500506   0.411    0.396       78           33      62025
+   Y1201-1300   1516002   0.411    0.399       77           34      64101
+   Y1301-1400   1506439   0.410    0.402       79           34      65392
+   Y1401-1500   1506290   0.412    0.401       78           33      64464
+   landfalls on new landmasses: 53 [Y814 Y874 Y917 Y861 Y503 Y885 Y378 Y870 Y815 Y862 Y833 Y483 Y674 Y786 Y241 Y1233 Y475 Y388 Y469 Y954 Y948 Y200 Y324 Y300 Y981 Y784 Y756 Y691 Y1005 Y1046 Y1042 Y1130 Y818 Y816 Y784 Y861 Y658 Y855 Y589 Y580 Y899 Y522 Y473 Y596 Y211 Y200 Y574 Y514 Y514 Y208 Y206 Y213 Y315] | crossings 51351 voyages 980792 lost at sea 101238
+   firsts: fire Y15, fired pottery Y49, dugout canoe Y177, outrigger canoe Y214, plank boat Y293, salt Y182, copper (metal) Y202, tin (metal) Y214, bronze (metal) Y409, iron bloom Y179, wrought iron Y207, sinew-strung bow Y152, carrying frame (plant fibre) Y78, bone beads Y100
+   first herding Y104 plough Y283 epidemic Y183 riding Y290 | riding bands now 71845 (92% of people)
+== seed 7 | map 1200x1200 | Y1500 | pop 3559544 bands 189737
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3558   0.061    0.034        0           19          0
+   Y 101-200      47498   0.218    0.056        0           19          0
+   Y 201-300     168350   0.296    0.064        0           20         23
+   Y 301-400     300125   0.329    0.078        5           22        693
+   Y 401-500     555884   0.338    0.115       18           21       4161
+   Y 501-600    1010067   0.358    0.217       30           20      15950
+   Y 601-700    1485732   0.393    0.240       32           25      27861
+   Y 701-800    1660325   0.421    0.258       36           31      37946
+   Y 801-900    1948751   0.426    0.266       43           36      45897
+   Y 901-1000   2216160   0.423    0.273       45           42      55425
+   Y1001-1100   2561969   0.420    0.280       51           46      65995
+   Y1101-1200   2877223   0.438    0.306       63           51      85514
+   Y1201-1300   3122389   0.431    0.336       65           56     105829
+   Y1301-1400   3395633   0.425    0.341       65           60     115514
+   Y1401-1500   3559544   0.429    0.341       65           62     120930
+   landfalls on new landmasses: 136 [Y550 Y1003 Y607 Y1168 Y1454 Y963 Y1371 Y1241 Y391 Y1018 Y1037 Y507 Y694 Y476 Y538 Y147 Y1284 Y1226 Y1090 Y158 Y1196 Y513 Y1481 Y238 Y126 Y1370 Y1381 Y1214 Y1094 Y672 Y1206 Y1330 Y1237 Y404 Y619 Y668 Y218 Y1355 Y1370 Y1374 Y477 Y289 Y1412 Y603 Y1268 Y1233 Y1421 Y1488 Y1216 Y1037 Y646 Y526 Y1192 Y1420 Y354 Y146 Y1370 Y375 Y1144 Y1407 Y902 Y802 Y441 Y577 Y611 Y651 Y608 Y1202 Y1357 Y1358 Y1353 Y1373 Y676 Y1249 Y1166 Y664 Y868 Y1099 Y931 Y446 Y450 Y278 Y616 Y621 Y1197 Y705 Y291 Y1386 Y1384 Y1356 Y1356 Y1358 Y1246 Y1434 Y1438 Y1377 Y1048 Y1360 Y1014 Y896 Y880 Y1259 Y698 Y870 Y605 Y617 Y616 Y614 Y311 Y688 Y1134 Y564 Y744 Y503 Y707 Y727 Y909 Y480 Y1093 Y842 Y559 Y1043 Y1429 Y651 Y664 Y639 Y358 Y782 Y725 Y597 Y580 Y298 Y253 Y317 Y143 Y204] | crossings 185495 voyages 1738466 lost at sea 180424
+   firsts: fire Y15, fired pottery Y38, dugout canoe Y177, outrigger canoe Y231, plank boat Y365, salt Y153, copper (metal) Y204, tin (metal) Y275, bronze (metal) Y486, iron bloom Y251, wrought iron Y274, sinew-strung bow Y188, carrying frame (plant fibre) Y94, bone beads Y123
+   first herding Y170 plough Y283 epidemic Y208 riding Y290 | riding bands now 150503 (81% of people)
+== seed 8 | map 1200x1200 | Y1500 | pop 1852831 bands 100249
+   century   pop(end)  war%/yr  dis%/yr  farmers%  top-lineage%  epidemics
+   Y   1-100       3041   0.050    0.021        0           24          0
+   Y 101-200       5772   0.234    0.055        0           29          0
+   Y 201-300      48954   0.287    0.070        0           56          0
+   Y 301-400     172884   0.323    0.080        0           60          2
+   Y 401-500     343016   0.321    0.070        0           60         66
+   Y 501-600     599286   0.325    0.070        0           59        730
+   Y 601-700     846238   0.352    0.076        2           57       2484
+   Y 701-800    1027979   0.397    0.129       28           58       9992
+   Y 801-900    1203379   0.427    0.285       57           58      34680
+   Y 901-1000   1366740   0.426    0.383       74           58      54278
+   Y1001-1100   1443327   0.432    0.416       77           58      64350
+   Y1101-1200   1547546   0.430    0.413       76           57      65621
+   Y1201-1300   1664412   0.418    0.400       74           56      69065
+   Y1301-1400   1788113   0.394    0.393       75           54      74140
+   Y1401-1500   1852831   0.380    0.381       75           53      76724
+   landfalls on new landmasses: 83 [Y43 Y956 Y393 Y1169 Y1268 Y424 Y659 Y642 Y606 Y754 Y568 Y604 Y380 Y1248 Y1096 Y837 Y764 Y616 Y746 Y1212 Y677 Y1408 Y1270 Y454 Y1135 Y582 Y1155 Y706 Y1235 Y574 Y774 Y810 Y642 Y960 Y1324 Y1399 Y1357 Y722 Y560 Y488 Y98 Y616 Y1242 Y1188 Y1095 Y1180 Y749 Y647 Y1410 Y1264 Y1174 Y1172 Y1197 Y1111 Y620 Y363 Y1454 Y1439 Y1165 Y1389 Y1271 Y1242 Y1200 Y1203 Y1152 Y1178 Y1156 Y1136 Y1133 Y712 Y760 Y560 Y545 Y506 Y457 Y604 Y282 Y742 Y617 Y616 Y1448 Y1454 Y680] | crossings 78372 voyages 900861 lost at sea 105207
+   firsts: fire Y22, fired pottery Y48, dugout canoe Y152, outrigger canoe Y258, plank boat Y542, salt Y348, copper (metal) Y332, tin (metal) Y320, bronze (metal) Y456, iron bloom Y381, wrought iron Y390, sinew-strung bow Y304, carrying frame (plant fibre) Y195, bone beads Y169
+   first herding Y292 plough Y492 epidemic Y372 riding Y515 | riding bands now 86277 (89% of people)
+
+== Long-timescale drift
+- No collapse and no runaway population. Every seed grows fast until about Y800-Y1000 and then
+  levels off; seeds 2, 3, 4 and 6 have been flat for 3-6 centuries, seed 1 is nearly flat, and
+  seeds 5 and 7 are still creeping up (+1-5% per century at the end).
+- Disease roughly triples after farming spreads (about 0.1 to 0.31-0.41%/yr) and is now close to
+  war as a cause of death. Together they take about 0.75-0.85%/yr at the end. This looks like the
+  intended dense-farmer cost, but it is far above anything the 500-year runs showed.
+- War creeps up to the top of the 0.25-0.45 target band: in the last century 4 of 8 seeds sit at
+  0.43-0.46%/yr, and seed 2 peaked at 0.514 (Y701-800).
+- Lineage dominance drifts: seeds 5 and 7 reach 66% and 64% and are still rising slowly at Y1500
+  (seed 7 went from 20% at Y600 to 62%). Seed 8 jumped to 60% by Y300 and is slowly falling (53%).
+  Mean max share is 46.6% against 27.4% in the 500-year runs.
+- Crossings: the headline 6/8 overstates it. Five of the six are landfalls on very small
+  landmasses close to shore that the map counts as continents. Large continents only 27-48 cells
+  away (seed 4 #2, seed 7 #3) were never reached in 1500 years, even with sails from about Y600.
+  Seed 8 reached a big continent 3 cells away in Y43, before its first boat (Y152), which looks
+  like a start next to a narrow strait rather than a voyage, but it still breaks the "none before
+  Y100" rule. Seed 8's Y956 landing on a 103k-cell continent 449 cells away is the one real
+  long-distance crossing.
+- Tech keeps moving but slows: iron and bronze reach all 8 seeds, sails appear everywhere after
+  Y560, riding becomes almost universal. After about Y1000 there are very few new items (world
+  item count 82-89 and flat), and several items are lost and re-found (outrigger canoe and skin
+  boat lost in most seeds after Y1000, as better boats replace them).
