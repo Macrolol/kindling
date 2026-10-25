@@ -194,6 +194,8 @@ pub struct Kit {
     /// seaworthiness of the best boat (0 = none)
     pub boat_q: f32,
     pub protect: f32,
+    /// (v9) quality of the band's best ornament recipe (fine work, for prestige)
+    pub fine: f32,
 }
 impl Default for Kit {
     fn default() -> Self {
@@ -230,6 +232,7 @@ impl Default for Kit {
             smoke: false,
             boat_q: 0.0,
             protect: 0.0,
+            fine: 0.0,
         }
     }
 }
@@ -323,6 +326,8 @@ pub struct Derived {
     /// the toolkit before the current one, with its key and kit
     pub tk_prev: Option<Box<((ItemSet, bool, u32), Toolkit, Kit)>>,
     pub known_ver: u32,
+    /// (v9) recipe qualities changed since the kit was made: rebuild the kit (not the toolkit)
+    pub fin_dirty: bool,
     /// the band's place in this season's harvest order (valid while `World::seen` uses it)
     pub hk: u32,
     pub kit: Kit,
@@ -640,4 +645,34 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     let gq = q(k.garment, &garment_q);
     k.protect = (0.35 * fire + 0.5 * gq + 0.05 * kiln + 0.05 * axe * fire).min(0.92);
     k
+}
+
+/// (v9) Refined recipes make the same tools work better: a well-practised hull rides the sea
+/// better (boat seaworthiness x(1 + `QUALITY_BOAT` x quality), at most 1), and finer spears,
+/// nets, pots and digging sticks bring in a little more (yields x(1 + `QUALITY_YIELD` x
+/// quality)). Quality is that of the recipe that makes the item the kit uses.
+pub const QUALITY_BOAT: f32 = 0.3;
+pub const QUALITY_YIELD: f32 = 0.1;
+/// Better-made clothes and shelter: protection + `QUALITY_PROTECT` x quality (still capped).
+pub const QUALITY_PROTECT: f32 = 0.06;
+
+/// (v9) Apply recipe quality to a kit made by `make_kit` from the same toolkit.
+pub fn refine_kit(k: &mut Kit, tk: &Toolkit, known: &[Known]) {
+    let q = |it: Item| {
+        tk.via(it).and_then(|(i, _, _)| known.get(i as usize)).map(|kn| kn.quality.clamp(0.0, 1.0)).unwrap_or(0.0)
+    };
+    let boat = q(k.boat).max(q(k.outrigger)).max(q(k.plank));
+    if k.boat_q > 0.0 {
+        k.boat_q = (k.boat_q * (1.0 + QUALITY_BOAT * boat)).min(1.0);
+    }
+    let y = |x: f32| 1.0 + QUALITY_YIELD * x;
+    k.game_m *= y(q(k.hunt));
+    k.fish_m *= y(q(k.net).max(q(k.hunt)));
+    k.small_m *= y(q(k.trap).max(q(k.net)));
+    k.plants_m *= y(0.5 * (q(k.vessel) + q(k.dig)));
+    k.farm_m *= y(0.5 * (q(k.dig) + q(k.cut)));
+    if k.garment != NONE {
+        k.protect = (k.protect + QUALITY_PROTECT * q(k.garment)).min(0.92);
+    }
+    k.fine = q(k.ornament);
 }

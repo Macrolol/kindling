@@ -87,6 +87,13 @@ pub struct MotiveSummary {
     /// weddings between bands so far, and fights between in-laws
     pub marriages: u64,
     pub fights_in_law: u64,
+    /// (v9) recipe refinements so far; people-weighted mean recipe quality (mean over each
+    /// band's known recipes); the same per landmass holding 5%+ of people (landmass index,
+    /// quality), most people first; mean boat seaworthiness of bands with boats
+    pub refinements: u64,
+    pub quality_mean: f32,
+    pub quality_by_landmass: Vec<(u16, f32)>,
+    pub boat_q_mean: f32,
 }
 
 fn motive_summary(w: &World) -> MotiveSummary {
@@ -107,11 +114,38 @@ fn motive_summary(w: &World) -> MotiveSummary {
         ambition_overseas: f(&away, |b| b.ambition),
         marriages: w.counters.marriages,
         fights_in_law: w.counters.fights_in_law,
+        refinements: w.counters.refinements,
+        quality_mean: {
+            let (s, n) = w.bands.iter().fold((0.0f64, 0.0f64), |(s, n), b| (s + band_quality(b) as f64 * b.pop as f64, n + b.pop as f64));
+            (s / n.max(1.0)) as f32
+        },
+        quality_by_landmass: {
+            let mut by: std::collections::BTreeMap<u16, (f64, f64)> = Default::default();
+            for b in &w.bands {
+                let e = by.entry(w.map.landmass_of(b.cell(mw))).or_default();
+                e.0 += band_quality(b) as f64 * b.pop as f64;
+                e.1 += b.pop as f64;
+            }
+            let tot: f64 = by.values().map(|e| e.1).sum();
+            let mut v: Vec<(u16, f64, f32)> = by.into_iter().filter(|(_, e)| e.1 >= 0.05 * tot).map(|(l, e)| (l, e.1, (e.0 / e.1.max(1.0)) as f32)).collect();
+            v.sort_by(|a, b| b.1.total_cmp(&a.1));
+            v.into_iter().map(|(l, _, q)| (l, q)).collect()
+        },
+        boat_q_mean: mean(&w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.d.kit.boat_q).collect::<Vec<_>>()),
         explored_pct: {
             let land = (0..w.map.w * w.map.h).filter(|&i| w.map.is_land(i));
             let (n, e) = land.fold((0u32, 0u32), |(n, e), i| (n + 1, e + (w.camped.get(i).copied().unwrap_or(0) > 0) as u32));
             100.0 * e as f32 / n.max(1) as f32
         },
+    }
+}
+
+/// (v9) Mean quality of a band's known recipes (0 when it knows none).
+fn band_quality(b: &crate::band::Band) -> f32 {
+    if b.known.is_empty() {
+        0.0
+    } else {
+        b.known.iter().map(|k| k.quality).sum::<f32>() / b.known.len() as f32
     }
 }
 

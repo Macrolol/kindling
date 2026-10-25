@@ -51,6 +51,10 @@ def parse(path):
             cur['anc_eff'] = float(re.search(r'effective founders ([\d.]+)', line).group(1))
             cur['wed'] = int(re.search(r'(\d+) weddings', line).group(1))
             cur['inlaw'] = int(re.search(r'(\d+) fights between in-laws', line).group(1))
+        elif re.match(r'\s+refinement \(v9\):', line):
+            cur['refine'] = int(re.search(r'(\d+) improvements', line).group(1))
+            cur['quality'] = float(re.search(r'mean recipe quality ([\d.]+)', line).group(1))
+            cur['boatq'] = float(re.search(r'boat seaworthiness ([\d.]+)', line).group(1))
         elif re.match(r'\s+trade:', line):
             f = re.search(r'first: (.*)', line)
             f = f.group(1) if f else ''
@@ -112,6 +116,8 @@ def agg(rows, tau_v=None):
         'top lineage on main landmass % (mean)': round(sum(have('top_lm')) / len(have('top_lm')), 1) if have('top_lm') else '-',
         'ancestry: effective founders / largest % (mean, v9)': (f"{sum(have('anc_eff'))/len(have('anc_eff')):.2f} / {sum(have('anc_top'))/len(have('anc_top')):.1f}" if have('anc_eff') else '-'),
         'weddings / in-law fights (sum, v9)': (f"{sum(have('wed'))} / {sum(have('inlaw'))}" if have('wed') else '-'),
+        'recipe quality / boat seaworthiness (mean, v9)': (f"{sum(have('quality'))/len(have('quality')):.2f} / {sum(have('boatq'))/len(have('boatq')):.2f}" if have('quality') else '-'),
+        'refinements (mean, v9)': (round(sum(have('refine')) / len(have('refine'))) if have('refine') else '-'),
         'items now (mean)': round(mean('items'), 1),
         'discovery-order tau': tau_v if tau_v is not None else '-',
         'voyages / landings': f"{sum(r['voy'] for r in rows)} / {sum(r['land'] for r in rows)}",

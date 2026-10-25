@@ -129,6 +129,11 @@ pub fn run(a: &Args) {
                 "    motives (v9): splits {} ({} after dissent) | dissent mean {:.2} | curiosity {:.2} (overseas {:.2}) | ambition {:+.2} (overseas {:+.2}, {} bands) | land ever camped {:.0}%",
                 mo.splits, mo.dissent_splits, mo.dissent_mean, mo.curiosity_mean, mo.curiosity_overseas, mo.ambition_mean, mo.ambition_overseas, mo.overseas_bands, mo.explored_pct
             );
+            let ql: Vec<String> = mo.quality_by_landmass.iter().map(|(l, q)| format!("#{l} {q:.2}")).collect();
+            println!(
+                "    refinement (v9): {} improvements | mean recipe quality {:.2} (by landmass: {}) | boat seaworthiness {:.2}",
+                mo.refinements, mo.quality_mean, ql.join(", "), mo.boat_q_mean
+            );
             let t = &s.trade;
             let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
             println!(

@@ -4,7 +4,7 @@
 //! stress) -> births / deaths -> practice / forgetting -> fire keeping -> experiments (invention) ->
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
-use crate::band::{make_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
+use crate::band::{make_kit, refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -77,6 +77,21 @@ pub const MARRIAGE_TIE: f32 = 0.25;
 pub const MARRIAGE_FADE: f32 = 0.95;
 pub const MARRIAGE_FORGIVE: f32 = 0.5;
 pub const MARRIAGE_PEACE: f32 = 0.5;
+/// (v9) Play and refinement: each season a band makes Poisson(`REFINE_RATE` x curiosity x
+/// (0.1 + spare labour) x sqrt(pop / 25)) attempts to improve a recipe it used, each raising
+/// that recipe's quality by `REFINE_STEP` of the way to its skill (diminishing returns; a recipe
+/// is never done better than it is known). Quality fades x(1 - `QUALITY_FADE` x the forgetting
+/// rate) a season, so small bands lose finesse first. Learners take `QUALITY_TEACH` of the
+/// teacher's quality with a new recipe; at a meeting a band may also pick up some of a better
+/// way to make something it already makes (`QUALITY_SHOW_P`, closing `QUALITY_SHOW` of the gap).
+/// Daughters keep `QUALITY_SPLIT` of it.
+pub const REFINE_RATE: f32 = 2.0;
+pub const REFINE_STEP: f32 = 0.15;
+pub const QUALITY_FADE: f32 = 0.5;
+pub const QUALITY_TEACH: f32 = 0.5;
+pub const QUALITY_SHOW_P: f32 = 0.3;
+pub const QUALITY_SHOW: f32 = 0.3;
+pub const QUALITY_SPLIT: f32 = 0.9;
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -280,6 +295,8 @@ pub struct Counters {
     /// (v9) weddings between bands (each an exchange of spouses), and fights between in-laws
     pub marriages: u64,
     pub fights_in_law: u64,
+    /// (v9) recipes made better by play and practice (`World::refine`)
+    pub refinements: u64,
     pub deaths: u64,
     /// band moves and daughter settlements made across open water
     pub voyages: u64,
@@ -1087,7 +1104,17 @@ impl World {
     fn refresh_toolkit(&self, b: &mut Band) {
         let raws = self.raws_at(b);
         let key = (raws, b.flame, b.d.known_ver);
+        if b.d.fin_dirty {
+            // (v9) the cached spare kit was made with older recipe qualities
+            b.d.tk_prev = None;
+        }
         if b.d.tk_key == Some(key) {
+            if b.d.fin_dirty {
+                let mut kit = make_kit(&b.d.tk.avail);
+                refine_kit(&mut kit, &b.d.tk, &b.known);
+                b.d.kit = kit;
+                b.d.fin_dirty = false;
+            }
             return;
         }
         // a two-entry cache: a band's toolkit tends to flip between two states within and
@@ -1106,7 +1133,9 @@ impl World {
         }
         {
             let tk = closure(&self.reg, &b.known, &raws, b.flame);
-            let kit = make_kit(&tk.avail);
+            let mut kit = make_kit(&tk.avail);
+            refine_kit(&mut kit, &tk, &b.known);
+            b.d.fin_dirty = false;
             let old_tk = std::mem::replace(&mut b.d.tk, tk);
             let old_kit = std::mem::replace(&mut b.d.kit, kit);
             b.d.tk_prev = match b.d.tk_key {
@@ -1446,6 +1475,8 @@ impl World {
                 self.experiment(b, rng, dry_s, &att, fx);
             }
         }
+        // ---------------- (v9) play and refinement of what the band already makes
+        Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
             *c = 1.0 + (*c - 1.0) * 0.998;
@@ -1461,6 +1492,9 @@ impl World {
                 k.skill += p.practice * (1.0 - k.skill);
             } else {
                 k.skill -= floss;
+            }
+            if k.quality > 0.0 {
+                k.quality = (k.quality * (1.0 - QUALITY_FADE * floss)).min(k.skill.max(0.0));
             }
             if k.skill < 0.04 {
                 forgot.push(k.recipe);
@@ -2119,7 +2153,7 @@ impl World {
             .known
             .iter()
             .filter(|kn| rng.chance(0.3 + 0.6 * kn.skill))
-            .map(|kn| Known { skill: kn.skill * 0.8, from: FROM_PARENT, since: self.tick, ..*kn })
+            .map(|kn| Known { skill: kn.skill * 0.8, quality: kn.quality * QUALITY_SPLIT, from: FROM_PARENT, since: self.tick, ..*kn })
             .collect();
         let nb = Band {
             id,
@@ -2517,6 +2551,47 @@ impl World {
         self.trade(bands, a, c, d, rng, fx);
     }
 
+    /// (v9) Play and refinement: `lam` expected attempts this season, each improving one recipe
+    /// the band used.
+    fn refine(b: &mut Band, lam: f32, rng: &mut Rng, fx: &mut Fx) {
+        let n = rng.poisson(lam).min(4);
+        if n == 0 {
+            return;
+        }
+        let used: Vec<usize> = (0..b.known.len()).filter(|&i| b.known[i].used).collect();
+        if used.is_empty() {
+            return;
+        }
+        for _ in 0..n {
+            let k = &mut b.known[used[rng.below(used.len())]];
+            let room = k.skill - k.quality;
+            if room > 0.01 {
+                k.quality += REFINE_STEP * room;
+                b.d.fin_dirty = true;
+                fx.counters.refinements += 1;
+            }
+        }
+    }
+
+    /// (v9) At a meeting, `dst` may see `src` make something better than it does.
+    fn show_quality(bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng) {
+        let s = &bands[src];
+        if s.known.is_empty() || !rng.chance(QUALITY_SHOW_P) {
+            return;
+        }
+        let kn = s.known[rng.below(s.known.len())];
+        if kn.quality < 0.05 {
+            return;
+        }
+        let d = &mut bands[dst];
+        if let Some(k) = d.known.iter_mut().find(|k| k.recipe == kn.recipe) {
+            if kn.quality > k.quality {
+                k.quality = (k.quality + QUALITY_SHOW * (kn.quality - k.quality)).min(k.skill);
+                d.d.fin_dirty = true;
+            }
+        }
+    }
+
     /// (v9) Two bands at peace may exchange spouses: a few people move each way (numbers are
     /// unchanged), mixing ancestry and tying the bands together.
     fn marry(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
@@ -2700,6 +2775,8 @@ impl World {
                 bands[dst].far_shore_year = bands[src].far_shore_year;
             }
         }
+        // (v9) watching a better craftsman: some of a finer way to make what dst already makes
+        Self::show_quality(bands, src, dst, rng);
         // a 1024-bit filter of the recipes dst knows: a clear bit means "not known" without the
         // linear `knows` scan (which was ~5% of a run); a set bit falls back to the exact scan
         let mut dk = [0u64; 16];
@@ -2711,7 +2788,7 @@ impl World {
             let h = (r & 1023) as usize;
             dk[h >> 6] & (1 << (h & 63)) != 0
         };
-        let cands: Vec<(u32, f32)> = bands[src]
+        let cands: Vec<(u32, f32, f32)> = bands[src]
             .known
             .iter()
             .filter(|k| k.skill >= 0.25)
@@ -2719,12 +2796,12 @@ impl World {
                 let out = self.reg.recipes[k.recipe as usize].output;
                 !bands[dst].d.tk.producible.has(out) && !(maybe_known(k.recipe) && bands[dst].knows(k.recipe))
             })
-            .map(|k| (k.recipe, k.skill))
+            .map(|k| (k.recipe, k.skill, k.quality))
             .collect();
         if cands.is_empty() {
             return;
         }
-        let (rid, skill) = cands[rng.below(cands.len())];
+        let (rid, skill, tq) = cands[rng.below(cands.len())];
         let r = &self.reg.recipes[rid as usize];
         let relevant = r.inputs.iter().all(|&i| bands[dst].d.tk.avail.has(i));
         let pl = skill * if relevant { 0.8 } else { 0.25 };
@@ -2735,7 +2812,7 @@ impl World {
         let srcid = bands[src].id;
         let d = &mut bands[dst];
         Self::reinforce_craft(d, &self.reg.recipes[rid as usize], 1.06);
-        d.known.push(Known { recipe: rid, skill: 0.3, since: self.tick, from: srcid, kin: false, used: true });
+        d.known.push(Known { recipe: rid, skill: 0.3, quality: (QUALITY_TEACH * tq).min(0.3), since: self.tick, from: srcid, kin: false, used: true });
         d.d.known_ver += 1;
         d.learned += 1;
         let (did, dc) = (d.id, d.cell(self.map.w) as u32);
@@ -2822,7 +2899,7 @@ impl World {
                 .iter()
                 .filter_map(|kn| {
                     if rng.chance(0.55 + 0.45 * kn.skill) {
-                        Some(Known { skill: kn.skill * 0.9, from: FROM_PARENT, since: self.tick, ..*kn })
+                        Some(Known { skill: kn.skill * 0.9, quality: kn.quality * QUALITY_SPLIT, from: FROM_PARENT, since: self.tick, ..*kn })
                     } else {
                         None
                     }
@@ -2941,7 +3018,7 @@ impl World {
                 tb.pop += pop;
                 for kn in moved {
                     if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.6) {
-                        tb.known.push(Known { skill: kn.skill * 0.7, from: id, since: self.tick, kin: false, ..kn });
+                        tb.known.push(Known { skill: kn.skill * 0.7, quality: kn.quality * QUALITY_TEACH, from: id, since: self.tick, kin: false, ..kn });
                         tb.d.known_ver += 1;
                     }
                 }

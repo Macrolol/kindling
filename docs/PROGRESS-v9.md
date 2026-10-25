@@ -188,3 +188,30 @@ names (effective founders 5.08 vs 4.90 lineages; largest founder 28.3 % vs 31.4 
 weddings at ~3 % of the smaller band they do not undo the step-5 rise in lineage dominance.
 In-law fights are rare (1900 against ~62000 fights), so marriage alliances do keep the peace
 between the bands they join.
+
+## Step 7 (P6): play and refinement (a quality axis)
+
+- `Known::quality` (0..skill; 0 = the plain recipe, also for older saves and new inventions).
+- `World::refine`, after the season's experiments: Poisson(`REFINE_RATE` 2 x curiosity x
+  (0.1 + spare labour) x sqrt(pop / 25)) attempts (at most 4), each lifting a recipe the band
+  used this season by `REFINE_STEP` 0.15 of the way to its skill: diminishing returns, and never
+  better than the recipe is known. Quality fades x(1 - `QUALITY_FADE` 0.5 x forgetting rate) a
+  season, so small bands lose finesse first.
+- Spread: a taught recipe arrives with `QUALITY_TEACH` 0.5 of the teacher's quality (max 0.3);
+  absorbed bands and captives likewise; at a meeting a band may see a better way to make
+  something it already makes (`QUALITY_SHOW_P` 0.3, closing `QUALITY_SHOW` 0.3 of the gap);
+  daughters keep `QUALITY_SPLIT` 0.9.
+- Effects (`band::refine_kit`, using the recipe behind each kit item): boat seaworthiness
+  x(1 + `QUALITY_BOAT` 0.3 q) (max 1), yields x(1 + `QUALITY_YIELD` 0.1 q) for the hunting,
+  fishing, trapping, gathering and field tools, protection + `QUALITY_PROTECT` 0.06 q;
+  `Kit::fine` is the ornament recipe's quality (for P7). Weapons are untouched (war balance).
+- Kit cache: quality changes set `Derived::fin_dirty`, which rebuilds only the kit (not the
+  toolkit closure) at the next refresh and drops the stale spare kit.
+- Measurement: `refinement (v9)` line (improvements, people-weighted mean recipe quality, the
+  same per landmass, mean boat seaworthiness). Test `refined_recipes_make_better_kits`.
+- Saves: additive (`known[].quality`, `counters.refinements`).
+- Not done: a per-century "improvement events" series (only the total is kept); new items from a
+  physics content pass (separate, content work).
+- Local seed 1 x 500y: pop 114458 (116286); crossings #2 Y127 (gap 3), #3 Y184 (gap 5); war
+  0.348 %/yr; disease 0.068; items 68; mean recipe quality 0.36 (landmasses 0.33-0.36); boat
+  seaworthiness 0.99; 4.36 M refinements; effective lineages 4.55 (largest 36 %); 50.7 s.

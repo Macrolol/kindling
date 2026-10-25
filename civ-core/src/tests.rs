@@ -796,3 +796,23 @@ fn ancestry_mixes_and_stays_normalised() {
     c.mix_ancestry(&[(5, 1.0)], 0.5);
     assert!(c.ancestry.is_empty());
 }
+
+#[test]
+fn refined_recipes_make_better_kits() {
+    let mut w = small();
+    for _ in 0..200 {
+        w.step();
+    }
+    w.refresh_all_toolkits();
+    let before: Vec<f32> = w.bands.iter().map(|b| b.d.kit.game_m * b.d.kit.plants_m).collect();
+    for b in &mut w.bands {
+        for k in &mut b.known {
+            k.quality = k.skill;
+        }
+        b.d.fin_dirty = true;
+    }
+    w.refresh_all_toolkits();
+    let after: Vec<f32> = w.bands.iter().map(|b| b.d.kit.game_m * b.d.kit.plants_m).collect();
+    assert!(before.iter().zip(&after).all(|(a, b)| b >= a));
+    assert!(before.iter().zip(&after).any(|(a, b)| b > a));
+}

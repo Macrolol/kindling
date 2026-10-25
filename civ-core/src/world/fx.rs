@@ -89,7 +89,7 @@ pub(crate) fn add_counters(a: &mut Counters, b: &Counters) {
         crossings, pairs_seen, meetings, confrontations, avoided, tributes, fled, fights, conflict_deaths,
         displaced, fled_by_sea, absorbed, captives, farm_starts, farm_origins, took_up_farming,
         abandoned_farming, herds_started, herds_lost, epidemics, disease_deaths, dissent_splits, marriages,
-        fights_in_law);
+        fights_in_law, refinements);
     a.max_fight_deaths = a.max_fight_deaths.max(b.max_fight_deaths);
 }
 
@@ -141,7 +141,7 @@ impl World {
                     }
                     self.reg.recipes[rid as usize].inventions += 1;
                     Self::reinforce_craft(b, &self.reg.recipes[rid as usize], 1.35);
-                    b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, kin: true, used: true });
+                    b.known.push(Known { recipe: rid, skill: 0.35, since: self.tick, from: FROM_SELF, kin: true, used: true, ..Default::default() });
                     b.d.known_ver += 1;
                     b.inventions += 1;
                     self.counters.inventions += 1;

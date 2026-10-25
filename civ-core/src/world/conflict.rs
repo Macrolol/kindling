@@ -238,7 +238,7 @@ impl World {
         let tb = &mut bands[to];
         for kn in moved {
             if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.5 * share) {
-                tb.known.push(Known { skill: kn.skill * 0.6, from: fid, since: tick, kin: false, ..kn });
+                tb.known.push(Known { skill: kn.skill * 0.6, quality: kn.quality * super::QUALITY_TEACH, from: fid, since: tick, kin: false, ..kn });
                 tb.d.known_ver += 1;
                 fx.counters.transfers += 1;
                 fx.acc.transfers += 1;

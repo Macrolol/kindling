@@ -159,6 +159,10 @@ pub struct Known {
     /// found by this band or an ancestor (kept through splits, false when taught by others);
     /// added in save format v3
     pub kin: bool,
+    /// (v9) how refined the band's way of doing it is, 0..`skill`: grows with play and practice
+    /// (`World::refine`), passes partly to learners and daughters, and fades in small bands.
+    /// 0 (older saves, new inventions) = the plain recipe.
+    pub quality: f32,
     #[serde(skip)]
     pub used: bool,
 }
