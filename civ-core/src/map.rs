@@ -264,8 +264,54 @@ impl Map {
             self.landmass_size[rank + 1] = sizes[k as usize];
         }
     }
-    /// Landmasses big enough to call continents (cells).
+    /// Smallest landmass ever called a continent (cells); see `continent_cells`.
     pub const CONTINENT_CELLS: u32 = 400;
+    /// Landmasses big enough to call continents on this map: at least `CONTINENT_CELLS`, and at
+    /// least 1% of all land, so a 500-cell island off a 1200x1200 map's coast is an island, not
+    /// a second continent (v9). On the standard 256x160 map this is the old 400.
+    pub fn continent_cells(&self) -> u32 {
+        let land: u32 = self.landmass_size.iter().skip(1).sum();
+        Self::CONTINENT_CELLS.max(land / 100)
+    }
+    /// Fewest open-water cells to cross (8-connected) from any landmass for which `from(l)` is
+    /// true to each landmass, indexed by landmass id: `Some(0)` for the `from` landmasses
+    /// themselves, `None` where no sea path exists. One breadth-first pass over the sea.
+    pub fn sea_gaps(&self, from: impl Fn(usize) -> bool) -> Vec<Option<u32>> {
+        let (w, h) = (self.w, self.h);
+        let nl = self.landmass_size.len();
+        let mut gap = vec![None::<u32>; nl];
+        let n = w * h;
+        let mut dist = vec![u32::MAX; n];
+        let mut q = std::collections::VecDeque::new();
+        for i in 0..n {
+            let l = self.landmass_of(i) as usize;
+            if l > 0 && l < nl && from(l) {
+                dist[i] = 0;
+                gap[l] = Some(0);
+                q.push_back(i);
+            }
+        }
+        while let Some(i) = q.pop_front() {
+            for (nx, ny) in nbrs8(i % w, i / w, w, h) {
+                let j = ny * w + nx;
+                if dist[j] != u32::MAX {
+                    continue;
+                }
+                let l = self.landmass_of(j) as usize;
+                if l == 0 {
+                    dist[j] = dist[i] + 1;
+                    q.push_back(j);
+                } else if l < nl && gap[l].is_none() {
+                    gap[l] = Some(dist[i]);
+                }
+            }
+        }
+        gap
+    }
+    /// Is landmass `l` a continent on this map?
+    pub fn is_continent(&self, l: usize) -> bool {
+        l > 0 && self.landmass_size.get(l).copied().unwrap_or(0) >= self.continent_cells()
+    }
     /// Derived layers that stage-1 (gen 1) maps lack: small-game capacity and offshore fish on
     /// the continental shelf. Deterministic from the saved map, so old saves gain them on load.
     pub fn upgrade_legacy(&mut self) {

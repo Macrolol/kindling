@@ -545,6 +545,41 @@ fn v7_0_fixture_gains_new_materials_in_place() {
     assert!(w.total_pop() > pop / 2);
 }
 
+/// A v0.8.0 save (format 8, written by the release code at 4d301dc: `--seed 4 --years 150
+/// --map 96x60`). It must keep loading, by the binary and the JSON route alike, with the same
+/// bands, and keep running. Its landfalls predate the v9 boat/foot record, so the analysis
+/// reports how they were reached as unknown.
+#[test]
+fn v8_0_fixture_loads_and_runs() {
+    use std::io::Read;
+    let bytes = include_bytes!("../tests/fixtures/v8_0_seed4_y150_96x60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v8.0 save loads");
+    assert_eq!(info.format_version, 8);
+    assert!(info.migrated_from.is_none() || info.migrated_from == Some(8));
+    assert_eq!(w.year(), 150.0);
+    let mut raw = Vec::new();
+    flate2::read::DeflateDecoder::new(&bytes[8..]).read_to_end(&mut raw).unwrap();
+    let env: serde_json::Value = rmp_serde::from_slice(&raw).unwrap();
+    let old = env["payload"]["world"]["bands"].as_array().unwrap();
+    assert_eq!(old.len(), w.bands.len());
+    assert!(w.landfalls.is_empty());
+    let json = serde_json::to_string(&env).unwrap();
+    let (wj, _, _) = World::load_bytes(json.as_bytes()).expect("v8.0 save as JSON loads");
+    assert_eq!(wj.bands.len(), w.bands.len());
+    for (a, b) in wj.bands.iter().zip(&w.bands) {
+        assert_eq!((a.id, a.pop, a.x, a.y, a.lineage), (b.id, b.pop, b.x, b.y, b.lineage));
+        assert_eq!(a.far_shore, b.far_shore);
+        assert_eq!(a.known.len(), b.known.len());
+    }
+    let s = crate::analysis::summarize(&w);
+    assert!(s.continents.iter().all(|c| c.by_sea.is_none()));
+    let pop = w.total_pop();
+    for _ in 0..20 {
+        w.step();
+    }
+    assert!(w.total_pop() > pop / 2);
+}
+
 /// Terrain effort (v8 step 2): never below the cell distance, equal to it on flat ground, more
 /// over mountains; a boat makes a shared river cheaper but never cheaper than one step.
 #[test]
@@ -678,3 +713,22 @@ fn riding_counts_only_with_a_herd_on_open_land() {
     assert_eq!(at(open, 0.0, 0.5), 0.0);
 }
 
+
+/// (v9) Measurement helpers: the effective number of lineages, and open-water gaps between
+/// landmasses (0 for the source itself, more than 0 for any other landmass it can reach).
+#[test]
+fn effective_number_and_sea_gaps() {
+    use crate::analysis::effective_number;
+    assert_eq!(effective_number([10u64, 10, 10].into_iter()), 3.0);
+    assert_eq!(effective_number([7u64].into_iter()), 1.0);
+    assert_eq!(effective_number(std::iter::empty()), 0.0);
+    let e = effective_number([90u64, 10].into_iter());
+    assert!((e - 1.0 / (0.81 + 0.01)).abs() < 1e-5);
+    let w = World::new(Config { seed: 4, map_w: 160, map_h: 100, ..Default::default() }, Params::default());
+    let m = &w.map;
+    let g = m.sea_gaps(|l| l == 1);
+    assert_eq!(g.len(), m.landmass_size.len());
+    assert_eq!(g[1], Some(0));
+    assert!(g.iter().skip(2).all(|x| x.map_or(true, |d| d >= 1)));
+    assert!(m.continent_cells() >= crate::map::Map::CONTINENT_CELLS);
+}

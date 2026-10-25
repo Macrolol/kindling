@@ -2,6 +2,7 @@
 use crate::materials::*;
 use crate::world::World;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ItemSummary {
@@ -53,7 +54,7 @@ pub struct Summary {
     pub origin: String,
     /// span of occupied land (bounding box cells)
     pub range_cells: u32,
-    /// continents (landmasses >= Map::CONTINENT_CELLS cells) in this world, largest first
+    /// continents (landmasses of at least `Map::continent_cells` cells) in this world, largest first
     pub continents: Vec<LandmassSummary>,
     /// smaller islands: how many exist, how many were ever reached
     pub islands: u32,
@@ -62,6 +63,45 @@ pub struct Summary {
     pub biome_pct: Vec<(String, f32)>,
     pub trade: TradeSummary,
     pub farming: FarmSummary,
+    /// (v9) founding lineages: how many survive, how concentrated, and per landmass
+    pub lineages: LineageSummary,
+}
+
+/// (v9) Lineage concentration. `lineage` is a founder label passed down unchanged (like a
+/// surname), so the top share says which founder's line spread, not who anyone descends from.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LineageSummary {
+    pub alive: u32,
+    /// largest lineage's share of all people (%)
+    pub top_pct: f32,
+    /// effective number of lineages, 1/sum(share^2)
+    pub effective: f32,
+    /// landmasses holding at least 2% of people, most people first
+    pub by_landmass: Vec<LandmassLineages>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LandmassLineages {
+    pub landmass: u32,
+    pub pop: u32,
+    pub top_lineage: u32,
+    pub top_pct: f32,
+    pub effective: f32,
+}
+
+/// Effective number of kinds, 1/sum(share^2), from the count of each kind (0 when empty).
+/// Exact integer sums, so the result does not depend on iteration order.
+pub fn effective_number(counts: impl Iterator<Item = u64>) -> f32 {
+    let (mut t, mut s2) = (0u128, 0u128);
+    for c in counts {
+        t += c as u128;
+        s2 += c as u128 * c as u128;
+    }
+    if s2 == 0 {
+        0.0
+    } else {
+        (t as f64 * t as f64 / s2 as f64) as f32
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -146,6 +186,20 @@ pub struct LandmassSummary {
     /// fewest sea cells to cross from the landmass people started on (0 = that landmass)
     #[serde(default)]
     pub gap: Option<u32>,
+    /// (v9) how people first came: Some(true) over water, Some(false) on foot, None = never
+    /// reached, a homeland, or a save from before v9
+    pub by_sea: Option<bool>,
+    /// (v9) fewest sea cells from land already settled when people first arrived
+    pub gap_settled: Option<u32>,
+    /// (v9) landmass the first arrivals put to sea from (0 = on foot or unknown)
+    pub from: u32,
+}
+
+impl LandmassSummary {
+    /// Reached over open water after the start (a real crossing, not a walk over a strait).
+    pub fn crossed(&self) -> bool {
+        self.landfall_year.is_some() && self.by_sea == Some(true)
+    }
 }
 
 pub const STAGES: [&str; 8] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze", "iron"];
@@ -287,49 +341,25 @@ pub fn summarize(w: &World) -> Summary {
     let lf = |l: usize| w.landfall.get(l).copied().filter(|&t| t != u32::MAX).map(|t| t as f32 / 4.0);
     // sea gaps from the home landmass (breadth-first over sea cells, 8-connected)
     let home = w.landfall.iter().position(|&t| t == 0).unwrap_or(1);
-    let mut gap = vec![None::<u32>; nl];
-    {
-        let n = mw * m.h;
-        let mut dist = vec![u32::MAX; n];
-        let mut q = std::collections::VecDeque::new();
-        for i in 0..n {
-            if m.landmass_of(i) as usize == home {
-                dist[i] = 0;
-                q.push_back(i);
-            }
-        }
-        if home < nl {
-            gap[home] = Some(0);
-        }
-        while let Some(i) = q.pop_front() {
-            let (x, y) = ((i % mw) as i32, (i / mw) as i32);
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    let (nx, ny) = (x + dx, y + dy);
-                    if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= mw as i32 || ny >= m.h as i32 {
-                        continue;
-                    }
-                    let j = ny as usize * mw + nx as usize;
-                    if dist[j] != u32::MAX {
-                        continue;
-                    }
-                    let l = m.landmass_of(j) as usize;
-                    if l == 0 {
-                        dist[j] = dist[i] + 1;
-                        q.push_back(j);
-                    } else if l < nl && gap[l].is_none() {
-                        gap[l] = Some(dist[i]);
-                    }
-                }
-            }
-        }
-    }
+    let gap = m.sea_gaps(|l| l == home);
+    let rec = |l: usize| w.landfalls.iter().find(|r| r.landmass as usize == l);
+    let cont_min = m.continent_cells();
     let mut continents = Vec::new();
     let (mut islands, mut islands_reached) = (0u32, 0u32);
     for l in 1..nl {
         let sz = m.landmass_size[l];
-        if sz >= crate::map::Map::CONTINENT_CELLS {
-            continents.push(LandmassSummary { id: l as u32, cells: sz, landfall_year: lf(l), pop_now: lpop[l], gap: gap[l] });
+        if sz >= cont_min {
+            let r = rec(l);
+            continents.push(LandmassSummary {
+                id: l as u32,
+                cells: sz,
+                landfall_year: lf(l),
+                pop_now: lpop[l],
+                gap: gap.get(l).copied().flatten(),
+                by_sea: r.map(|r| r.by_sea),
+                gap_settled: r.map(|r| r.gap).filter(|&g| g != u32::MAX),
+                from: r.map(|r| r.from as u32).unwrap_or(0),
+            });
         } else {
             islands += 1;
             if lf(l).is_some() {
@@ -419,6 +449,34 @@ pub fn summarize(w: &World) -> Summary {
         }
         farming.peak_farm_food_share = w.history.iter().map(|h| h.farm_food_share).fold(0.0, f32::max);
     }
+    let lineages = {
+        let mut all: BTreeMap<u32, u64> = BTreeMap::new();
+        let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
+        for b in &w.bands {
+            *all.entry(b.lineage).or_default() += b.pop as u64;
+            *per.entry(m.landmass_of(b.cell(mw))).or_default().entry(b.lineage).or_default() += b.pop as u64;
+        }
+        let tot: u64 = all.values().sum();
+        let top_of = |v: &BTreeMap<u32, u64>| v.iter().max_by_key(|(&k, &p)| (p, std::cmp::Reverse(k))).map(|(&k, &p)| (k, p)).unwrap_or((0, 0));
+        let mut by_landmass: Vec<LandmassLineages> = per
+            .iter()
+            .filter_map(|(&l, v)| {
+                let lp: u64 = v.values().sum();
+                if lp == 0 || lp * 50 < tot {
+                    return None;
+                }
+                let (k, p) = top_of(v);
+                Some(LandmassLineages { landmass: l as u32, pop: lp as u32, top_lineage: k, top_pct: 100.0 * p as f32 / lp as f32, effective: effective_number(v.values().copied()) })
+            })
+            .collect();
+        by_landmass.sort_by_key(|x| std::cmp::Reverse(x.pop));
+        LineageSummary {
+            alive: all.len() as u32,
+            top_pct: if tot > 0 { 100.0 * top_of(&all).1 as f32 / tot as f32 } else { 0.0 },
+            effective: effective_number(all.values().copied()),
+            by_landmass,
+        }
+    };
     let biome_pct = bc.into_iter().map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32)).collect();
     Summary {
         seed: w.cfg.seed,
@@ -477,6 +535,7 @@ pub fn summarize(w: &World) -> Summary {
         biome_pct,
         trade,
         farming,
+        lineages,
     }
 }
 

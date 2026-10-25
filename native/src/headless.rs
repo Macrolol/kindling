@@ -81,7 +81,15 @@ pub fn run(a: &Args) {
                 .continents
                 .iter()
                 .map(|c| match c.landfall_year {
-                    Some(y) => format!("#{} {}c gap {} Y{:.0} pop {}", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into()), y, c.pop_now),
+                    Some(y) => format!(
+                        "#{} {}c gap {} Y{:.0} pop {}{}",
+                        c.id,
+                        c.cells,
+                        c.gap.map(|g| g.to_string()).unwrap_or("-".into()),
+                        y,
+                        c.pop_now,
+                        how_reached(c)
+                    ),
                     None => format!("#{} {}c gap {} never", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into())),
                 })
                 .collect();
@@ -101,6 +109,13 @@ pub fn run(a: &Args) {
                 q.voyages, q.sightings, q.drifts, q.drift_landings, q.drift_returns, q.scouting, q.scout_finds, q.scouts_lost, q.crossings, q.sea_disasters, q.lost_at_sea,
                 q.lost_at_sea as f32 / q.crossings.max(1) as f32, q.bands_with_boats, q.seacraft_mean
             );
+            let l = &s.lineages;
+            let bl: Vec<String> = l
+                .by_landmass
+                .iter()
+                .map(|x| format!("#{} {} people: top L{} {:.0}%, eff {:.1}", x.landmass, x.pop, x.top_lineage, x.top_pct, x.effective))
+                .collect();
+            println!("    lineages: alive {} | largest {:.0}% | effective {:.2} | by landmass: {}", l.alive, l.top_pct, l.effective, bl.join("; "));
             let t = &s.trade;
             let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
             println!(
@@ -184,6 +199,33 @@ pub fn run(a: &Args) {
         let possible = sums.iter().filter(|s| s.continents.len() >= 2).count();
         println!("  settled a second continent: {multi}/{} seeds ({possible} have more than one) | {}", sums.len(), ls.join(", "));
         {
+            // (v9) only boat-borne landfalls count as crossings; walks over straits are listed apart
+            fn first(s: &Summary, sea: bool) -> Option<&civ_core::analysis::LandmassSummary> {
+                s.continents
+                    .iter()
+                    .filter(|c| c.landfall_year.map_or(false, |y| y > 0.0) && (c.by_sea == Some(true)) == sea && c.by_sea.is_some())
+                    .min_by(|a, b| a.landfall_year.partial_cmp(&b.landfall_year).unwrap())
+            }
+            let fmt = |s: &Summary, c: &civ_core::analysis::LandmassSummary| {
+                format!("s{} Y{:.0} (gap {})", s.seed, c.landfall_year.unwrap_or(0.0), c.gap_settled.map(|g| g.to_string()).unwrap_or("-".into()))
+            };
+            let boat: Vec<String> = sums.iter().filter_map(|s| first(s, true).map(|c| fmt(s, c))).collect();
+            let foot: Vec<String> = sums.iter().filter_map(|s| first(s, false).map(|c| fmt(s, c))).collect();
+            let total: usize = sums.iter().map(|s| s.continents.iter().filter(|c| c.crossed() && c.landfall_year.map_or(false, |y| y > 0.0)).count()).sum();
+            let early: Vec<String> = sums
+                .iter()
+                .filter_map(|s| first(s, true).filter(|c| c.landfall_year.unwrap_or(0.0) < 100.0).map(|c| fmt(s, c)))
+                .collect();
+            println!(
+                "  boat-borne crossings to another continent: {}/{} seeds, {total} continents in all | first per seed: {} | before Y100: {} | reached on foot: {}",
+                boat.len(),
+                sums.len(),
+                if boat.is_empty() { "none".to_string() } else { boat.join(", ") },
+                if early.is_empty() { "none".to_string() } else { early.join(", ") },
+                if foot.is_empty() { "none".to_string() } else { foot.join(", ") }
+            );
+        }
+        {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();
             let land: u64 = sums.iter().map(|s| s.sea.crossings).sum();
             let voy: u64 = sums.iter().map(|s| s.sea.voyages).sum();
@@ -247,6 +289,20 @@ pub fn run(a: &Args) {
             mean(&|c| c.fled_by_sea as f32), mean(&|c| c.absorbed as f32), mean(&|c| c.tributes as f32), mean(&|c| c.avoided as f32),
             mean(&|c| c.top_lineage_pct), confl.iter().map(|c| c.top_lineage_pct).fold(0.0, f32::max), mean(&|c| c.lineages as f32)
         );
+        {
+            let el: Vec<f32> = sums.iter().map(|s| s.lineages.effective).collect();
+            let lt: Vec<f32> = sums.iter().filter_map(|s| s.lineages.by_landmass.first().map(|x| x.top_pct)).collect();
+            let cents = confl.iter().map(|c| c.eff_by_century.len()).max().unwrap_or(0);
+            let ec: Vec<String> = (0..cents).map(|k| format!("{:.1}", confl.iter().map(|c| c.eff_by_century.get(k).copied().unwrap_or(0.0)).sum::<f32>() / n)).collect();
+            println!(
+                "  lineages (v9): effective number {:.2} (mean; min {:.2}) | top lineage on the most populous landmass {:.0}% (mean; max {:.0}%) | effective by century (mean): [{}]",
+                el.iter().sum::<f32>() / el.len().max(1) as f32,
+                el.iter().copied().fold(f32::MAX, f32::min),
+                lt.iter().sum::<f32>() / lt.len().max(1) as f32,
+                lt.iter().copied().fold(0.0, f32::max),
+                ec.join(", ")
+            );
+        }
         let cents = confl.iter().map(|c| c.fights_by_century.len()).max().unwrap_or(0);
         let fc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.fights_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
         let pc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.pop_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
@@ -272,6 +328,17 @@ pub fn run(a: &Args) {
     }
 }
 
+/// How people first reached a continent, for the per-seed line: " [sea, 17 from settled]",
+/// " [foot]", or " [?]" for saves from before v9 (and for homelands).
+fn how_reached(c: &civ_core::analysis::LandmassSummary) -> String {
+    match c.by_sea {
+        Some(true) => format!(" [sea, {} from settled]", c.gap_settled.map(|g| g.to_string()).unwrap_or("-".into())),
+        Some(false) => " [foot]".to_string(),
+        None if c.landfall_year == Some(0.0) => String::new(),
+        None => " [?]".to_string(),
+    }
+}
+
 struct ConflictStats {
     confrontations: u64,
     avoided: u64,
@@ -292,6 +359,8 @@ struct ConflictStats {
     top_lineage_pct: f32,
     /// largest lineage share (%) at the end of each century
     lineage_by_century: Vec<u32>,
+    /// (v9) effective number of lineages at the end of each century (0 before v9 saves)
+    eff_by_century: Vec<f32>,
     /// disease deaths per year as a share of the population
     disease_rate_pct: f32,
 }
@@ -304,11 +373,13 @@ fn conflict_stats(w: &World) -> ConflictStats {
     let mut fbc = vec![0u32; cents];
     let mut pbc = vec![0u32; cents];
     let mut lbc = vec![0u32; cents];
+    let mut ebc = vec![0f32; cents];
     let mut dd = 0u64;
     for (k, h) in w.history.iter().enumerate() {
         fbc[k / 100] += h.fights;
         pbc[k / 100] = h.pop;
         lbc[k / 100] = h.top_lineage_pct.round() as u32;
+        ebc[k / 100] = h.eff_lineages;
         dd += h.disease_deaths as u64;
     }
     let mut lin: std::collections::BTreeMap<u32, u32> = Default::default();
@@ -334,6 +405,7 @@ fn conflict_stats(w: &World) -> ConflictStats {
         lineages: lin.len() as u32,
         top_lineage_pct: 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tot,
         lineage_by_century: lbc,
+        eff_by_century: ebc,
         disease_rate_pct: if person_years > 0.0 { (100.0 * dd as f64 / person_years) as f32 } else { 0.0 },
     }
 }

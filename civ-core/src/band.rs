@@ -332,6 +332,10 @@ pub struct Derived {
     /// (cell, available items) when the knowledge map was last updated for this band: while
     /// neither changes there is nothing new to record
     pub kn_key: Option<(u32, ItemSet)>,
+    /// (v9) the cell this band put to sea from this season, if it came here over open water
+    /// (a voyage, a sea flight, a daughter's crossing or a drift); cleared at the start of each
+    /// season, read by `World::track_landfall` to tell boat-borne landfalls from walking ones
+    pub sailed_from: Option<u32>,
 }
 
 pub const MAX_PARTNERS: usize = 8;
@@ -405,8 +409,9 @@ impl Band {
     }
     /// How related two bands are, 0..1: shared descent through the last few splits (1 = parent
     /// and daughter, halving each step further apart), fading with the years since the younger
-    /// band split off, as people marry out and memory of the tie thins. Bands that merely share a
-    /// distant founder are strangers.
+    /// band split off, as memory of the tie thins (a pure time decay: no marriage between bands
+    /// is modelled, so no people or ancestry flow along the tie; v9 step 6 adds intermarriage). Bands that
+    /// merely share a distant founder are strangers.
     pub fn kinship(&self, o: &Band, tick: u32) -> f32 {
         if self.lineage != o.lineage {
             return 0.0;

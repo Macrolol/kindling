@@ -14,8 +14,9 @@ fn main() {
         let land: Vec<usize> = (0..w * h).filter(|&i| m.is_land(i)).collect();
         let mut c = [0usize; NBIOME];
         for &i in &land { c[m.biome[i] as usize] += 1; }
-        let conts: Vec<u32> = m.landmass_size.iter().skip(1).copied().filter(|&s| s >= Map::CONTINENT_CELLS).collect();
-        let islands = m.landmass_size.iter().skip(1).filter(|&&s| s < Map::CONTINENT_CELLS && s >= 3).count();
+        let cut = m.continent_cells();
+        let conts: Vec<u32> = m.landmass_size.iter().skip(1).copied().filter(|&s| s >= cut).collect();
+        let islands = m.landmass_size.iter().skip(1).filter(|&&s| s < cut && s >= 3).count();
         let cu = land.iter().filter(|&&i| m.has(i, civ_core::map::D_COPPER)).count();
         let sn = land.iter().filter(|&&i| m.has(i, civ_core::map::D_TIN)).count();
         let ob = land.iter().filter(|&&i| m.has(i, civ_core::map::D_OBSIDIAN)).count();

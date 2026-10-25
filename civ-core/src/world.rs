@@ -203,6 +203,9 @@ pub struct YearStats {
     /// lineages (descent from a founding band) still alive, and the largest one's share of people (%)
     pub lineages: u32,
     pub top_lineage_pct: f32,
+    /// (v9) effective number of lineages, 1/sum(share^2): 6 even founders read 6, one
+    /// lineage holding everyone reads 1 (0 in older saves)
+    pub eff_lineages: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -259,6 +262,24 @@ pub struct Counters {
     pub disease_deaths: u64,
 }
 
+
+/// (v9) How people first reached a landmass (see `World::track_landfall`).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LandfallRec {
+    pub landmass: u16,
+    pub tick: u32,
+    /// the band that arrived first
+    pub band: u32,
+    /// came over open water (voyage, sea flight, a daughter's crossing, drift) rather than on foot
+    pub by_sea: bool,
+    /// landmass they put to sea from (0 = walked, or unknown)
+    pub from: u16,
+    /// fewest open-water cells between this landmass and any land already settled when they
+    /// arrived (u32::MAX = no sea path)
+    pub gap: u32,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct World {
@@ -293,6 +314,10 @@ pub struct World {
     pub item_bands: BTreeMap<Item, u32>,
     /// landmass id -> tick people first arrived (u32::MAX = never); empty in stage-1 saves
     pub landfall: Vec<u32>,
+    /// (v9) how each landmass after the first was reached, in order of arrival; empty in older
+    /// saves (their landfalls show as "how unknown" in the analysis)
+    #[serde(default)]
+    pub landfalls: Vec<LandfallRec>,
     /// item -> most bands that could make it at once since it last appeared (log thinning)
     #[serde(with = "crate::save::pairs")]
     pub item_peak: BTreeMap<Item, u32>,
@@ -843,6 +868,7 @@ impl World {
     fn band_prep(&self, b: &mut Band) -> f64 {
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         b.fit_vectors();
+        b.d.sailed_from = None;
         for k in &mut b.known {
             k.used = false;
         }
@@ -1968,6 +1994,8 @@ impl World {
             born: self.tick,
             ..Default::default()
         };
+        let mut nb = nb;
+        nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
         fx.ops.push(Op::Drift(Box::new(nb), b.id, c as u32));
     }
 
@@ -2031,6 +2059,7 @@ impl World {
             b.settled *= 0.5;
             if let Some((c, sea)) = by_sea {
                 if c == best {
+                    b.d.sailed_from = Some(cur as u32);
                     fx.counters.voyages += 1;
                     self.sea_toll(b, sea, rng, fx);
                     self.note_crossing(cur, b, fx);
@@ -2056,7 +2085,10 @@ impl World {
         }
     }
 
-    /// Record the first arrival of people on each landmass.
+    /// Record the first arrival of people on each landmass: the tick in `landfall`, and (v9)
+    /// how they came in `landfalls` - over water or on foot, from which landmass, and across how
+    /// much open sea from the nearest land people had already settled. The Landfall event carries
+    /// the boat (NONE on foot or adrift) and, in `recipe`, 1 = came over water, 0 = walked.
     fn track_landfall(&mut self) {
         let nl = self.map.landmass_size.len();
         if self.landfall.len() != nl {
@@ -2071,13 +2103,30 @@ impl World {
             if l == 0 || l >= nl || self.landfall[l] != u32::MAX {
                 continue;
             }
-            self.landfall[l] = self.tick;
             if any {
-                evs.push((b.id, l as u32, c as u32, b.d.kit.boat));
+                // the boat they came in, when they did not walk (a drifted party has none)
+                let boat = if b.d.sailed_from.is_some() { b.d.kit.boat } else { NONE };
+                evs.push((b.id, l, c as u32, b.d.sailed_from, boat));
             }
+            self.landfall[l] = self.tick;
         }
-        for (id, l, c, boat) in evs {
-            self.push_event(EventKind::Landfall, id, l, c, boat, u32::MAX);
+        if evs.is_empty() {
+            return;
+        }
+        // sea gaps from land already settled before this tick
+        let tick = self.tick;
+        let settled: Vec<bool> = self.landfall.iter().map(|&t| t < tick).collect();
+        let gaps = self.map.sea_gaps(|l| settled.get(l).copied().unwrap_or(false));
+        for (id, l, c, from, boat) in evs {
+            self.landfalls.push(LandfallRec {
+                landmass: l as u16,
+                tick,
+                band: id,
+                by_sea: from.is_some(),
+                from: from.map(|f| self.map.landmass_of(f as usize)).unwrap_or(0),
+                gap: gaps.get(l).copied().flatten().unwrap_or(u32::MAX),
+            });
+            self.push_event(EventKind::Landfall, id, l as u32, c, boat, from.is_some() as u32);
         }
     }
 
@@ -2589,6 +2638,7 @@ impl World {
                 d.d.kit.outrigger = b.d.kit.outrigger;
                 d.d.kit.sail = b.d.kit.sail;
                 d.d.kit.plank = b.d.kit.plank;
+                d.d.sailed_from = Some(b.cell(w) as u32);
                 self.counters.voyages += 1;
                 let mut fx = Fx::default();
                 self.sea_toll(&mut d, sea, rng, &mut fx);
@@ -2823,6 +2873,7 @@ impl World {
             forager_density: if gcells.is_empty() { 0.0 } else { gpop as f32 / gcells.len() as f32 },
             lineages: lin.len() as u32,
             top_lineage_pct,
+            eff_lineages: crate::analysis::effective_number(lin.values().map(|&p| p as u64)),
             ..acc
         });
     }
@@ -2873,8 +2924,15 @@ impl World {
             EventKind::Founded => format!("Y{yr}: band {} founded at ({cx},{cy})", e.band),
             EventKind::Landfall => {
                 let sz = self.map.landmass_size.get(e.other as usize).copied().unwrap_or(0);
-                let kind = if sz >= Map::CONTINENT_CELLS { "continent" } else { "island" };
-                format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){}", e.band, e.other, if it.is_empty() { String::new() } else { format!(" by {it}") })
+                let kind = if self.map.is_continent(e.other as usize) { "continent" } else { "island" };
+                // recipe: 1 = over water, 0 = on foot, u32::MAX = before v9 (item = any boat they had)
+                let how = match (e.recipe, it.is_empty()) {
+                    (0, _) => " on foot".to_string(),
+                    (1, true) => " adrift".to_string(),
+                    (_, true) => String::new(),
+                    (_, false) => format!(" by {it}"),
+                };
+                format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){how}", e.band, e.other)
             }
             EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),

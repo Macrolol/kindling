@@ -21,7 +21,8 @@ def parse(path):
                 continue
             cur = seeds.setdefault(s, {})
             cur.update(seed=s, year=int(m.group(2)), pop=int(m.group(3)), t=float(m.group(4)),
-                       stage=re.search(r'stage now: (\w+)', line).group(1))
+                       stage=re.search(r'stage now: (\w+)', line).group(1),
+                       items=int(re.search(r'items now (\d+)', line).group(1)))
             continue
         if cur is None:
             continue
@@ -29,6 +30,14 @@ def parse(path):
             ys = [int(y) for y in re.findall(r'gap \d+ Y(\d+) pop', line)]
             cur['cross'] = sorted(y for y in ys if y > 0)
             cur['cont'] = re.search(r'settled (\d+/\d+)', line).group(1)
+            # v9: how each continent was first reached ("[sea, G from settled]" / "[foot]")
+            if '[sea' in line or '[foot]' in line or '[?]' in line:
+                cur['boat'] = sorted((int(y), g) for y, g in re.findall(r'gap \d+ Y(\d+) pop \d+ \[sea, (\S+) from settled\]', line) if int(y) > 0)
+                cur['foot'] = sorted(int(y) for y in re.findall(r'gap \d+ Y(\d+) pop \d+ \[foot\]', line) if int(y) > 0)
+        elif re.match(r'\s+lineages:', line):
+            cur['eff'] = float(re.search(r'effective ([\d.]+)', line).group(1))
+            t = re.search(r'top L\d+ (\d+)%', line)
+            cur['top_lm'] = int(t.group(1)) if t else None
         elif re.match(r'\s+sea:', line):
             cur['lost'] = int(re.search(r'lost (\d+) people', line).group(1))
             cur['voy'] = int(re.search(r'voyages (\d+)', line).group(1))
@@ -43,6 +52,8 @@ def parse(path):
             cur['war'] = float(re.search(r'killed = ([\d.]+)%', line).group(1))
             cur['dis'] = float(re.search(r'disease deaths ([\d.]+)%', line).group(1))
             cur['fights'] = float(re.search(r'fights \(([\d.]+)/century\)', line).group(1))
+            t = re.search(r'largest (\d+)% of people', line)
+            cur['top'] = int(t.group(1)) if t else None
         elif re.match(r'\s+farming:', line):
             cur['orig'] = int(re.search(r'independent origins (\d+)', line).group(1))
             d = re.search(r'domestic grain (\S+)', line).group(1)
@@ -56,9 +67,21 @@ def parse(path):
     return [seeds[k] for k in sorted(seeds) if 'forag' in seeds[k]]
 
 
-def agg(rows):
+def tau(path):
+    """Kendall-tau discovery-order distance from a multi-seed run's summary block (None if absent)."""
+    for line in open(path):
+        m = re.search(r'Kendall tau, 0 same .. 1 reversed\): mean ([\d.]+)', line)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def agg(rows, tau_v=None):
     n = len(rows)
     mean = lambda k: sum(r[k] for r in rows) / n
+    have = lambda k: [r[k] for r in rows if r.get(k) is not None]
+    boat = [(r['seed'], r['boat'][0]) for r in rows if r.get('boat')]
+    v9 = any('boat' in r for r in rows)
     cross = [(r['seed'], r['cross'][0]) for r in rows if r.get('cross')]
     dom = [r['dom'] for r in rows if r['dom']]
     return {
@@ -73,6 +96,13 @@ def agg(rows):
         'foragers % of people': f"{min(r['forag'] for r in rows)*100:.0f}-{max(r['forag'] for r in rows)*100:.0f}% (mean {mean('forag')*100:.0f}%)",
         'second continent seeds': f"{len(cross)}/{n}: " + ', '.join(f"s{s} Y{y}" for s, y in cross),
         'crossings before Y100': sum(1 for _, y in cross if y < 100),
+        'boat-borne continent crossing seeds (v9)': (f"{len(boat)}/{n}: " + ', '.join(f"s{s} Y{y} (gap {g})" for s, (y, g) in boat)) if v9 else '-',
+        'continents reached on foot (v9)': (', '.join(f"s{r['seed']} Y{r['foot'][0]}" for r in rows if r.get('foot')) or 'none') if v9 else '-',
+        'effective lineages (mean)': round(sum(have('eff')) / len(have('eff')), 2) if have('eff') else '-',
+        'largest lineage % (mean)': round(sum(have('top')) / len(have('top')), 1) if have('top') else '-',
+        'top lineage on main landmass % (mean)': round(sum(have('top_lm')) / len(have('top_lm')), 1) if have('top_lm') else '-',
+        'items now (mean)': round(mean('items'), 1),
+        'discovery-order tau': tau_v if tau_v is not None else '-',
         'voyages / landings': f"{sum(r['voy'] for r in rows)} / {sum(r['land'] for r in rows)}",
         'lost at sea': sum(r['lost'] for r in rows),
         'iron seeds': sum(1 for r in rows if r.get('iron')),
@@ -82,9 +112,9 @@ def agg(rows):
 
 
 def main():
-    a = agg(parse(sys.argv[1]))
+    a = agg(parse(sys.argv[1]), tau(sys.argv[1]))
     if len(sys.argv) > 2:
-        b = agg(parse(sys.argv[2]))
+        b = agg(parse(sys.argv[2]), tau(sys.argv[2]))
         w = max(len(k) for k in a)
         print(f"| metric | {sys.argv[2].split('/')[-1]} | {sys.argv[1].split('/')[-1]} |")
         print("|---|---|---|")
@@ -96,7 +126,7 @@ def main():
     print()
     for r in parse(sys.argv[1]):
         print(f"s{r['seed']:<3} pop {r['pop']:>7} war {r['war']:.3f}% dis {r['dis']:.3f}% fights/c {r['fights']:>7.1f} orig {r['orig']:>2} dom {('Y%d' % r['dom']) if r['dom'] else 'never':>5} "
-              f"forag {r['forag']*100:3.0f}% cross {r.get('cross')} lost {r['lost']} iron {r.get('iron')} bronze {r.get('bronze')} {r['t']}s")
+              f"forag {r['forag']*100:3.0f}% cross {r.get('cross')} boat {r.get('boat')} lost {r['lost']} iron {r.get('iron')} bronze {r.get('bronze')} {r['t']}s")
 
 
 if __name__ == '__main__':

@@ -307,6 +307,7 @@ impl World {
         b.settled *= 0.3; // fields and houses left behind
         b.y = (best.0 / self.map.w) as u16;
         if let Some(s) = sea {
+            b.d.sailed_from = Some(from);
             fx.counters.voyages += 1;
             self.sea_toll(b, s, rng, fx);
             self.note_crossing(from as usize, b, fx);
