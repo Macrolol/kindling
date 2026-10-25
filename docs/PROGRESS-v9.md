@@ -152,3 +152,30 @@ s7 Y261, s8 Y182 (none before Y100). Iron in 5 worlds (7), bronze in 3 (4): no r
 Land ever camped 44-100 %. Concern: lineage dominance rose (effective 4.95 vs 5.41, largest
 29.6 % vs 25.2 %): new country is filled fastest by the lineage already on the frontier. P5
 (intermarriage / ancestry) and P7 (prestige) are meant to counter this; watch it there.
+
+## Step 6 (P5): intermarriage, ancestry and alliances
+
+- `Band::ancestry`: shares of founding lineages (at most `ANCESTRY_SLOTS` 8, largest first;
+  empty = all the band's own `lineage`, so older saves need nothing). `lineage` stays the
+  inherited "surname"; ancestry is what marriage and captives mix. Daughters and drifting
+  bands inherit it.
+- `World::marry`, at the end of every peaceful full meeting: if both bands have 10+ people,
+  chance `MARRIAGE_P` 0.1 that `MARRIAGE_SHARE` 3 % of the smaller band (at least 1) marry
+  each way. Numbers are unchanged; each side's ancestry mixes by k / pop, the partnership is
+  bonded (+0.2), its `Partner::married` tie grows by `MARRIAGE_TIE` 0.25 (fading x0.95 a year;
+  a partner is kept while trade strength or marriage ties are >= 0.05), and grudges against
+  the in-laws are halved (`MARRIAGE_FORGIVE`).
+- Conflict: tension x(1 - `MARRIAGE_PEACE` 0.5 x ties); fights between bands with ties > 0.2
+  are counted (`fights_in_law`); absorbing a band mixes its ancestry in by headcount.
+- Measurement: `ancestry (v9)` line (largest founder share of descent, effective founders,
+  wedding exchanges, fights between in-laws); per-landmass lineages show "(ancestry X)".
+  `agg_results.py` now reads it and labels its columns baseline / new.
+- Saves: all additive (`ancestry`, `Partner::married`, `counters.marriages`,
+  `counters.fights_in_law`); no format bump. Test `ancestry_mixes_and_stays_normalised`.
+- Rate check: "weddings" counts exchange events (about 1 per band every 3 years, each moving
+  ~3 % of the smaller band each way), so ~2 %/yr of a band's people marry in: low next to real
+  forager exogamy, so `MARRIAGE_P` was left at 0.1.
+- Local seed 1 x 500y: pop 116286 (140114 in step 5); crossings #2 Y186, #3 Y231; war
+  0.333 %/yr (0.362); disease 0.093; items 70; lineages effective 5.43 (largest 24 %, was 30 %);
+  ancestry effective 5.49 (largest founder 24 %); 526031 wedding exchanges, 246 in-law fights.
+  Run time 50 s (77 s).

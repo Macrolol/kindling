@@ -39,7 +39,9 @@ impl World {
         };
         // crowding alone breeds friction only when food is short; a grudge needs no reason
         let base = overlap * (hunger * (1.0 + 0.5 * crowd) + 0.5 * lure + 0.5 * goods) + 0.6 * g;
-        base * (1.0 - 0.8 * ties.min(1.0)) * kin
+        // (v9) in-laws quarrel less
+        let wed = 1.0 - super::MARRIAGE_PEACE * a.married_to(c.id).min(1.0);
+        base * (1.0 - 0.8 * ties.min(1.0)) * kin * wed
     }
 
     /// Fighting strength: people, their weapons, how well fed they are.
@@ -124,6 +126,9 @@ impl World {
         let ra = r.powf(1.5);
         let a_wins = rng.chance(ra / (1.0 + ra));
         let (win, lose) = if a_wins { (a, c) } else { (c, a) };
+        if bands[a].married_to(bands[c].id) > 0.2 {
+            fx.counters.fights_in_law += 1;
+        }
         let wq = |b: &Band| weapon_q(&b.d.kit);
         let (qw, ql) = (wq(&bands[win]), wq(&bands[lose]));
         // losers lose more; better weapons on the other side kill more
@@ -222,6 +227,10 @@ impl World {
         let n = n.min(bands[from].pop);
         bands[from].pop -= n;
         bands[to].pop += n;
+        // (v9) they keep their ancestry (but take the winners' name)
+        let anc = bands[from].ancestry();
+        let f = n as f32 / bands[to].pop.max(1) as f32;
+        bands[to].mix_ancestry(&anc, f);
         let fid = bands[from].id;
         let share = (n as f32 / 10.0).min(1.0);
         let moved: Vec<Known> = bands[from].known.clone();

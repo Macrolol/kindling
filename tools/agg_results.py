@@ -46,6 +46,11 @@ def parse(path):
             cur['xp90'] = float(re.search(r'p90 ([\d.]+)', line).group(1))
             cur['sail'] = int(re.search(r'sail-usable bands (\d+)', line).group(1))
             cur['rng90'] = float(re.search(r'range p90 ([\d.]+)', line).group(1))
+        elif re.match(r'\s+ancestry \(v9\):', line):
+            cur['anc_top'] = int(re.search(r'largest founder (\d+)%', line).group(1))
+            cur['anc_eff'] = float(re.search(r'effective founders ([\d.]+)', line).group(1))
+            cur['wed'] = int(re.search(r'(\d+) weddings', line).group(1))
+            cur['inlaw'] = int(re.search(r'(\d+) fights between in-laws', line).group(1))
         elif re.match(r'\s+trade:', line):
             f = re.search(r'first: (.*)', line)
             f = f.group(1) if f else ''
@@ -105,6 +110,8 @@ def agg(rows, tau_v=None):
         'effective lineages (mean)': round(sum(have('eff')) / len(have('eff')), 2) if have('eff') else '-',
         'largest lineage % (mean)': round(sum(have('top')) / len(have('top')), 1) if have('top') else '-',
         'top lineage on main landmass % (mean)': round(sum(have('top_lm')) / len(have('top_lm')), 1) if have('top_lm') else '-',
+        'ancestry: effective founders / largest % (mean, v9)': (f"{sum(have('anc_eff'))/len(have('anc_eff')):.2f} / {sum(have('anc_top'))/len(have('anc_top')):.1f}" if have('anc_eff') else '-'),
+        'weddings / in-law fights (sum, v9)': (f"{sum(have('wed'))} / {sum(have('inlaw'))}" if have('wed') else '-'),
         'items now (mean)': round(mean('items'), 1),
         'discovery-order tau': tau_v if tau_v is not None else '-',
         'voyages / landings': f"{sum(r['voy'] for r in rows)} / {sum(r['land'] for r in rows)}",
@@ -122,7 +129,10 @@ def main():
     if len(sys.argv) > 2:
         b = agg(parse(sys.argv[2]), tau(sys.argv[2]))
         w = max(len(k) for k in a)
-        print(f"| metric | {sys.argv[2].split('/')[-1]} | {sys.argv[1].split('/')[-1]} |")
+        # columns: baseline (second argument) first, then the new results; label by
+        # the last two path parts so two results-all.txt downloads are told apart
+        name = lambda p: '/'.join(p.rstrip('/').split('/')[-2:])
+        print(f"| metric | baseline: {name(sys.argv[2])} | new: {name(sys.argv[1])} |")
         print("|---|---|---|")
         for k in a:
             print(f"| {k} | {b[k]} | {a[k]} |")

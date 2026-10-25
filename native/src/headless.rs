@@ -117,9 +117,13 @@ pub fn run(a: &Args) {
             let bl: Vec<String> = l
                 .by_landmass
                 .iter()
-                .map(|x| format!("#{} {} people: top L{} {:.0}%, eff {:.1}", x.landmass, x.pop, x.top_lineage, x.top_pct, x.effective))
+                .map(|x| format!("#{} {} people: top L{} {:.0}%, eff {:.1} (ancestry {:.1})", x.landmass, x.pop, x.top_lineage, x.top_pct, x.effective, x.ancestry_effective))
                 .collect();
             println!("    lineages: alive {} | largest {:.0}% | effective {:.2} | by landmass: {}", l.alive, l.top_pct, l.effective, bl.join("; "));
+            println!(
+                "    ancestry (v9): largest founder {:.0}% of descent | effective founders {:.2} | {} weddings, {} fights between in-laws",
+                l.ancestry_top_pct, l.ancestry_effective, s.motives.marriages, s.motives.fights_in_law
+            );
             let mo = &s.motives;
             println!(
                 "    motives (v9): splits {} ({} after dissent) | dissent mean {:.2} | curiosity {:.2} (overseas {:.2}) | ambition {:+.2} (overseas {:+.2}, {} bands) | land ever camped {:.0}%",

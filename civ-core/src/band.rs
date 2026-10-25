@@ -33,6 +33,10 @@ pub struct Band {
     pub gen: u32,
     /// earlier ancestors: grandparent, great-grandparent, great-great-grandparent (0 = unknown)
     pub anc: [u32; 3],
+    /// (v9) where the band's people come from: shares of founding lineages (summing to 1, at
+    /// most `ANCESTRY_SLOTS`, largest first). Empty = all of its own `lineage` (older saves, and
+    /// founders). `lineage` stays the inherited "surname"; marriage and captives mix this.
+    pub ancestry: Vec<(u32, f32)>,
     pub x: u16,
     pub y: u16,
     pub pop: u32,
@@ -125,6 +129,9 @@ pub struct Partner {
     pub since: u32,
     /// goods passed either way so far
     pub traded: f32,
+    /// (v9) marriage ties, 0..1: grow with each exchange of spouses, fade slowly (see
+    /// `MARRIAGE_FADE`), and cool quarrels between the two bands
+    pub married: f32,
 }
 
 /// A remembered wrong done by another band (and, more weakly, by its whole lineage).
@@ -350,6 +357,8 @@ pub struct Derived {
 }
 
 pub const MAX_PARTNERS: usize = 8;
+/// (v9) Founding lineages kept in a band's ancestry (the smallest shares are dropped).
+pub const ANCESTRY_SLOTS: usize = 8;
 
 impl Band {
     /// Older saves carry stock / origin vectors for fewer materials: pad them.
@@ -365,6 +374,43 @@ impl Band {
     pub fn partner(&self, id: u32) -> Option<&Partner> {
         self.partners.iter().find(|p| p.id == id)
     }
+    /// (v9) Ancestry shares, with the implicit "all own lineage" spelled out.
+    pub fn ancestry(&self) -> Vec<(u32, f32)> {
+        if self.ancestry.is_empty() {
+            vec![(self.lineage, 1.0)]
+        } else {
+            self.ancestry.clone()
+        }
+    }
+
+    /// (v9) A share `f` (0..1) of the band's people now have ancestry `other`.
+    pub fn mix_ancestry(&mut self, other: &[(u32, f32)], f: f32) {
+        let f = f.clamp(0.0, 1.0);
+        if f <= 0.0 {
+            return;
+        }
+        let mut v: Vec<(u32, f32)> = self.ancestry().into_iter().map(|(l, x)| (l, x * (1.0 - f))).collect();
+        for &(l, x) in other {
+            match v.iter_mut().find(|e| e.0 == l) {
+                Some(e) => e.1 += f * x,
+                None => v.push((l, f * x)),
+            }
+        }
+        v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.truncate(ANCESTRY_SLOTS);
+        v.retain(|e| e.1 >= 1e-4);
+        let t: f32 = v.iter().map(|e| e.1).sum();
+        for e in &mut v {
+            e.1 /= t.max(1e-6);
+        }
+        self.ancestry = if v.len() == 1 && v[0].0 == self.lineage { Vec::new() } else { v };
+    }
+
+    /// (v9) Marriage ties with band `id` (0 if none).
+    pub fn married_to(&self, id: u32) -> f32 {
+        self.partner(id).map(|p| p.married).unwrap_or(0.0)
+    }
+
     /// Strengthen (or start) a partnership; the weakest link is dropped when there are too many.
     pub fn bond(&mut self, id: u32, by: f32, traded: f32, tick: u32) {
         if let Some(p) = self.partners.iter_mut().find(|p| p.id == id) {
@@ -385,7 +431,7 @@ impl Band {
             }
             self.partners.swap_remove(wi);
         }
-        self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded });
+        self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded, married: 0.0 });
     }
     /// Grudge this band holds against `o`: in full against that band, a little against its people.
     pub fn grudge_vs(&self, o: &Band) -> f32 {

@@ -84,6 +84,9 @@ pub struct MotiveSummary {
     pub ambition_overseas: f32,
     /// share of land cells any band has ever camped in (%)
     pub explored_pct: f32,
+    /// weddings between bands so far, and fights between in-laws
+    pub marriages: u64,
+    pub fights_in_law: u64,
 }
 
 fn motive_summary(w: &World) -> MotiveSummary {
@@ -102,6 +105,8 @@ fn motive_summary(w: &World) -> MotiveSummary {
         overseas_bands: away.len() as u32,
         curiosity_overseas: f(&away, |b| b.curiosity),
         ambition_overseas: f(&away, |b| b.ambition),
+        marriages: w.counters.marriages,
+        fights_in_law: w.counters.fights_in_law,
         explored_pct: {
             let land = (0..w.map.w * w.map.h).filter(|&i| w.map.is_land(i));
             let (n, e) = land.fold((0u32, 0u32), |(n, e), i| (n + 1, e + (w.camped.get(i).copied().unwrap_or(0) > 0) as u32));
@@ -121,6 +126,11 @@ pub struct LineageSummary {
     pub effective: f32,
     /// landmasses holding at least 2% of people, most people first
     pub by_landmass: Vec<LandmassLineages>,
+    /// (v9) by ancestry (who people descend from through marriage and captives, not the name
+    /// their band carries): the largest founder's share of all descent (%), and the effective
+    /// number of founders
+    pub ancestry_top_pct: f32,
+    pub ancestry_effective: f32,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -130,6 +140,8 @@ pub struct LandmassLineages {
     pub top_lineage: u32,
     pub top_pct: f32,
     pub effective: f32,
+    /// (v9) effective number of founders by ancestry
+    pub ancestry_effective: f32,
 }
 
 /// Effective number of kinds, 1/sum(share^2), from the count of each kind (0 when empty).
@@ -515,9 +527,18 @@ pub fn summarize(w: &World) -> Summary {
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
+        // (v9) ancestry in thousandths of a person, so the sums stay exact integers
+        let mut anc: BTreeMap<u32, u64> = BTreeMap::new();
+        let mut anc_per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
         for b in &w.bands {
             *all.entry(b.lineage).or_default() += b.pop as u64;
-            *per.entry(m.landmass_of(b.cell(mw))).or_default().entry(b.lineage).or_default() += b.pop as u64;
+            let l = m.landmass_of(b.cell(mw));
+            *per.entry(l).or_default().entry(b.lineage).or_default() += b.pop as u64;
+            for (k, f) in b.ancestry() {
+                let q = (1000.0 * b.pop as f64 * f as f64).round() as u64;
+                *anc.entry(k).or_default() += q;
+                *anc_per.entry(l).or_default().entry(k).or_default() += q;
+            }
         }
         let tot: u64 = all.values().sum();
         let top_of = |v: &BTreeMap<u32, u64>| v.iter().max_by_key(|(&k, &p)| (p, std::cmp::Reverse(k))).map(|(&k, &p)| (k, p)).unwrap_or((0, 0));
@@ -529,7 +550,7 @@ pub fn summarize(w: &World) -> Summary {
                     return None;
                 }
                 let (k, p) = top_of(v);
-                Some(LandmassLineages { landmass: l as u32, pop: lp as u32, top_lineage: k, top_pct: 100.0 * p as f32 / lp as f32, effective: effective_number(v.values().copied()) })
+                Some(LandmassLineages { landmass: l as u32, pop: lp as u32, top_lineage: k, top_pct: 100.0 * p as f32 / lp as f32, effective: effective_number(v.values().copied()), ancestry_effective: anc_per.get(&l).map(|a| effective_number(a.values().copied())).unwrap_or(0.0) })
             })
             .collect();
         by_landmass.sort_by_key(|x| std::cmp::Reverse(x.pop));
@@ -538,6 +559,11 @@ pub fn summarize(w: &World) -> Summary {
             top_pct: if tot > 0 { 100.0 * top_of(&all).1 as f32 / tot as f32 } else { 0.0 },
             effective: effective_number(all.values().copied()),
             by_landmass,
+            ancestry_top_pct: {
+                let at: u64 = anc.values().sum();
+                if at > 0 { 100.0 * anc.values().copied().max().unwrap_or(0) as f32 / at as f32 } else { 0.0 }
+            },
+            ancestry_effective: effective_number(anc.values().copied()),
         }
     };
     let biome_pct = bc.into_iter().map(|(k, v)| (k, 100.0 * v as f32 / land.max(1) as f32)).collect();

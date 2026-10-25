@@ -776,3 +776,23 @@ fn no_walking_across_water_and_clear_starts() {
         assert!(m.is_continent(l as usize));
     }
 }
+
+#[test]
+fn ancestry_mixes_and_stays_normalised() {
+    let mut b = crate::band::Band { lineage: 1, ..Default::default() };
+    assert_eq!(b.ancestry(), vec![(1, 1.0)]);
+    b.mix_ancestry(&[(2, 1.0)], 0.25);
+    let a = b.ancestry();
+    assert_eq!(a[0].0, 1);
+    assert!((a[0].1 - 0.75).abs() < 1e-5 && (a[1].1 - 0.25).abs() < 1e-5);
+    for l in 3..20 {
+        b.mix_ancestry(&[(l, 1.0)], 0.05);
+    }
+    let a = b.ancestry();
+    assert!(a.len() <= crate::band::ANCESTRY_SLOTS);
+    assert!((a.iter().map(|e| e.1).sum::<f32>() - 1.0).abs() < 1e-4);
+    // a band whose ancestry is wholly its own lineage stores nothing (older saves look the same)
+    let mut c = crate::band::Band { lineage: 5, ..Default::default() };
+    c.mix_ancestry(&[(5, 1.0)], 0.5);
+    assert!(c.ancestry.is_empty());
+}

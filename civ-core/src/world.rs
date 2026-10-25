@@ -66,6 +66,17 @@ pub const NOVELTY_YEARS: f32 = 100.0;
 pub const NOVELTY_PULL: f32 = 0.15;
 pub const NOVELTY_MAX: f32 = 0.3;
 pub const FAR_SHORE_LURE: f32 = 0.1;
+/// (v9) Marriage: at a peaceful meeting of two bands of 10+ people, chance `MARRIAGE_P` that
+/// `MARRIAGE_SHARE` of the smaller band's people (at least 1) marry each way. Each wedding adds
+/// `MARRIAGE_TIE` to both sides' marriage ties (which fade x`MARRIAGE_FADE` a year), eases old
+/// grudges between them (x(1 - `MARRIAGE_FORGIVE`)), and in-laws quarrel less (tension
+/// x(1 - `MARRIAGE_PEACE` x ties)).
+pub const MARRIAGE_P: f32 = 0.1;
+pub const MARRIAGE_SHARE: f32 = 0.03;
+pub const MARRIAGE_TIE: f32 = 0.25;
+pub const MARRIAGE_FADE: f32 = 0.95;
+pub const MARRIAGE_FORGIVE: f32 = 0.5;
+pub const MARRIAGE_PEACE: f32 = 0.5;
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -254,6 +265,8 @@ pub struct YearStats {
     pub eff_lineages: f32,
 }
 
+/// Running totals since the start. Counted in per-band effect buffers (`Fx`) and summed by
+/// `fx::add_counters`: a new field must be added to that list too, or it stays 0.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Counters {
@@ -264,6 +277,9 @@ pub struct Counters {
     pub splits: u64,
     /// (v9) splits brought on by dissent rather than size
     pub dissent_splits: u64,
+    /// (v9) weddings between bands (each an exchange of spouses), and fights between in-laws
+    pub marriages: u64,
+    pub fights_in_law: u64,
     pub deaths: u64,
     /// band moves and daughter settlements made across open water
     pub voyages: u64,
@@ -2111,6 +2127,7 @@ impl World {
             parent: b.id,
             gen: b.gen + 1,
             anc: [b.parent, b.anc[0], b.anc[1]],
+            ancestry: b.ancestry.clone(),
             x: (c % self.map.w) as u16,
             y: (c / self.map.w) as u16,
             pop: party,
@@ -2482,6 +2499,7 @@ impl World {
             self.exchange(bands, c, a, rng, fx);
             self.share_farming(bands, a, c, rng, fx);
             self.share_farming(bands, c, a, rng, fx);
+            self.marry(bands, a, c, rng, fx);
         } else {
             // (v9) a visit across open water teaches whoever paddled it
             if self.map.landmass_of(bands[a].cell(self.map.w)) != self.map.landmass_of(bands[c].cell(self.map.w)) {
@@ -2497,6 +2515,32 @@ impl World {
             }
         }
         self.trade(bands, a, c, d, rng, fx);
+    }
+
+    /// (v9) Two bands at peace may exchange spouses: a few people move each way (numbers are
+    /// unchanged), mixing ancestry and tying the bands together.
+    fn marry(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
+        let small = bands[a].pop.min(bands[c].pop);
+        if small < 10 || !rng.chance(MARRIAGE_P) {
+            return;
+        }
+        let k = ((MARRIAGE_SHARE * small as f32).round() as u32).max(1);
+        let (aa, ca) = (bands[a].ancestry(), bands[c].ancestry());
+        let (ia, ic) = (bands[a].id, bands[c].id);
+        let tick = self.tick;
+        for (x, other, oid) in [(a, &ca, ic), (c, &aa, ia)] {
+            let b = &mut bands[x];
+            let f = k as f32 / b.pop as f32;
+            b.mix_ancestry(other, f);
+            b.bond(oid, 0.2, 0.0, tick);
+            if let Some(p) = b.partners.iter_mut().find(|p| p.id == oid) {
+                p.married = (p.married + MARRIAGE_TIE).min(1.0);
+            }
+            for g in b.grudges.iter_mut().filter(|g| g.id == oid) {
+                g.w *= 1.0 - MARRIAGE_FORGIVE;
+            }
+        }
+        fx.counters.marriages += 1;
     }
 
     /// Two bands that meet swap what each has spare for what the other values more, pass food to
@@ -2790,6 +2834,7 @@ impl World {
                 parent: b.id,
                 gen: b.gen + 1,
                 anc: [b.parent, b.anc[0], b.anc[1]],
+                ancestry: b.ancestry.clone(),
                 x: (best.0 % w) as u16,
                 y: (best.0 / w) as u16,
                 pop: dpop,
@@ -2800,7 +2845,7 @@ impl World {
                 known,
                 stock: b.stock.clone(),
                 origin: b.origin.clone(),
-                partners: vec![Partner { id: b.id, strength: 0.5, since: self.tick, traded: 0.0 }],
+                partners: vec![Partner { id: b.id, strength: 0.5, since: self.tick, ..Default::default() }],
                 // habits of hand carry over, each daughter a little different
                 craft: b.craft.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 far_shore: b.far_shore,
@@ -2988,8 +3033,10 @@ impl World {
         for b in &mut self.bands {
             for p in &mut b.partners {
                 p.strength *= 0.8;
+                p.married *= MARRIAGE_FADE;
             }
-            b.partners.retain(|p| p.strength >= 0.05 && ids.contains(&p.id));
+            // (v9) marriage ties outlast trade
+            b.partners.retain(|p| (p.strength >= 0.05 || p.married >= 0.05) && ids.contains(&p.id));
             links += b.partners.len() as u32;
             let c = b.cell(w);
             for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre, Mat::Iron, Mat::Grain] {
