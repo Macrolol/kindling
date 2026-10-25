@@ -1398,7 +1398,7 @@ impl World {
         for &i in r.inputs.iter() {
             if i != NONE && !matches!(form(i), Form::Fire | Form::Kiln) {
                 let c = &mut b.craft[mat(i) as usize];
-                *c = (*c * by).min(4.0);
+                *c = (*c * by).min(8.0);
             }
         }
         let ai = NMAT + (r.action as usize).min(2);
