@@ -86,7 +86,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: headless-sims-${{ github.ref }}
+  # one queue per tested ref, so experiments on different commits run side by side
+  # (a single group per branch serialised them, and a newer pending run cancelled an older one)
+  group: headless-sims-${{ inputs.ref || github.sha }}-${{ inputs.seeds }}-${{ inputs.years }}
   cancel-in-progress: false
 
 env:

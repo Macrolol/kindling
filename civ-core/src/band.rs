@@ -250,6 +250,8 @@ pub struct Derived {
     /// the toolkit before the current one, with its key and kit
     pub tk_prev: Option<Box<((ItemSet, bool, u32), Toolkit, Kit)>>,
     pub known_ver: u32,
+    /// the band's place in this season's harvest order (valid while `World::seen` uses it)
+    pub hk: u32,
     pub kit: Kit,
     pub food_ratio: f32,
     pub spare: f32,

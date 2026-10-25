@@ -327,6 +327,11 @@ pub struct World {
     /// bands founded during the band loop (drift landings), added at the end of the season
     #[serde(skip)]
     pending: Vec<Band>,
+    /// this season's harvest log while phase 3 of the band seasons runs (see `seen`)
+    #[serde(skip)]
+    hlog: Vec<HarvestMark>,
+    #[serde(skip)]
+    hlog_on: bool,
     #[serde(skip)]
     rng: Option<Rng>,
     /// optional per-phase wall-clock timing (seconds), for perf work; native only, never saved
@@ -636,6 +641,10 @@ impl World {
         for (b, ec) in bands.iter_mut().zip(&ecs) {
             b.store = ec.store_after;
         }
+        // phase 3 reads the wild stocks as each band would have found them in v5, right after
+        // its own harvest (before the later bands took theirs): see `seen`
+        self.hlog.sort_by_key(|m| m.cell); // stable: band order kept within a cell
+        self.hlog_on = true;
         let key = rng.next_u64();
         let tick = self.tick as u64;
         let fxs: Vec<Fx> = {
@@ -651,9 +660,35 @@ impl World {
                 fx
             })
         };
+        self.hlog_on = false;
         for (b, f) in bands.iter_mut().zip(fxs) {
             self.apply_fx(f, Some(b));
         }
+    }
+
+    /// Wild stock `r` (0 plants, 1 game, 2 fish, 3 small game) on cell `c` as band `b` sees it.
+    /// During phase 3 of the band seasons that is the stock right after `b`'s own harvest,
+    /// before any later band took its share (as in v5, where each band's whole season ran
+    /// before the next band harvested): the value logged by the first later band to harvest
+    /// the cell, or the current value if none did. Otherwise simply the current stock.
+    #[inline]
+    pub(crate) fn seen(&self, r: usize, c: usize, b: &Band) -> f32 {
+        if self.hlog_on {
+            let (c32, k) = (c as u32, b.d.hk);
+            let i = self.hlog.partition_point(|m| m.cell < c32 || (m.cell == c32 && m.k <= k));
+            if let Some(m) = self.hlog.get(i) {
+                if m.cell == c32 {
+                    return m.v[r];
+                }
+            }
+        }
+        let v = match r {
+            0 => &self.plants,
+            1 => &self.game,
+            2 => &self.fish,
+            _ => &self.small,
+        };
+        v.get(c).copied().unwrap_or(0.0)
     }
 
     /// Phase 2, sequential and exactly as in v5: band by band, plan the economy against the
@@ -664,11 +699,20 @@ impl World {
     /// speculative parallel plan is almost never still valid.)
     fn take_harvest(&mut self, bands: &mut [Band], s: u32) -> Vec<Econ> {
         let mut ecs = Vec::with_capacity(bands.len());
+        self.hlog.clear();
         for b in bands.iter_mut() {
             // as in v5, the toolkit reflects the cell as the earlier bands left it (usually
             // the toolkit worked out in phase 1, or the one cached before it)
             self.refresh_toolkit(b);
             let ec = self.economy(b, s);
+            let k = ecs.len() as u32;
+            b.d.hk = k;
+            if ec.ys.iter().any(|&y| y > 0.01) {
+                for &(c, _) in &ec.cells {
+                    let g = |v: &Vec<f32>| v.get(c).copied().unwrap_or(0.0);
+                    self.hlog.push(HarvestMark { cell: c as u32, k, v: [g(&self.plants), g(&self.game), g(&self.fish), g(&self.small)] });
+                }
+            }
             let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
             for (r, st) in stocks.into_iter().enumerate() {
                 if ec.ys[r] > 0.01 {
@@ -772,13 +816,13 @@ impl World {
                 s.add(raw(mm));
             }
         }
-        if self.game[i] > 5.0 {
+        if self.seen(1, i, b) > 5.0 {
             s.add(raw(Mat::Meat));
         }
-        if self.plants[i] > 5.0 {
+        if self.seen(0, i, b) > 5.0 {
             s.add(raw(Mat::Plants));
         }
-        if self.fish[i] > 3.0 {
+        if self.seen(2, i, b) > 3.0 {
             s.add(raw(Mat::Fish));
         }
         s
@@ -1227,9 +1271,9 @@ impl World {
         let here = |mm: Mat| match mm {
             Wood => m.k_wood[ci] > 2.0,
             Fibre => m.k_fibre[ci] > 2.0,
-            Meat | Hide | Bone => self.game[ci] > 5.0,
-            Plants => self.plants[ci] > 5.0,
-            Fish => self.fish[ci] > 3.0,
+            Meat | Hide | Bone => self.seen(1, ci, b) > 5.0,
+            Plants => self.seen(0, ci, b) > 5.0,
+            Fish => self.seen(2, ci, b) > 3.0,
             mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && m.has(ci, d)),
         };
         // striking stones catch the eye: green and grey ores (pigments, heavy shiny lumps),
@@ -1393,11 +1437,11 @@ impl World {
         }
         let kit = &b.d.kit;
         let dg = kit.digest;
-        let sm = |j: usize| self.small.get(j).copied().unwrap_or(0.0);
+        let sm = |j: usize| self.seen(3, j, b);
         let pot = |j: usize| {
-            3.0 * kit.plants_m * dg[0] * self.plants[j]
-                + 2.5 * kit.game_m * dg[1] * self.game[j]
-                + 2.5 * kit.fish_m * dg[2] * self.fish[j]
+            3.0 * kit.plants_m * dg[0] * self.seen(0, j, b)
+                + 2.5 * kit.game_m * dg[1] * self.seen(1, j, b)
+                + 2.5 * kit.fish_m * dg[2] * self.seen(2, j, b)
                 + 2.5 * kit.small_m * dg[3] * sm(j)
                 + if b.sow > 0.0 { 3.5 * kit.farm_m * dg[4] * 0.6 * self.farm_prospect(b, j) } else { 0.0 }
         };
@@ -1418,7 +1462,7 @@ impl World {
             for (nx, ny) in nbrs4(x, y, m.w, m.h) {
                 let j = ny * m.w + nx;
                 if !m.is_land(j) {
-                    sea += self.fish[j];
+                    sea += self.seen(2, j, b);
                 }
             }
             s += 2.5 * kit.fish_m * dg[2] * 0.25 * sea * kit.boat_q;
@@ -2640,6 +2684,14 @@ impl Econ {
 /// 3 demography, 4 bookkeeping+stats; within band seasons: 5 economy, 6 farming+disease,
 /// 7 experiments, 8 movement, 9 the rest (materials, demography, sea, forgetting); within
 /// contacts: 10 finding neighbours, 11 meetings, 12 partner visits
+/// A band's harvest on a cell this season: the wild stocks there just before it (phase 2 log).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HarvestMark {
+    cell: u32,
+    k: u32,
+    v: [f32; 4],
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Prof {
     pub t: [f64; 13],

@@ -94,11 +94,14 @@ jobs:
           out=bench.md
           echo "| binary | threads | wall s | user s | sys s | final line |" > $out
           echo "|---|---|---|---|---|---|" >> $out
+          export KINDLING_PROF=1   # per-phase timings on stderr (both v5 and v6 have it)
+          : > profile.txt
           run() { # name threads cmd...
             local name=$1 th=$2; shift 2
-            /usr/bin/time -f '%e %U %S' -o t.txt "$@" > r.txt 2>/dev/null
+            /usr/bin/time -f '%e %U %S' -o t.txt "$@" > r.txt 2> e.txt
             read -r e u s < t.txt
             echo "| $name | $th | $e | $u | $s | $(grep -m1 '^seed' r.txt | cut -c1-90) |" | tee -a $out
+            echo "$name t$th: $(grep -m1 'profile:' e.txt || true)" >> profile.txt
           }
           if [ -n "$BASE" ]; then
             run "base $BASE" 1 env RAYON_NUM_THREADS=1 bin/kindling-base --headless --seed "$SEED" --years "$YEARS" "${mapa[@]}"
@@ -106,9 +109,12 @@ jobs:
           for t in $THREADS; do
             run test "$t" env RAYON_NUM_THREADS=$t bin/kindling-test --headless --seed "$SEED" --years "$YEARS" "${mapa[@]}" --threads "$t"
           done
-          { echo "## bench seed $SEED, $YEARS years, map ${MAP:-default}"; echo; cat $out; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## bench seed $SEED, $YEARS years, map ${MAP:-default}"; echo; cat $out; echo; echo '```'; cat profile.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat profile.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: bench
-          path: bench.md
+          path: |
+            bench.md
+            profile.txt
