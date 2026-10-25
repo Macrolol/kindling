@@ -32,6 +32,22 @@ tau 0.14). Honest reading of v0.8.0: boat-borne continent crossings in 4/10 worl
 s2 Y195 gap 10, s7 Y302 gap 14, s8 Y188 gap 1); s1's Y143 "crossing" was on foot. Effective
 lineages 5.39, largest lineage 25.8 %.
 
+## Step 1b: no walking across water; starts clear of straits
+
+- `Map::walkable(a, b)`: a straight walk is allowed only if every cell on the line is land.
+  Scouting, river scouting, a daughter's placement and a displacement on land all need it, so
+  nobody steps over a strait any more (in v0.8.0 seed 1, #2 was "reached" that way).
+- Founders start on good land on a continent at least `START_CLEAR` (6) cells from any other
+  landmass, falling back to any good land; the founders' scatter stays on the origin landmass.
+  This changes which world each seed gives.
+- Test `no_walking_across_water_and_clear_starts`.
+
+CI (run 40239259556, [results-v9-step1b-seeds1-10-500y.txt](results-v9-step1b-seeds1-10-500y.txt)),
+**the honest baseline for later steps**: pop 993655 (v0.8.0 891377), war 0.371 %/yr, disease
+0.133 %/yr, items 67.7, tau 0.14. Boat-borne continent crossings 4/10: s1 Y118 (gap 3), s2 Y192
+(gap 10), s7 Y255 (gap 14), s8 Y196 (gap 1); none on foot, none before Y100. Effective lineages
+5.27, largest 27.1 %. Seed 4 now starts on the large continent (pop 32k -> 91k).
+
 ## Step 2 (P1): rumours fade, look-outs keep looking, curiosity weights them
 
 - `Band::far_shore_year` dates a rumour. It fades after `RUMOUR_YEARS` (50) unless seen again
