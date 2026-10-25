@@ -166,3 +166,38 @@ Outriggers are invented in every seed (the first between Y132 and Y361), and pla
 Woven flax or wool cloth is rare on the coast this early, and nothing was added to make sails
 appear. Crossings stay at 4 of 10 seeds and come slightly earlier, and fewer people are lost at
 sea. The safer boats mainly cut drownings rather than open new crossings.
+
+## D6. Trade carriers, ornaments and medicine (done, commit 4a01c50, run 40212585875)
+- Carrying frame: a shaft, a cord and a soft basket or bag (not a sealed pot). Traders with a
+  frame carry bigger lots (up to 0.3 x (1 + the bag's quality)), and a band with one reaches one
+  more partner.
+- Ornaments: a bone, copper, tin, bronze or obsidian point worked with a hammer gives beads, a ring
+  or a pendant. Bands want ornaments (more strongly when they are made of something rare) and
+  trade for them. Nothing else is tied to them yet: they bring no prestige and no tribute.
+- Herbal lore: people under sickness in plant-rich land, who have fire, sometimes find what
+  helps. Once known, the lore grows with use, is taught on meeting, passes to daughters, and
+  fades when it is not needed. It cuts endemic sickness by up to 15% and ordinary deaths by up
+  to 5%.
+- Boiled water: settled bands with fire and fired pots have 15% less endemic sickness and 15%
+  fewer outbreak deaths.
+- Wariness: a band that has just had an outbreak keeps away from the sick for a few seasons
+  (catching it from neighbours is up to 40% less likely), and the effect fades.
+- Test `frames_ornaments_and_medicine`.
+
+| metric | D5 | D6 |
+|---|---|---|
+| pop | 919,336 | 931,174 (+0.3% vs target) |
+| war %/yr | 0.331 | 0.348 |
+| disease %/yr | 0.108 | 0.113 |
+| farming seeds | 9 | 8 |
+| crossings | 4/10 | 4/10 (Y143, Y188, Y195, Y302), none before Y100 |
+| iron seeds (median) | 6 (Y264) | 5 (Y290) |
+| bronze seeds (median) | 4 (Y313) | 3 (Y369) |
+| tau | 0.144 | 0.134 |
+| lineage max share, mean / worst | 28.2% / 34% | 27.0% / 35% |
+
+Carrying frames are invented early and widely (the first between Y74 and Y153), and bone beads
+appear in most seeds (between Y56 and Y125). Copper, tin and bronze rings follow metal (between
+Y221 and Y382). Disease stays near the D5 level: medicine roughly offsets the extra people.
+Trading tin did not shift the metals toward bronze; if anything bronze came later. That is left
+as it is.
