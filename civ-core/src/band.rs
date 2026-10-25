@@ -538,6 +538,11 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     let netq = q(k.net, &mesh_q);
     let trapq = q(k.trap, &mesh_q);
     k.boat_q = q(k.boat, &boat_q);
+    // (v8) an outrigger canoe or a plank boat is a boat too, and a plank hull is the soundest
+    k.boat_q = k.boat_q.max(q(k.outrigger, &boat_q));
+    if k.plank != NONE {
+        k.boat_q = k.boat_q.max((boat_q(mat(k.plank)) + 0.25).min(1.0));
+    }
     k.plants_m = 1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe;
     k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer);
     k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;

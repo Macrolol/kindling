@@ -614,3 +614,30 @@ fn salt_from_brine() {
     assert_ne!(heat([brine, item(Form::Vessel, Mat::Wood), fire, NONE]), Some(item(Form::Raw, Mat::Salt)));
     assert_ne!(heat([brine, NONE, fire, NONE]), Some(item(Form::Raw, Mat::Salt)));
 }
+
+#[test]
+fn outriggers_sails_and_plank_boats() {
+    let wet = Ctx { dryness: 0.5, water: true };
+    let dry = Ctx { dryness: 0.5, water: false };
+    let boat = item(Form::Boat, Mat::Wood);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let cord = item(Form::Cord, Mat::Fibre);
+    let comb = |inp, c: &Ctx| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), c).map(|o| o.out);
+    assert_eq!(comb([boat, shaft, cord, NONE], &wet), Some(item(Form::Outrigger, Mat::Wood)));
+    assert_eq!(comb([boat, shaft, cord, NONE], &dry), None);
+    assert_eq!(comb([boat, shaft, item(Form::Garment, Mat::Flax), NONE], &wet), Some(item(Form::Sail, Mat::Flax)));
+    // planks need a metal axe; a stone axe only hollows a dugout
+    let shape = |t, tool| physics::apply(Action::Shape, &physics::canonical(Action::Shape, [t, tool, NONE, NONE]), &wet).map(|o| o.out);
+    assert_eq!(shape(item(Form::Raw, Mat::Wood), item(Form::Axe, Mat::Bronze)), Some(item(Form::Plank, Mat::Wood)));
+    assert_ne!(shape(item(Form::Raw, Mat::Wood), item(Form::Axe, Mat::Flint)), Some(item(Form::Plank, Mat::Wood)));
+    // an outrigger is safer, a sail goes further (for people who know the sea)
+    let mut s = ItemSet::default();
+    s.add(boat);
+    let k0 = crate::band::make_kit(&s);
+    s.add(item(Form::Outrigger, Mat::Wood));
+    s.add(item(Form::Sail, Mat::Flax));
+    let k1 = crate::band::make_kit(&s);
+    assert!(World::boat_safety(&k1) > World::boat_safety(&k0));
+    assert!(World::boat_range(&k1, 0.5) > 1.5 * World::boat_range(&k0, 0.5));
+    assert_eq!(World::boat_range(&k1, 0.2), World::boat_range(&k0, 0.2));
+}

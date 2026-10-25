@@ -128,6 +128,10 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             if tm == Mat::Wood && hands {
                 return o(item(Form::Shaft, tm), 0.4);
             }
+            // (v8) a metal axe splits a log into planks, sewn or pegged into a large hull
+            if ctx.water && tm == Mat::Wood && of == Form::Axe && is_metal(om) {
+                return o(item(Form::Plank, tm), 0.05);
+            }
             // fell and hollow out a log with an axe: a dugout (floats because wood floats)
             if ctx.water && tp.float >= 5.0 && tp.tough >= 5.0 && of == Form::Axe && cut_q(om) > 0.4 {
                 return o(item(Form::Boat, tm), 0.04 + 0.2 * cut_q(om));
@@ -208,6 +212,17 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if ctx.water && n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
         if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
             return o(item(Form::Boat, mat(sk)), 0.06);
+        }
+    }
+    // (v8) a float lashed out to the side of a boat on poles: an outrigger, much harder to capsize
+    if ctx.water && n == 3 && count(Form::Boat) == 1 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        let bt = find(Form::Boat)?;
+        return o(item(Form::Outrigger, mat(bt)), 0.04);
+    }
+    // (v8) woven cloth hung from a mast stepped in a boat: a sail
+    if ctx.water && n == 3 && count(Form::Boat) == 1 && count(Form::Shaft) == 1 {
+        if let Some(cl) = items.iter().copied().find(|&i| form(i) == Form::Garment && matches!(mat(i), Mat::Flax | Mat::Wool)) {
+            return o(item(Form::Sail, mat(cl)), 0.05);
         }
     }
     // (v8) away from the water, the same hide, frame and lashing make a shield, not a boat

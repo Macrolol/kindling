@@ -1075,7 +1075,8 @@ impl World {
             if it == NONE {
                 continue;
             }
-            if (it == kit.boat && !wet) || (it == kit.net && ys[2] < 1.0) {
+            let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank;
+            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
@@ -1703,6 +1704,16 @@ impl World {
         }
     }
 
+    /// (v8) How safe a band's boat is: an outrigger keeps it upright (+0.15).
+    pub fn boat_safety(kit: &Kit) -> f32 {
+        kit.boat_q + if kit.outrigger != NONE { 0.15 } else { 0.0 }
+    }
+    /// (v8) How far a band can go: a sail carries it 1.6 times as far, for people who know the
+    /// sea well enough to use the wind (seacraft above 0.4).
+    pub fn boat_range(kit: &Kit, xp: f32) -> f32 {
+        Self::sea_range(kit.boat_q, xp) * if kit.sail != NONE && xp > 0.4 { 1.6 } else { 1.0 }
+    }
+
     /// A trip out over open water: pick a heading from a coastal camp and paddle until land shows
     /// up or the boat's range runs out. Returns the landing cell and how much open water was
     /// crossed. Without a known far shore the heading is pure chance; with one (`aim`, seen from
@@ -1713,12 +1724,14 @@ impl World {
         if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
             return None;
         }
-        let range = Self::sea_range(kit.boat_q, b.seacraft);
+        let range = Self::boat_range(kit, b.seacraft);
+        // (v8) wayfinding: seasoned seafarers read stars, swells and birds, and steer half as wide
+        let err = if b.seacraft > 0.6 { 0.15 } else { 0.3 };
         let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
         let ang = match aim {
             Some(t) => {
                 let (tx, ty) = ((t as usize % m.w) as f32 + 0.5, (t as usize / m.w) as f32 + 0.5);
-                (ty - y0).atan2(tx - x0) + 0.3 * rng.gauss()
+                (ty - y0).atan2(tx - x0) + err * rng.gauss()
             }
             None => rng.f32() * std::f32::consts::TAU,
         };
@@ -1753,8 +1766,9 @@ impl World {
     /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
     /// Returns the number lost.
     fn sea_toll(&self, b: &mut Band, sea: f32, rng: &mut Rng, fx: &mut Fx) -> u32 {
-        let prepared = b.store >= 0.5 * b.pop as f32;
-        if rng.chance(Self::sea_survival_x(b.d.kit.boat_q, b.seacraft, prepared, sea)) {
+        // (v8) a plank boat has room for water and food for the whole trip
+        let prepared = b.store >= 0.5 * b.pop as f32 || b.d.kit.plank != NONE;
+        if rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, prepared, sea)) {
             // a crossing made is a lesson learned
             b.seacraft = (b.seacraft + 0.05 * (1.0 - b.seacraft)).min(1.0);
             return 0;
@@ -1832,8 +1846,8 @@ impl World {
         if b.far_shore.is_none() && q > 0.5 && xp > 0.3 && b.pop >= 20 && rng.chance(0.01 * xp) {
             fx.counters.scouting += 1;
             let found = self.voyage(b, rng, None);
-            let sea = found.map(|f| f.1).unwrap_or(Self::sea_range(q, xp));
-            if !rng.chance(Self::sea_survival_x(q, xp, true, 2.0 * sea)) {
+            let sea = found.map(|f| f.1).unwrap_or(Self::boat_range(&b.d.kit, xp));
+            if !rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), xp, true, 2.0 * sea)) {
                 let party = 5.min(b.pop / 4);
                 b.pop -= party;
                 fx.counters.scouts_lost += 1;
@@ -2471,7 +2485,12 @@ impl World {
                     }
                 }
             }
-            let dpop = (b.pop as f32 * rng.range(0.35, 0.5)) as u32;
+            // (v8) a plank boat carries a bigger party
+            let dpop = if sailed.is_some() && b.d.kit.plank != NONE {
+                (b.pop as f32 * rng.range(0.45, 0.6)) as u32
+            } else {
+                (b.pop as f32 * rng.range(0.35, 0.5)) as u32
+            };
             let id = self.next_id;
             self.next_id += 1;
             let known: Vec<Known> = b
@@ -2520,6 +2539,9 @@ impl World {
             if let Some(sea) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
+                d.d.kit.outrigger = b.d.kit.outrigger;
+                d.d.kit.sail = b.d.kit.sail;
+                d.d.kit.plank = b.d.kit.plank;
                 self.counters.voyages += 1;
                 let mut fx = Fx::default();
                 self.sea_toll(&mut d, sea, rng, &mut fx);
