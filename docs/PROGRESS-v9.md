@@ -26,4 +26,8 @@ invention; lineage dominance falling.
   the second continent (#2, gap 3, Y143) was in fact reached **on foot**; #3 (Y172) by sea.
 - Format-8 fixture (v0.8.0, seed 4, Y150, 96x60) and a load test added.
 
-CI: _pending_
+CI (run 40239005648, [results-v9-step1a-seeds1-10-500y.txt](results-v9-step1a-seeds1-10-500y.txt)):
+identical to v0.8.0 on all 10 seeds (pop 891377, war 0.356 %/yr, disease 0.111 %/yr, items 66.4,
+tau 0.14). Honest reading of v0.8.0: boat-borne continent crossings in 4/10 worlds (s1 Y172 gap 5,
+s2 Y195 gap 10, s7 Y302 gap 14, s8 Y188 gap 1); s1's Y143 "crossing" was on foot. Effective
+lineages 5.39, largest lineage 25.8 %.
