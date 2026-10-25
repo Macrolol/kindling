@@ -160,7 +160,7 @@ fn v5_to_v6(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 /// Smelting iron ore used to give usable iron (item 22, raw iron) directly; it now gives an iron
 /// bloom (item 566 = form 17 x 32 + iron 22) that must be forged into wrought iron. Every heat
 /// recipe (action 2) with raw iron ore (item 21) among its inputs and raw iron as its output is
-/// re-pointed at the bloom, with the bloom's success chance (0.03). Iron already made, carried,
+/// re-pointed at the bloom, with the bloom's success chance (0.05). Iron already made, carried,
 /// or worked stays as it is.
 fn v6_to_v7(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
@@ -171,7 +171,7 @@ fn v6_to_v7(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
             let ore = r.get("inputs").and_then(|a| a.as_array()).map(|a| a.iter().any(|x| x.as_u64() == Some(21))).unwrap_or(false);
             if heat && to_iron && ore {
                 r["output"] = serde_json::json!(566);
-                r["p"] = serde_json::json!(0.03);
+                r["p"] = serde_json::json!(0.05);
             }
         }
     }
@@ -183,7 +183,7 @@ fn iron_to_bloom(w: &mut World) {
     for r in &mut w.reg.recipes {
         if r.action == 2 && r.output == item(Form::Raw, Mat::Iron) && r.inputs.contains(&item(Form::Raw, Mat::IronOre)) {
             r.output = item(Form::Bloom, Mat::Iron);
-            r.p = 0.03;
+            r.p = 0.05;
         }
     }
 }

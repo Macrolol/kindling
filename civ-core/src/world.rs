@@ -1480,6 +1480,12 @@ impl World {
             };
             // a band with bellows works them into a hot charcoal furnace
             let mut t2 = t2;
+            // a hot spongy lump from the furnace invites a blow with the hammer stone
+            if t2 == NONE && form(t1) == Form::Bloom && rng.chance(0.5) {
+                if let Some(hm) = pool.iter().copied().find(|&i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0) {
+                    t2 = hm;
+                }
+            }
             if t2 == NONE && k != NONE && form(t1) != Form::Bellows && mat(fire).props().fuel_t >= 900.0 && rng.chance(0.5) {
                 if let Some(bw) = pool.iter().copied().find(|&i| form(i) == Form::Bellows) {
                     t2 = bw;

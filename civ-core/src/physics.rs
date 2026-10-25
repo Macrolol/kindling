@@ -335,7 +335,7 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
                     // iron only reduces under a forced blast, and never melts: it comes out as a
                     // spongy bloom that still has to be forged; most charges are mere slag
                     if to == Mat::Iron {
-                        return o(item(Form::Bloom, to), 0.03);
+                        return o(item(Form::Bloom, to), 0.05);
                     }
                     return o(item(Form::Raw, to), 0.12);
                 }

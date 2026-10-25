@@ -58,12 +58,23 @@ def tau(a, b):
     return d / t
 
 
+def first(y, pred):
+    v = [t for k, t in y.items() if pred(k)]
+    return min(v) if v else None
+
+
 def summary(seeds):
-    rows = []
+    # v7+ (bellows exist): "iron bloom" is the unforged bloom and usable iron is "wrought iron";
+    # before v7 "iron bloom" was the usable metal
+    v7 = any('bellows' in k for v in seeds.values() for k in v['year'])
+    rows, extra = [], {}
     for s in sorted(seeds):
         v = seeds[s]
         y = v['year']
-        rows.append((s, y.get('iron bloom'), y.get('bronze (metal)'), v['lin'], max(v['lin_c']), v['lin_c']))
+        iron = y.get('wrought iron') if v7 else y.get('iron bloom')
+        extra[s] = (first(y, lambda k: 'bellows' in k), y.get('iron bloom') if v7 else None)
+        rows.append((s, iron, y.get('bronze (metal)'), v['lin'], max(v['lin_c']), v['lin_c']))
+    summary.extra = extra
     ts = [tau(seeds[a]['order'], seeds[b]['order']) for a, b in combinations(sorted(seeds), 2)]
     ts = [t for t in ts if t is not None]
     return rows, sum(ts) / max(1, len(ts)), len(ts)
@@ -76,13 +87,15 @@ def fmt(y):
 def main():
     cur = summary(parse(sys.argv[1]))
     base = summary(parse(sys.argv[2])) if len(sys.argv) > 2 else None
+    ex = summary(parse(sys.argv[1])) and summary.extra
     for name, (rows, t, n) in [('this run', cur)] + ([('baseline', base)] if base else []):
         print(f'== {name}: tau {t:.3f} over {n} pairs')
-        print('| seed | iron bloom | bronze | iron first? | lineage Y500 | lineage max (centuries) |')
-        print('|---|---|---|---|---|---|')
+        print('| seed | usable iron | bellows | bloom | bronze | iron first? | lineage Y500 | lineage max (centuries) |')
+        print('|---|---|---|---|---|---|---|---|')
         for s, i, b, l, lm, lc in rows:
             first = 'iron' if i is not None and (b is None or i < b) else ('bronze' if b is not None else '-')
-            print(f'| {s} | {fmt(i)} | {fmt(b)} | {first} | {l}% | {lm}% {lc} |')
+            bl, bm = ex.get(s, (None, None)) if name == 'this run' else (None, None)
+            print(f'| {s} | {fmt(i)} | {fmt(bl)} | {fmt(bm)} | {fmt(b)} | {first} | {l}% | {lm}% {lc} |')
         irons = [r[1] for r in rows if r[1] is not None]
         brs = [r[2] for r in rows if r[2] is not None]
         med = lambda v: sorted(v)[len(v) // 2] if v else None
