@@ -575,3 +575,30 @@ fn terrain_cost_and_rivers() {
     let b = rc.iter().copied().find(|&o| w.same_river(a, o) && crate::world::terrain::cheb(a, o, m.w) >= 5).unwrap();
     assert!(w.travel_cost(a, b, true) < w.travel_cost(a, b, false));
 }
+
+#[test]
+fn bows_shields_and_metal_weapons() {
+    let dry = Ctx { dryness: 0.5, water: false };
+    let wet = Ctx { dryness: 0.5, water: true };
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let thong = item(Form::Cord, Mat::Hide);
+    let bow = physics::apply(Action::Shape, &physics::canonical(Action::Shape, [shaft, thong, NONE, NONE]), &dry).unwrap();
+    assert_eq!(bow.out, item(Form::Bow, Mat::Hide));
+    let inp = physics::canonical(Action::Combine, [item(Form::Raw, Mat::Hide), shaft, thong, NONE]);
+    assert_eq!(physics::apply(Action::Combine, &inp, &dry).unwrap().out, item(Form::Shield, Mat::Hide));
+    assert_eq!(physics::apply(Action::Combine, &inp, &wet).unwrap().out, item(Form::Boat, Mat::Hide));
+    // a spear's worth in a fight counts how long its head lasts: metal beats flint
+    let spear = |m: Mat| {
+        let mut s = ItemSet::default();
+        s.add(item(Form::Spear, m));
+        crate::band::weapon_q(&crate::band::make_kit(&s))
+    };
+    assert!(spear(Mat::Bronze) > spear(Mat::Flint) && spear(Mat::Iron) > spear(Mat::Flint));
+    // a bow without arrows is no use
+    let mut s = ItemSet::default();
+    s.add(item(Form::Bow, Mat::Hide));
+    assert!(!crate::band::has_bow(&crate::band::make_kit(&s)));
+    s.add(item(Form::Point, Mat::Bone));
+    let k = crate::band::make_kit(&s);
+    assert!(crate::band::has_bow(&k) && crate::band::loss_guard(&k) < 1.0);
+}
