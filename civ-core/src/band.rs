@@ -52,6 +52,10 @@ pub struct Band {
     /// the ambitious), and eases in good times. High dissent splits a band before it is full,
     /// and the bolder, more curious people leave, and go farther.
     pub dissent: f32,
+    /// (v9) standing in others' eyes, 0..~3: earned by surplus, fine work, gifts of food and
+    /// voyages to new land, and fading (`PRESTIGE_FADE`). Others learn from, and marry into,
+    /// prestigious bands more readily. New bands start with none.
+    pub prestige: f32,
     /// keeps a captured fire alight
     pub flame: bool,
     pub known: Vec<Known>,

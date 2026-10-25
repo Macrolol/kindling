@@ -134,6 +134,10 @@ pub fn run(a: &Args) {
                 "    refinement (v9): {} improvements | mean recipe quality {:.2} (by landmass: {}) | boat seaworthiness {:.2}",
                 mo.refinements, mo.quality_mean, ql.join(", "), mo.boat_q_mean
             );
+            println!(
+                "    prestige (v9): mean {:.2} | Gini {:.2} | top 10% of bands hold {:.0}% | {:.0}% of recipes taught by the more prestigious band",
+                mo.prestige_mean, mo.prestige_gini, mo.prestige_top10_pct, mo.prestige_taught_pct
+            );
             let t = &s.trade;
             let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
             println!(

@@ -55,6 +55,11 @@ def parse(path):
             cur['refine'] = int(re.search(r'(\d+) improvements', line).group(1))
             cur['quality'] = float(re.search(r'mean recipe quality ([\d.]+)', line).group(1))
             cur['boatq'] = float(re.search(r'boat seaworthiness ([\d.]+)', line).group(1))
+        elif re.match(r'\s+prestige \(v9\):', line):
+            cur['pmean'] = float(re.search(r'mean ([\d.]+)', line).group(1))
+            cur['pgini'] = float(re.search(r'Gini ([\d.]+)', line).group(1))
+            cur['ptop'] = int(re.search(r'hold (\d+)%', line).group(1))
+            cur['ptaught'] = int(re.search(r'(\d+)% of recipes taught', line).group(1))
         elif re.match(r'\s+trade:', line):
             f = re.search(r'first: (.*)', line)
             f = f.group(1) if f else ''
@@ -118,6 +123,8 @@ def agg(rows, tau_v=None):
         'weddings / in-law fights (sum, v9)': (f"{sum(have('wed'))} / {sum(have('inlaw'))}" if have('wed') else '-'),
         'recipe quality / boat seaworthiness (mean, v9)': (f"{sum(have('quality'))/len(have('quality')):.2f} / {sum(have('boatq'))/len(have('boatq')):.2f}" if have('quality') else '-'),
         'refinements (mean, v9)': (round(sum(have('refine')) / len(have('refine'))) if have('refine') else '-'),
+        'prestige mean / Gini / top-10% share (mean, v9)': (f"{sum(have('pmean'))/len(have('pmean')):.2f} / {sum(have('pgini'))/len(have('pgini')):.2f} / {sum(have('ptop'))/len(have('ptop')):.0f}%" if have('pmean') else '-'),
+        'taught by the more prestigious % (mean, v9)': (round(sum(have('ptaught')) / len(have('ptaught'))) if have('ptaught') else '-'),
         'items now (mean)': round(mean('items'), 1),
         'discovery-order tau': tau_v if tau_v is not None else '-',
         'voyages / landings': f"{sum(r['voy'] for r in rows)} / {sum(r['land'] for r in rows)}",

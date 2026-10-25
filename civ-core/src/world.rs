@@ -92,6 +92,26 @@ pub const QUALITY_TEACH: f32 = 0.5;
 pub const QUALITY_SHOW_P: f32 = 0.3;
 pub const QUALITY_SHOW: f32 = 0.3;
 pub const QUALITY_SPLIT: f32 = 0.9;
+/// (v9) Prestige: x`PRESTIGE_FADE` a season, plus `PRESTIGE_SURPLUS` x spare labour and, for a
+/// band that makes ornaments, `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season;
+/// `PRESTIGE_GIFT` for each gift of food to the hungry and `PRESTIGE_VOYAGE` for coming ashore
+/// alive on another landmass. A band learns from a more prestigious one more readily (chance
+/// x(1 + `PRESTIGE_LEARN` x difference), within 0.5..2), weddings are likelier with prestigious
+/// bands (x(1 + `PRESTIGE_MARRY` x their mean)), and the ambitious take ship for glory more
+/// often (`PRESTIGE_LURE` x ambition a season, for those who know of a far shore).
+pub const PRESTIGE_FADE: f32 = 0.99;
+pub const PRESTIGE_SURPLUS: f32 = 0.01;
+pub const PRESTIGE_FINE: f32 = 0.01;
+pub const PRESTIGE_GIFT: f32 = 0.05;
+pub const PRESTIGE_VOYAGE: f32 = 1.0;
+pub const PRESTIGE_LEARN: f32 = 0.5;
+pub const PRESTIGE_MARRY: f32 = 0.3;
+pub const PRESTIGE_LURE: f32 = 0.05;
+
+/// (v9) How much more readily `dst` learns from `src` given their prestige (0.5..2).
+pub fn prestige_bias(src: &Band, dst: &Band) -> f32 {
+    (1.0 + PRESTIGE_LEARN * (src.prestige - dst.prestige)).clamp(0.5, 2.0)
+}
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -297,6 +317,8 @@ pub struct Counters {
     pub fights_in_law: u64,
     /// (v9) recipes made better by play and practice (`World::refine`)
     pub refinements: u64,
+    /// (v9) recipes taught by the more prestigious of the two bands
+    pub prestige_taught: u64,
     pub deaths: u64,
     /// band moves and daughter settlements made across open water
     pub voyages: u64,
@@ -1476,6 +1498,10 @@ impl World {
             }
         }
         // ---------------- (v9) play and refinement of what the band already makes
+        // ---------------- (v9) standing: surplus and fine work earn it, time wears it away
+        b.prestige = b.prestige * PRESTIGE_FADE
+            + PRESTIGE_SURPLUS * spare
+            + if b.d.kit.ornament != NONE { PRESTIGE_FINE * (0.5 + b.d.kit.fine) } else { 0.0 };
         Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
@@ -2225,6 +2251,7 @@ impl World {
             let push = self.push_out(b);
             let lure = if b.far_shore.is_some() {
                 0.1 + FAR_SHORE_LURE * (b.curiosity - 1.0).max(0.0) * b.seacraft
+                    + PRESTIGE_LURE * b.ambition.max(0.0)
             } else {
                 0.0
             };
@@ -2262,9 +2289,11 @@ impl World {
     }
 
     /// Count a band that came ashore alive on another landmass than the one it left from.
-    pub(crate) fn note_crossing(&self, from: usize, b: &Band, fx: &mut Fx) {
+    /// (v9) The crossing earns the band prestige.
+    pub(crate) fn note_crossing(&self, from: usize, b: &mut Band, fx: &mut Fx) {
         if b.pop > 0 && self.map.landmass_of(from) != self.map.landmass_of(b.cell(self.map.w)) {
             fx.counters.crossings += 1;
+            b.prestige += PRESTIGE_VOYAGE;
         }
     }
 
@@ -2576,7 +2605,7 @@ impl World {
     /// (v9) At a meeting, `dst` may see `src` make something better than it does.
     fn show_quality(bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng) {
         let s = &bands[src];
-        if s.known.is_empty() || !rng.chance(QUALITY_SHOW_P) {
+        if s.known.is_empty() || !rng.chance((QUALITY_SHOW_P * prestige_bias(s, &bands[dst])).min(0.9)) {
             return;
         }
         let kn = s.known[rng.below(s.known.len())];
@@ -2596,7 +2625,8 @@ impl World {
     /// unchanged), mixing ancestry and tying the bands together.
     fn marry(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
         let small = bands[a].pop.min(bands[c].pop);
-        if small < 10 || !rng.chance(MARRIAGE_P) {
+        let pull = 1.0 + PRESTIGE_MARRY * 0.5 * (bands[a].prestige + bands[c].prestige);
+        if small < 10 || !rng.chance((MARRIAGE_P * pull).min(0.3)) {
             return;
         }
         let k = ((MARRIAGE_SHARE * small as f32).round() as u32).max(1);
@@ -2692,6 +2722,7 @@ impl World {
                         bands[x].store -= give;
                         bands[y].store += give;
                         fx.acc.food_shared += give;
+                        bands[x].prestige += PRESTIGE_GIFT;
                         moved += 0.01;
                     }
                 }
@@ -2804,7 +2835,8 @@ impl World {
         let (rid, skill, tq) = cands[rng.below(cands.len())];
         let r = &self.reg.recipes[rid as usize];
         let relevant = r.inputs.iter().all(|&i| bands[dst].d.tk.avail.has(i));
-        let pl = skill * if relevant { 0.8 } else { 0.25 };
+        let bias = prestige_bias(&bands[src], &bands[dst]);
+        let pl = (skill * if relevant { 0.8 } else { 0.25 } * bias).min(0.95);
         if !rng.chance(pl) {
             return;
         }
@@ -2819,6 +2851,9 @@ impl World {
         fx.ops.push(Op::RecipeTransfer(rid));
         fx.counters.transfers += 1;
         fx.acc.transfers += 1;
+        if bias > 1.0 {
+            fx.counters.prestige_taught += 1;
+        }
         fx.push_event(EventKind::Learned, did, srcid, dc, out, rid);
         let tk_dirty = &mut bands[dst];
         self.refresh_toolkit(tk_dirty);
@@ -2952,7 +2987,7 @@ impl World {
                 let mut fx = Fx::default();
                 self.sea_toll(&mut d, sea, rng, &mut fx);
                 if d.pop >= 4 {
-                    self.note_crossing(bands[k].cell(self.map.w), &d, &mut fx);
+                    self.note_crossing(bands[k].cell(self.map.w), &mut d, &mut fx);
                 }
                 self.apply_fx(fx, None);
                 self.forget_reached_shore(&mut d);

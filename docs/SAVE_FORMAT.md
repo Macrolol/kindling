@@ -112,7 +112,7 @@ Current: `FORMAT_VERSION = 9` (Kindling 0.9 development). v0.8.0 writes format 8
     `bands[].dissent` (0 = ordinary, calm), `counters.dissent_splits`, `bands[].ancestry` (empty = all of the band's own
     lineage), `bands[].partners[].married` (0 = no marriage ties), `counters.marriages` and
     `counters.fights_in_law`, `bands[].known[].quality` (0 = the plain recipe) and
-    `counters.refinements`, and `world.camped` (per
+    `counters.refinements`, `bands[].prestige` (0 = no standing) and `counters.prestige_taught`, and `world.camped` (per
     cell, 1 + the last year a band camped there; when missing, `after_load` marks land on
     settled landmasses as camped in the load year and everything else as never visited).
   - Binary format-5..8 saves are decoded directly and dated in place (`age_old_rumours`); JSON

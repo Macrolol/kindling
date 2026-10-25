@@ -215,3 +215,28 @@ between the bands they join.
 - Local seed 1 x 500y: pop 114458 (116286); crossings #2 Y127 (gap 3), #3 Y184 (gap 5); war
   0.348 %/yr; disease 0.068; items 68; mean recipe quality 0.36 (landmasses 0.33-0.36); boat
   seaworthiness 0.99; 4.36 M refinements; effective lineages 4.55 (largest 36 %); 50.7 s.
+
+## Step 8 (P7): prestige
+
+- `Band::prestige` (0 for new bands and older saves). Each season x`PRESTIGE_FADE` 0.99 (a
+  half-life of ~17 years), plus `PRESTIGE_SURPLUS` 0.01 x spare labour, plus, for a band whose
+  kit has an ornament, `PRESTIGE_FINE` 0.01 x (0.5 + `Kit::fine`); `PRESTIGE_GIFT` 0.05 for each
+  gift of food to hungry kin or partners; `PRESTIGE_VOYAGE` 1.0 for coming ashore alive on
+  another landmass (`note_crossing`, now `&mut Band`).
+- Effects: prestige-biased learning (`world::prestige_bias`: chance x(1 + `PRESTIGE_LEARN` 0.5 x
+  (teacher - learner)), within 0.5..2, for both new recipes and "seeing a better way");
+  weddings x(1 + `PRESTIGE_MARRY` 0.3 x the pair's mean prestige) (max 0.3) - and weddings are
+  what make alliances (P5); ambitious bands that know of a far shore set out more often
+  (`PRESTIGE_LURE` 0.05 x ambition a season).
+- No direct effect on conflict or on growth: prestige works only through who learns from and
+  marries whom, so it cannot snowball into conquest by itself.
+- Measurement: `prestige (v9)` line (mean, Gini across bands, share held by the top 10% of
+  bands, % of taught recipes taught by the more prestigious band; counter
+  `prestige_taught`). `analysis::gini`. Test `prestige_biases_learning_and_gini_measures_spread`.
+- Saves: additive (`bands[].prestige`, `counters.prestige_taught`).
+- Not done: ornament-making as a deliberate aim (experiment attention towards ornaments for the
+  status-hungry); prestige goods as trade goods with their own value.
+- Local seed 1 x 500y: pop 147729 (P6 114458); crossings #2 Y142 (gap 3), #3 Y180 (gap 5); war
+  0.322 %/yr; disease 0.108; items 66; prestige mean 0.49, Gini 0.44, top 10% hold 33%, 59% of
+  recipes taught by the more prestigious; effective lineages 5.44 (largest 28%, P6 36%);
+  foragers 39% of people (P6 94%); 57.7 s.

@@ -816,3 +816,23 @@ fn refined_recipes_make_better_kits() {
     assert!(before.iter().zip(&after).all(|(a, b)| b >= a));
     assert!(before.iter().zip(&after).any(|(a, b)| b > a));
 }
+
+#[test]
+fn prestige_biases_learning_and_gini_measures_spread() {
+    use crate::analysis::gini;
+    use crate::world::prestige_bias;
+    let mut w = small();
+    for _ in 0..200 {
+        w.step();
+    }
+    // bands earn standing over time, and it never goes negative
+    assert!(w.bands.iter().all(|b| b.prestige >= 0.0));
+    assert!(w.bands.iter().any(|b| b.prestige > 0.0));
+    let (mut hi, mut lo) = (w.bands[0].clone(), w.bands[0].clone());
+    hi.prestige = 2.0;
+    lo.prestige = 0.0;
+    assert!(prestige_bias(&hi, &lo) > 1.0 && prestige_bias(&lo, &hi) < 1.0);
+    assert!(prestige_bias(&hi, &lo) <= 2.0 && prestige_bias(&lo, &hi) >= 0.5);
+    assert_eq!(gini(&[1.0, 1.0, 1.0]), 0.0);
+    assert!(gini(&[0.0, 0.0, 0.0, 9.0]) > 0.7);
+}

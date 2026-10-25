@@ -94,6 +94,25 @@ pub struct MotiveSummary {
     pub quality_mean: f32,
     pub quality_by_landmass: Vec<(u16, f32)>,
     pub boat_q_mean: f32,
+    /// (v9) mean band prestige, its Gini across bands, the share of all prestige held by the
+    /// top 10% of bands, and the share of recipes taught by the more prestigious band (%)
+    pub prestige_mean: f32,
+    pub prestige_gini: f32,
+    pub prestige_top10_pct: f32,
+    pub prestige_taught_pct: f32,
+}
+
+/// Gini coefficient of non-negative values (0 = equal, ->1 = one holds all).
+pub fn gini(v: &[f32]) -> f32 {
+    let mut s: Vec<f64> = v.iter().map(|&x| x.max(0.0) as f64).collect();
+    let tot: f64 = s.iter().sum();
+    if s.len() < 2 || tot <= 0.0 {
+        return 0.0;
+    }
+    s.sort_by(|a, b| a.total_cmp(b));
+    let n = s.len() as f64;
+    let wsum: f64 = s.iter().enumerate().map(|(i, x)| (i as f64 + 1.0) * x).sum();
+    ((2.0 * wsum) / (n * tot) - (n + 1.0) / n) as f32
 }
 
 fn motive_summary(w: &World) -> MotiveSummary {
@@ -131,6 +150,16 @@ fn motive_summary(w: &World) -> MotiveSummary {
             v.sort_by(|a, b| b.1.total_cmp(&a.1));
             v.into_iter().map(|(l, _, q)| (l, q)).collect()
         },
+        prestige_mean: f(&all, |b| b.prestige),
+        prestige_gini: gini(&all.iter().map(|b| b.prestige).collect::<Vec<_>>()),
+        prestige_top10_pct: {
+            let mut p: Vec<f32> = all.iter().map(|b| b.prestige.max(0.0)).collect();
+            p.sort_by(|a, b| b.total_cmp(a));
+            let tot: f32 = p.iter().sum();
+            let k = (p.len() + 9) / 10;
+            if tot > 0.0 { 100.0 * p[..k].iter().sum::<f32>() / tot } else { 0.0 }
+        },
+        prestige_taught_pct: 100.0 * w.counters.prestige_taught as f32 / w.counters.transfers.max(1) as f32,
         boat_q_mean: mean(&w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.d.kit.boat_q).collect::<Vec<_>>()),
         explored_pct: {
             let land = (0..w.map.w * w.map.h).filter(|&i| w.map.is_land(i));
