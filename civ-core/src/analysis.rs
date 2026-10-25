@@ -152,7 +152,8 @@ pub const STAGES: [&str; 8] = ["none", "stone tools", "fire-making", "hafted too
 
 fn stage_of(items: &[Item]) -> usize {
     let has = |f: &dyn Fn(Item) -> bool| items.iter().any(|&i| f(i));
-    if has(&|i| mat(i) == Mat::Iron) {
+    // a raw bloom is not yet usable iron; forged (wrought) iron is
+    if has(&|i| mat(i) == Mat::Iron && form(i) != Form::Bloom) {
         7
     } else if has(&|i| mat(i) == Mat::Bronze) {
         6

@@ -439,3 +439,65 @@ fn cell_first_sparse_basics() {
     }
     assert_eq!(CellFirst::from_dense(w, h, &dense), cf);
 }
+
+/// v7 iron: ore only reduces under a bellows blast into a closed charcoal furnace, gives a bloom,
+/// and the bloom must be forged hot on a hammerstone into wrought iron.
+#[test]
+fn iron_needs_bellows_and_forging() {
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let raw = |m| item(Form::Raw, m);
+    let ch = item(Form::Fire, Mat::Charcoal);
+    let bel = item(Form::Bellows, Mat::Hide);
+    let heat = |inp| physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx).map(|o| o.out);
+    // the best kiln without a blast no longer reduces iron
+    assert_eq!(heat([raw(Mat::IronOre), NONE, ch, item(Form::Kiln, Mat::Ceramic)]), None);
+    // with bellows into a clay furnace: a bloom, not usable iron
+    assert_eq!(heat([raw(Mat::IronOre), bel, ch, item(Form::Kiln, Mat::Clay)]), Some(item(Form::Bloom, Mat::Iron)));
+    // a stone-lined hearth is still too cool, and bellows do nothing for an open fire
+    assert_eq!(heat([raw(Mat::IronOre), bel, ch, item(Form::Kiln, Mat::Stone)]), None);
+    assert_eq!(heat([raw(Mat::IronOre), bel, ch, NONE]), None);
+    // forging: bloom + hammerstone in a hot hearth gives wrought iron, either input order
+    let bloom = item(Form::Bloom, Mat::Iron);
+    let ham = item(Form::Hammer, Mat::Stone);
+    assert_eq!(heat([bloom, ham, ch, item(Form::Kiln, Mat::Stone)]), Some(raw(Mat::Iron)));
+    assert_eq!(heat([ham, bloom, ch, item(Form::Kiln, Mat::Clay)]), Some(raw(Mat::Iron)));
+    // not in a plain wood fire
+    assert_eq!(heat([bloom, ham, item(Form::Fire, Mat::Wood), NONE]), None);
+    // a bloom cannot be cold-hammered into a knife
+    assert_eq!(physics::apply(Action::Shape, &[bloom, ham, NONE, NONE], &ctx), None);
+    // bellows: a hide bag on a stick with a cord
+    let inp = physics::canonical(Action::Combine, [item(Form::Vessel, Mat::Hide), item(Form::Shaft, Mat::Wood), item(Form::Cord, Mat::Fibre), NONE]);
+    assert_eq!(physics::apply(Action::Combine, &inp, &ctx).map(|o| o.out), Some(bel));
+    assert_eq!(item_name(bloom), "iron bloom");
+    assert_eq!(item_name(raw(Mat::Iron)), "wrought iron");
+}
+
+/// A v6.1 save (format 6) whose bands already smelt iron the old way: the v6->v7 migration
+/// re-points those recipes at the bloom, by both the binary and the JSON route; it keeps running.
+#[test]
+fn v6_1_fixture_iron_recipes_become_bloom() {
+    use std::io::Read;
+    let bytes = include_bytes!("../tests/fixtures/v6_1_seed4_y125.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v6.1 save loads");
+    assert_eq!(info.format_version, 6);
+    assert_eq!(info.migrated_from, Some(6));
+    let ore = item(Form::Raw, Mat::IronOre);
+    let smelt = |w: &World| w.reg.recipes.iter().filter(|r| r.action == 2 && r.inputs.contains(&ore)).map(|r| r.output).collect::<Vec<_>>();
+    let s = smelt(&w);
+    assert!(!s.is_empty(), "fixture has an iron smelting recipe");
+    assert!(s.iter().all(|&o| o != item(Form::Raw, Mat::Iron)));
+    assert!(s.contains(&item(Form::Bloom, Mat::Iron)));
+    let pop = w.total_pop();
+    for _ in 0..20 {
+        w.step();
+    }
+    assert!(w.total_pop() > pop / 2);
+    let mut raw = Vec::new();
+    flate2::read::DeflateDecoder::new(&bytes[8..]).read_to_end(&mut raw).unwrap();
+    let env: serde_json::Value = rmp_serde::from_slice(&raw).unwrap();
+    let json = serde_json::to_string(&env).unwrap();
+    let (wj, _, ij) = World::load_bytes(json.as_bytes()).expect("v6.1 save as JSON loads");
+    assert_eq!(ij.migrated_from, Some(6));
+    let (wb, _, _) = World::load_bytes(bytes).unwrap();
+    assert_eq!(smelt(&wj), smelt(&wb));
+}

@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -155,6 +155,37 @@ fn v5_to_v6(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     }
     world.insert("cell_first_sparse".into(), json!(sparse));
     Ok(v)
+}
+/// v6 -> v7 (iron needs bellows and forging). Frozen: do not edit.
+/// Smelting iron ore used to give usable iron (item 22, raw iron) directly; it now gives an iron
+/// bloom (item 566 = form 17 x 32 + iron 22) that must be forged into wrought iron. Every heat
+/// recipe (action 2) with raw iron ore (item 21) among its inputs and raw iron as its output is
+/// re-pointed at the bloom, with the bloom's success chance (0.03). Iron already made, carried,
+/// or worked stays as it is.
+fn v6_to_v7(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(rs) = world.get_mut("reg").and_then(|r| r.get_mut("recipes")).and_then(|r| r.as_array_mut()) {
+        for r in rs {
+            let heat = r.get("action").and_then(|a| a.as_u64()) == Some(2);
+            let to_iron = r.get("output").and_then(|a| a.as_u64()) == Some(22);
+            let ore = r.get("inputs").and_then(|a| a.as_array()).map(|a| a.iter().any(|x| x.as_u64() == Some(21))).unwrap_or(false);
+            if heat && to_iron && ore {
+                r["output"] = serde_json::json!(566);
+                r["p"] = serde_json::json!(0.03);
+            }
+        }
+    }
+    Ok(v)
+}
+/// The same re-pointing as `v6_to_v7`, for saves decoded straight into the current schema.
+fn iron_to_bloom(w: &mut World) {
+    use crate::materials::{item, Form, Mat};
+    for r in &mut w.reg.recipes {
+        if r.action == 2 && r.output == item(Form::Raw, Mat::Iron) && r.inputs.contains(&item(Form::Raw, Mat::IronOre)) {
+            r.output = item(Form::Bloom, Mat::Iron);
+            r.p = 0.03;
+        }
+    }
 }
 const _: () = assert!(
     MIGRATIONS.len() as u32 + SUPPORT_FLOOR == FORMAT_VERSION,
@@ -303,9 +334,10 @@ impl World {
         };
         // v5 -> v6 only moved the first-reach table, which the v6 schema still reads in its old
         // form; decoding v5 binaries directly keeps big-map saves out of a JSON value tree
-        let direct = h.format_version == FORMAT_VERSION || (h.format_version == 5 && matches!(enc, Enc::Mp(_)));
-        if h.format_version == 5 {
-            info.migrated_from = Some(5);
+        // v6 -> v7 only re-points a few recipes, done in place below for binaries, too
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5 | 6) {
+            info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {
             dec::<Envelope<SaveState>>(&enc, b)?.payload
@@ -321,6 +353,9 @@ impl World {
             dec::<Envelope<SaveState>>(&enc, b)?.payload
         };
         let mut w = state.world;
+        if direct && h.format_version < 7 {
+            iron_to_bloom(&mut w);
+        }
         w.after_load();
         Ok((w, state.view, info))
     }

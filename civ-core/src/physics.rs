@@ -217,6 +217,12 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Boat, mat(r)), 0.03);
         }
     }
+    // bellows: a tough, airtight bag lashed to a stick, pumped to blow air into a fire
+    if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        if let Some(bag) = items.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
+            return o(item(Form::Bellows, mat(bag)), 0.04);
+        }
+    }
     // sewing: hide + cord + a point to pierce it
     if n == 3 && raw(Mat::Hide) && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         return o(item(Form::Garment, Mat::Hide), 0.35);
@@ -258,6 +264,11 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     None
 }
 
+/// extra heat from bellows blowing into a closed charcoal furnace (deg C)
+pub const BELLOWS_HEAT: f32 = 250.0;
+/// heat at which an iron bloom can be hammered into wrought iron (deg C)
+pub const FORGE_T: f32 = 1100.0;
+
 fn heat(inp: &Inputs) -> Option<Outcome> {
     let (t1, t2, fire, kiln) = (inp[0], inp[1], inp[2], inp[3]);
     if fire == NONE || form(fire) != Form::Fire || t1 == NONE {
@@ -268,9 +279,36 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
     }
     let fuel = mat(fire);
     let lining = if kiln == NONE { None } else { Some(mat(kiln)) };
-    let temp = fire_temp(fuel, lining);
+    let mut temp = fire_temp(fuel, lining);
     // reducing atmosphere: carbon-rich fuel burning in a closed chamber
     let reducing = lining.is_some() && fuel.props().fuel_t >= 900.0;
+    // bellows worked into a closed charcoal furnace force the draught: a few hundred degrees
+    // more. In an open or wood fire the blast only fans the flames
+    let (t1, t2) = match (t1 != NONE && form(t1) == Form::Bellows, t2 != NONE && form(t2) == Form::Bellows) {
+        (false, false) => (t1, t2),
+        (true, true) => return None,
+        (b1, _) => {
+            if !reducing {
+                return None;
+            }
+            temp += BELLOWS_HEAT;
+            (if b1 { t2 } else { t1 }, NONE)
+        }
+    };
+    if t1 == NONE {
+        return None;
+    }
+    // forging: a hot iron bloom hammered on a stone to squeeze out the slag and weld the sponge
+    // into solid, workable wrought iron (needs a hearth that holds the heat, and many tries)
+    if t2 != NONE {
+        let (bl, hm) = if form(t1) == Form::Bloom { (t1, t2) } else { (t2, t1) };
+        if form(bl) == Form::Bloom && form(hm) == Form::Hammer {
+            if mat(hm).props().hard >= 5.0 && temp >= FORGE_T {
+                return o(item(Form::Raw, mat(bl)), 0.05);
+            }
+            return None;
+        }
+    }
     if t2 == NONE {
         let (f, m) = (form(t1), mat(t1));
         let p = m.props();
@@ -294,8 +332,12 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
             // smelting
             if let Some(to) = p.reduces_to {
                 if reducing && temp >= p.reduce_t {
-                    // iron only just reduces at the best kiln heat: most charges come out as slag
-                    return o(item(Form::Raw, to), if to == Mat::Iron { 0.02 } else { 0.12 });
+                    // iron only reduces under a forced blast, and never melts: it comes out as a
+                    // spongy bloom that still has to be forged; most charges are mere slag
+                    if to == Mat::Iron {
+                        return o(item(Form::Bloom, to), 0.03);
+                    }
+                    return o(item(Form::Raw, to), 0.12);
                 }
             }
         }

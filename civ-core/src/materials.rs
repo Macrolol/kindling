@@ -156,7 +156,7 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 1.0, tough: 1.0, food: 7.0, ..p("grain") },
     Props { hard: 0.5, tough: 4.5, workable: 6.0, fibrous: 9.5, ..p("flax") },
     Props { hard: 0.3, tough: 4.0, workable: 6.0, fibrous: 8.0, seal: 2.0, ..p("wool") },
-    Props { hard: 5.0, tough: 4.0, fracture: 1.0, reduce_t: 1300.0, reduces_to: Some(Mat::Iron), refractory: 2.0, ..p("iron ore") },
+    Props { hard: 5.0, tough: 4.0, fracture: 1.0, reduce_t: 1400.0, reduces_to: Some(Mat::Iron), refractory: 2.0, ..p("iron ore") },
     Props { hard: 5.5, tough: 9.0, sharp: 7.0, malleable: 6.0, melt: 1538.0, ..p("iron") },
 ];
 
@@ -179,7 +179,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 16;
+pub const NFORM: usize = 18;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -215,6 +215,10 @@ pub enum Form {
     Net,
     /// a snare: a cord noose on a springy stick
     Trap,
+    /// a bag worked on a stick to force air into a fire
+    Bellows,
+    /// a spongy, slag-filled lump of metal straight from the furnace, useless until forged
+    Bloom,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -233,6 +237,8 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Boat,
     Form::Net,
     Form::Trap,
+    Form::Bellows,
+    Form::Bloom,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -265,7 +271,7 @@ pub fn item_name(i: Item) -> String {
     match form(i) {
         Form::Raw => match m {
             Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} (metal)"),
-            Mat::Iron => "iron bloom".into(),
+            Mat::Iron => "wrought iron".into(),
             _ => n.to_string(),
         },
         Form::Hammer => format!("{n} hammerstone"),
@@ -317,12 +323,14 @@ pub fn item_name(i: Item) -> String {
             Mat::Hide => "rawhide snare".into(),
             _ => format!("{n} snare"),
         },
+        Form::Bellows => format!("{n} bellows"),
+        Form::Bloom => format!("{n} bloom"),
     }
 }
 
 /// Fixed-size bitset over all item ids.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ItemSet(pub [u64; 8]);
+pub struct ItemSet(pub [u64; 9]);
 impl ItemSet {
     #[inline]
     pub fn has(&self, i: Item) -> bool {

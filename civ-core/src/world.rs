@@ -1362,7 +1362,10 @@ impl World {
         // glassy obsidian
         add(CopperOre, 0.8);
         add(TinOre, 0.5);
-        add(IronOre, 0.4); // red and yellow ochre
+        // red and yellow ochre is a pigment to most; a band that already smelts metal from
+        // stone looks at heavy rust-red lumps with new eyes
+        let smelts = [Mat::Copper, Mat::Tin, Mat::Bronze].iter().any(|&mm| b.d.tk.producible.has(raw(mm)));
+        add(IronOre, if smelts { 1.0 } else { 0.2 });
         add(Obsidian, 0.5);
         let carried = 0.3 + 0.6 * b.curiosity;
         for (mi, v) in a.iter_mut().enumerate() {
@@ -1465,6 +1468,13 @@ impl World {
                 Some(f) if rng.chance(0.6) => f,
                 _ => fires[rng.below(fires.len())],
             };
+            // a band with bellows works them into a hot charcoal furnace
+            let mut t2 = t2;
+            if t2 == NONE && k != NONE && form(t1) != Form::Bellows && mat(fire).props().fuel_t >= 900.0 && rng.chance(0.5) {
+                if let Some(bw) = pool.iter().copied().find(|&i| form(i) == Form::Bellows) {
+                    t2 = bw;
+                }
+            }
             (Action::Heat, [t1, t2, fire, k])
         } else if roll < wh + ws {
             let t = pick(rng, &pool);

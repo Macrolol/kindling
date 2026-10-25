@@ -80,5 +80,16 @@ Current: `FORMAT_VERSION = 6` (Kindling 0.6.1). v0.5.x and v0.6.0 write format 5
     `v6_0_fixture_loads_sparse_cell_first`. The test compares the result with the dense table read
     straight from the file, checks that the JSON migration route gives the same `cell_first` and
     state hash, and checks that a format-6 round trip writes no dense `cell_first`.
+- **v7** (Kindling 0.7.0, iron needs bellows and forging). Migration `v6_to_v7`:
+  - Two forms are appended (`Bellows` = 16, `Bloom` = 17), so every older item id is unchanged.
+  - Smelting iron ore now gives an iron bloom (item 566), which has to be forged into wrought
+    iron (raw iron, item 22). Every heat recipe in `world.reg.recipes` that has raw iron ore
+    (item 21) among its inputs and raw iron as its output is re-pointed at the bloom, with
+    `p = 0.03`. Iron already made, carried or worked is left alone.
+  - Band fields `anc` (earlier ancestors) and grudge field `par` are additive and load as 0.
+  - Binary format-5 and format-6 saves are decoded directly and get the same re-pointing in
+    place (`iron_to_bloom`); JSON saves run the migration. `migrated_from` reports 5 or 6.
+  - Fixture `v6_1_seed4_y125.civsave` (written by the v0.6.1 code, with iron already smelted)
+    is loaded by `v6_1_fixture_iron_recipes_become_bloom`, which checks both routes.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.
