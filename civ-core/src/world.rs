@@ -39,6 +39,25 @@ pub const SEA_VISIT_LESSON: f32 = 0.02;
 /// between kin), and the share of the gap closed.
 pub const SEA_TEACH_P: f32 = 0.1;
 pub const SEA_TEACH_SHARE: f32 = 0.25;
+/// (v9) Ambition (log scale) is clamped to +-this, drifts by this sd at each split, and founders
+/// start with this sd.
+pub const AMBITION_MAX: f32 = 1.0;
+pub const AMBITION_DRIFT: f32 = 0.12;
+pub const AMBITION_FOUNDER_SD: f32 = 0.3;
+/// (v9) How far past its boats' safe range a bold crew will push (range x e^(this x ambition)),
+/// and how much harder it presses a quarrel (resolve x e^(this x ambition)).
+pub const AMBITION_REACH: f32 = 0.25;
+pub const AMBITION_RESOLVE: f32 = 0.15;
+/// (v9) Dissent follows the band's friction at this rate a season; above `DISSENT_SPLIT` a band
+/// of at least `DISSENT_MIN_SIZE` x split size may break up early (chance `DISSENT_SPLIT_P` x the
+/// excess a season). Those who leave in anger go up to `DISSENT_RADIUS` cells, and take the
+/// bolder, more curious tail (`EMIGRANT_TAIL`: shift in log units per sd).
+pub const DISSENT_RATE: f32 = 0.1;
+pub const DISSENT_SPLIT: f32 = 0.5;
+pub const DISSENT_MIN_SIZE: f32 = 0.6;
+pub const DISSENT_SPLIT_P: f32 = 0.5;
+pub const DISSENT_RADIUS: i32 = 4;
+pub const EMIGRANT_TAIL: f32 = 0.1;
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -235,6 +254,8 @@ pub struct Counters {
     pub transfers: u64,
     pub forgets: u64,
     pub splits: u64,
+    /// (v9) splits brought on by dissent rather than size
+    pub dissent_splits: u64,
     pub deaths: u64,
     /// band moves and daughter settlements made across open water
     pub voyages: u64,
@@ -557,6 +578,7 @@ impl World {
                 pop: w.cfg.founder_pop + rng.below(8) as u32,
                 store: 5.0,
                 curiosity: (1.0 + 0.25 * rng.gauss()).clamp(0.4, 1.8),
+                ambition: (AMBITION_FOUNDER_SD * rng.gauss()).clamp(-AMBITION_MAX, AMBITION_MAX),
                 flame: false,
                 stock: vec![0.0; NMAT],
                 origin: vec![u32::MAX; NMAT],
@@ -1796,7 +1818,8 @@ impl World {
         if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
             return None;
         }
-        let range = Self::boat_range(kit, b.seacraft);
+        // (v9) a bold crew pushes on past the safe range (and the sea takes its toll)
+        let range = Self::boat_range(kit, b.seacraft) * (AMBITION_REACH * b.ambition).exp();
         // (v8) wayfinding: seasoned seafarers read stars, swells and birds, and steer half as wide
         let err = if b.seacraft > 0.6 { 0.15 } else { 0.3 };
         let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
@@ -2050,6 +2073,7 @@ impl World {
             pop: party,
             store: 0.5,
             curiosity: b.curiosity,
+            ambition: b.ambition,
             seacraft: b.seacraft,
             flame: b.flame && rng.chance(0.3),
             known,
@@ -2639,16 +2663,29 @@ impl World {
         let n0 = bands.len();
         for k in 0..n0 {
             let thresh = p.split_size * (0.8 + 0.4 * rng.f32());
-            if (bands[k].pop as f32) <= thresh {
+            // (v9) friction builds with hunger, crowding and size, the more for the ambitious
+            let friction = {
+                let b = &bands[k];
+                self.push_out(b) * (b.pop as f32 / p.split_size).min(1.5) * b.ambition.exp()
+            };
+            let b = &mut bands[k];
+            b.dissent += DISSENT_RATE * (friction - b.dissent);
+            let pop = b.pop as f32;
+            let quarrel = pop <= thresh
+                && b.dissent > DISSENT_SPLIT
+                && pop >= DISSENT_MIN_SIZE * p.split_size
+                && rng.chance(DISSENT_SPLIT_P * (b.dissent - DISSENT_SPLIT));
+            if pop <= thresh && !quarrel {
                 continue;
             }
             let b = &bands[k];
-            // daughter settles in the best nearby cell
+            // daughter settles in the best nearby cell; (v9) those who leave in anger go farther
             let (x, y) = (b.x as i32, b.y as i32);
+            let rad = if quarrel { DISSENT_RADIUS } else { 2 };
             let mut best = (b.cell(w), f32::MIN);
             for _ in 0..8 {
-                let nx = x + rng.below(5) as i32 - 2;
-                let ny = y + rng.below(5) as i32 - 2;
+                let nx = x + rng.below(2 * rad as usize + 1) as i32 - rad;
+                let ny = y + rng.below(2 * rad as usize + 1) as i32 - rad;
                 if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
                     continue;
                 }
@@ -2664,9 +2701,9 @@ impl World {
             }
             // a daughter band with boats may strike out across the water instead
             let mut sailed = None;
-            if b.d.kit.boat_q > 0.0 && rng.chance(0.5) {
+            if b.d.kit.boat_q > 0.0 && rng.chance(if quarrel { 0.8 } else { 0.5 }) {
                 let push = self.push_out(b);
-                let aim = if rng.chance(0.7) { b.far_shore } else { None };
+                let aim = if rng.chance(if quarrel { 0.9 } else { 0.7 }) { b.far_shore } else { None };
                 if let Some((c, sea)) = self.voyage(b, rng, aim) {
                     let s = self.cell_score(b, c) / ((1.1 + 0.05 * sea) * (1.0 - 0.3 * push));
                     if s > best.1 {
@@ -2681,12 +2718,15 @@ impl World {
             } else {
                 (b.pop as f32 * rng.range(0.35, 0.5)) as u32
             };
+            // (v9) after a quarrel the bolder, more curious people leave, and the rest stay:
+            // the daughter's traits shift up by `tail`, the parent's down in proportion
+            let tail = if quarrel { EMIGRANT_TAIL * rng.gauss().abs() } else { 0.0 };
+            let stay_shift = tail * dpop as f32 / (b.pop - dpop).max(1) as f32;
             let id = self.next_id;
             self.next_id += 1;
             let known: Vec<Known> = b
                 .known
                 .iter()
-                .filter(|_| true)
                 .filter_map(|kn| {
                     if rng.chance(0.55 + 0.45 * kn.skill) {
                         Some(Known { skill: kn.skill * 0.9, from: FROM_PARENT, since: self.tick, ..*kn })
@@ -2705,7 +2745,8 @@ impl World {
                 y: (best.0 / w) as u16,
                 pop: dpop,
                 store: b.store * 0.4,
-                curiosity: (b.curiosity * (0.12 * rng.gauss()).exp()).clamp(0.3, 2.5),
+                curiosity: (b.curiosity * (0.12 * rng.gauss() + tail).exp()).clamp(0.3, 2.5),
+                ambition: (b.ambition + AMBITION_DRIFT * rng.gauss() + tail).clamp(-AMBITION_MAX, AMBITION_MAX),
                 flame: b.flame,
                 known,
                 stock: b.stock.clone(),
@@ -2747,12 +2788,20 @@ impl World {
             }
             let bm = &mut bands[k];
             bm.pop -= dpop;
+            if quarrel {
+                bm.curiosity = (bm.curiosity * (-stay_shift).exp()).clamp(0.3, 2.5);
+                bm.ambition = (bm.ambition - stay_shift).clamp(-AMBITION_MAX, AMBITION_MAX);
+                bm.dissent *= 0.3; // the quarrel leaves with them
+            }
             if d.pop < 4 {
                 continue; // the daughter band was lost at sea (or too few made it to stand alone)
             }
             bm.store *= 0.6;
             bm.bond(id, 0.5, 0.0, self.tick);
             self.counters.splits += 1;
+            if quarrel {
+                self.counters.dissent_splits += 1;
+            }
             self.push_event(EventKind::Split, bm.id, id, best.0 as u32, NONE, u32::MAX);
             newb.push(d);
         }

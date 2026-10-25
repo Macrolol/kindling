@@ -96,3 +96,23 @@ range p90 17-20 cells in every world; only s5 invented a sail (466 sail-usable b
 uncrossed gaps from settled land are 21-59 cells: beyond every world's range, and in s9, s10 and
 s6 nobody has even seen the far shore. Seamanship is now lived and taught, but boats, not skill,
 cap the range. Effective lineages 5.33, largest 26.1 %.
+
+## Step 4 (P4): dissent, crowding splits, the bold emigrate
+
+- `Band::ambition` (heritable, log scale, clamped to +-1; founders sd 0.3, drift sd 0.12 a split)
+  and `Band::dissent` (additive `serde(default)` fields; old saves load with 0 = ordinary, calm).
+- Dissent follows friction at `DISSENT_RATE` 0.1 a season: push-out (hunger, crowding, pressure)
+  x size relative to the split size (up to 1.5) x e^ambition. A band of 60 %+ of split size with
+  dissent above 0.5 may break up early (chance 0.5 x the excess a season). Those who leave in
+  anger look for land up to 4 cells away (not 2), take ship more often (0.8 vs 0.5) and aim for a
+  known far shore more often (0.9 vs 0.7). They carry the bold tail: the daughter's curiosity and
+  ambition move up by `EMIGRANT_TAIL` x |gauss|, the parent's down in proportion to its size;
+  the quarrel leaves with them (parent dissent x0.3, daughter 0).
+- Ambition widens a voyage's reach (range x e^(0.25 x ambition); the sea toll then charges for
+  it) and stiffens resolve in a confrontation (x e^(0.15 x ambition)). Raids do not yet use it.
+- Measurement: `Counters::dissent_splits`; headless line `motives (v9)`: splits by cause, mean
+  dissent, curiosity and ambition overall and off the home landmass.
+- Local seed 1 x 500y: 24 % of splits after dissent; mean ambition drifted to -0.13 (the bold
+  die more at sea and in fights), overseas bands no bolder than at home (-0.13, curiosity 0.99 vs
+  1.03): the tail is diluted by later local splits. Crossings #2 Y134 (gap 3), #3 Y202 (gap 5),
+  pop 132747 (109085 in step 3), war 0.336 %/yr, disease 0.124, effective lineages 5.51 (26 %).

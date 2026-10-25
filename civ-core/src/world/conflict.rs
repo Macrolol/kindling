@@ -66,7 +66,8 @@ impl World {
         let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled) * (1.0 + 0.28 * Self::wall_at(&bands[c], self.map.w)); // on their own ground, ready (behind house walls and field banks, more so)
         let r = pa / pc.max(1.0);
         // the pressing side weighs the odds against how badly it wants this
-        let resolve = r * (0.6 + 0.5 * t) * rng.range(0.7, 1.3);
+        // (v9) and the bold press harder
+        let resolve = r * (0.6 + 0.5 * t) * rng.range(0.7, 1.3) * (super::AMBITION_RESOLVE * bands[a].ambition).exp();
         if resolve < 0.9 {
             fx.acc.avoided += 1;
             fx.counters.avoided += 1;

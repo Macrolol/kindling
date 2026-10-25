@@ -65,6 +65,42 @@ pub struct Summary {
     pub farming: FarmSummary,
     /// (v9) founding lineages: how many survive, how concentrated, and per landmass
     pub lineages: LineageSummary,
+    /// (v9) splits by cause, and the heritable traits at home and overseas
+    pub motives: MotiveSummary,
+}
+
+/// (v9) Why bands split, and whether the bold and curious went farther: mean curiosity and
+/// ambition of all bands and of bands living off the home landmass.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MotiveSummary {
+    pub splits: u64,
+    pub dissent_splits: u64,
+    pub dissent_mean: f32,
+    pub curiosity_mean: f32,
+    pub ambition_mean: f32,
+    /// bands off the home landmass, and their mean curiosity and ambition (0 when none)
+    pub overseas_bands: u32,
+    pub curiosity_overseas: f32,
+    pub ambition_overseas: f32,
+}
+
+fn motive_summary(w: &World) -> MotiveSummary {
+    let mw = w.map.w;
+    let home = w.landfall.iter().position(|&t| t == 0).unwrap_or(1);
+    let mean = |v: &[f32]| if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 };
+    let all: Vec<&crate::band::Band> = w.bands.iter().collect();
+    let away: Vec<&crate::band::Band> = w.bands.iter().filter(|b| w.map.landmass_of(b.cell(mw)) as usize != home).collect();
+    let f = |v: &[&crate::band::Band], g: fn(&crate::band::Band) -> f32| mean(&v.iter().map(|b| g(b)).collect::<Vec<_>>());
+    MotiveSummary {
+        splits: w.counters.splits,
+        dissent_splits: w.counters.dissent_splits,
+        dissent_mean: f(&all, |b| b.dissent),
+        curiosity_mean: f(&all, |b| b.curiosity),
+        ambition_mean: f(&all, |b| b.ambition),
+        overseas_bands: away.len() as u32,
+        curiosity_overseas: f(&away, |b| b.curiosity),
+        ambition_overseas: f(&away, |b| b.ambition),
+    }
 }
 
 /// (v9) Lineage concentration. `lineage` is a founder label passed down unchanged (like a
@@ -557,6 +593,7 @@ pub fn summarize(w: &World) -> Summary {
         trade,
         farming,
         lineages,
+        motives: motive_summary(w),
     }
 }
 

@@ -40,6 +40,14 @@ pub struct Band {
     pub store: f32,
     /// heritable inclination to tinker (drifts at each split)
     pub curiosity: f32,
+    /// (v9) heritable boldness on a log scale (0 = ordinary, e^ambition is the multiplier): bold
+    /// bands push a boat past the safe range, press a quarrel harder, and chafe sooner in a
+    /// crowded band. Drifts at splits like curiosity; clamped to +-`AMBITION_MAX`.
+    pub ambition: f32,
+    /// (v9) friction within the band, 0..~1.5: follows hunger, crowding and size (more so for
+    /// the ambitious), and eases in good times. High dissent splits a band before it is full,
+    /// and the bolder, more curious people leave, and go farther.
+    pub dissent: f32,
     /// keeps a captured fire alight
     pub flame: bool,
     pub known: Vec<Known>,
