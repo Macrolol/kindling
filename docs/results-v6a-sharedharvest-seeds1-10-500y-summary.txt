@@ -1,0 +1,43 @@
+s1 pop 160934 164.3s iron | cont 3/4 Y134 Y213 | voy 37571 land 2578 lost 6214 | war 0.435% dis 0.128% | lin 19% [20, 22, 20, 20, 19] | orig 8 dom Y200 herd Y136
+    6000 farming bands (115865 people) vs 2506 foraging bands (45069 people)
+    farm [0/2503 0%, 269/27653 0%, 11631/83061 10%, 64226/142719 27%, 115865/160934 43%]
+    pop [2503, 27653, 83061, 142719, 160934]
+s2 pop 103427 76.2s bronze | cont 3/4 Y410 Y232 | voy 14310 land 56 lost 2680 | war 0.415% dis 0.093% | lin 46% [25, 28, 32, 36, 46] | orig 8 dom Y338 herd Y228
+    2472 farming bands (49361 people) vs 2672 foraging bands (54066 people)
+    farm [0/2869 0%, 0/22702 0%, 67/42601 0%, 6658/52181 9%, 49361/103427 32%]
+    pop [2869, 22702, 42601, 52181, 103427]
+s3 pop 188688 156.0s iron | cont 1/1  | voy 33062 land 5002 lost 3807 | war 0.454% dis 0.150% | lin 21% [22, 20, 24, 22, 21] | orig 8 dom Y294 herd Y153
+    6088 farming bands (119163 people) vs 3606 foraging bands (69525 people)
+    farm [0/2780 0%, 0/29247 0%, 756/85743 3%, 65455/128784 38%, 119163/188688 45%]
+    pop [2780, 29247, 85743, 128784, 188688]
+s4 pop 27904 27.2s iron | cont 1/2  | voy 6399 land 2 lost 2302 | war 0.358% dis 0.064% | lin 53% [26, 40, 40, 45, 53] | orig 8 dom Y188 herd never
+    708 farming bands (14531 people) vs 808 foraging bands (13373 people)
+    farm [17/2630 0%, 1255/13360 6%, 5958/27326 15%, 6615/27922 15%, 14531/27904 29%]
+    pop [2630, 13360, 27326, 27922, 27904]
+s5 pop 275635 256.4s iron | cont 1/2  | voy 34715 land 2854 lost 4622 | war 0.488% dis 0.176% | lin 24% [28, 30, 25, 23, 24] | orig 28 dom Y260 herd Y150
+    9166 farming bands (178436 people) vs 5746 foraging bands (97199 people)
+    farm [0/3351 0%, 0/37920 0%, 2880/128746 5%, 71546/221498 30%, 178436/275635 50%]
+    pop [3351, 37920, 128746, 221498, 275635]
+s6 pop 63680 70.2s copper | cont 1/2  | voy 14544 land 0 lost 2163 | war 0.438% dis 0.074% | lin 22% [22, 23, 23, 22, 22] | orig 4 dom Y258 herd Y190
+    2481 farming bands (48151 people) vs 924 foraging bands (15529 people)
+    farm [0/3316 0%, 0/39653 0%, 5904/51039 6%, 35151/58884 30%, 48151/63680 38%]
+    pop [3316, 39653, 51039, 58884, 63680]
+s7 pop 57818 80.7s iron | cont 2/3 Y301 | voy 14708 land 1285 lost 2695 | war 0.469% dis 0.084% | lin 64% [25, 28, 29, 53, 64] | orig 3 dom never herd Y78
+    0 farming bands (0 people) vs 2959 foraging bands (57818 people)
+    farm [0/656 0%, 0/10665 1%, 0/51724 1%, 0/51829 2%, 0/57818 3%]
+    pop [656, 10665, 51724, 51829, 57818]
+s8 pop 74781 104.7s iron | cont 2/6 Y198 | voy 17369 land 2214 lost 2933 | war 0.558% dis 0.085% | lin 40% [22, 24, 23, 30, 40] | orig 22 dom Y430 herd Y366
+    329 farming bands (7849 people) vs 3615 foraging bands (66932 people)
+    farm [0/2597 0%, 0/26168 0%, 0/54189 0%, 49/73586 0%, 7849/74781 5%]
+    pop [2597, 26168, 54189, 73586, 74781]
+s9 pop 92926 120.3s iron | cont 1/3  | voy 13117 land 1 lost 3183 | war 0.531% dis 0.108% | lin 33% [27, 30, 27, 25, 33] | orig 6 dom Y405 herd Y128
+    1697 farming bands (34678 people) vs 3191 foraging bands (58248 people)
+    farm [0/2854 0%, 0/27669 1%, 0/71879 4%, 638/77197 6%, 34678/92926 28%]
+    pop [2854, 27669, 71879, 77197, 92926]
+s10 pop 74986 72.9s iron | cont 1/4  | voy 18496 land 1 lost 2855 | war 0.510% dis 0.082% | lin 36% [26, 25, 25, 31, 36] | orig 22 dom Y414 herd Y208
+    781 farming bands (15502 people) vs 3247 foraging bands (59484 people)
+    farm [0/2945 0%, 22/25626 0%, 65/68266 0%, 360/70461 1%, 15502/74986 14%]
+    pop [2945, 25626, 68266, 70461, 74986]
+discovery-order distance between seeds (Kendall tau, 0 same .. 1 reversed): mean 0.14 over 45 pairs
+  sea (all seeds): voyages 204291 | landed on another landmass 13993 | lost at sea 33454 (2 per landing) | scouting 404 (found 4) | second continent before Y100: none
+  conflict (mean per seed): 7115.7 fights/century, 113830 killed = 0.466%/yr of people, 31727 displaced (968.6 by sea), 6958.2 absorbed, 1192 paid off, 101325 avoided | largest lineage 36% of people (max 64%), lineages alive 6.0

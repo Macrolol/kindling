@@ -66,7 +66,28 @@ about 2.5x at 4 free cores and 3.3x at 8 over v6 t1; minus barrier/merge overhea
 2.5x at 4 cores, i.e. about 1.6 to 2x faster than v5 single-thread, and roughly 2.5x over v5 at 8
 cores. Large maps benefit most (more bands per parallel region).
 
-Next: 10-seed x 500y balance check (v6 t1) against docs/results-v5-seeds1-10-500y.txt.
+### 3. Balance check, first try (done, 20:01-20:20 EDT): **off, not accepted**
+`kindling-par4 --threads 1 --headless --seeds 1..10 --years 500` (build 95e56c0, fair-share harvest),
+docs/results-v6a-sharedharvest-seeds1-10-500y.txt (+ -summary.txt), vs v5:
+
+| metric (10 seeds) | v5 | v6a fair share |
+|---|---|---|
+| total pop Y500 | 909k | 1121k (+23%) |
+| fights per century (mean) | 4480 | 7116 (+59%) |
+| killed in war, %/yr | 0.332 | 0.466 |
+| farming origins (mean) | 16.5 | 11.7 |
+| farming share of people Y500 (mean) | 35% | 29% |
+| voyages / landings / lost at sea | 188k / 19.7k / 38.5k | 204k / 14.0k / 33.5k |
+| scouting trips | 2229 | 404 |
+
+Pop is higher on 9 of 10 seeds and war deaths on 10 of 10, so this is systematic, not noise.
+Cause: when home ranges overlap, v5 has each later band see what earlier bands left and work
+harder for its food; planning all bands on the start stock and then sharing out the take leaves
+the stocks fuller and the bands working less, which is a balance change.
+
+Fix in progress (step 4): phase 2 now takes harvests in band order exactly like v5; a band whose
+cells an earlier band already took from this season re-plans its economy against the live stock
+(sequentially). Uncontested bands keep their parallel plan, which is then exact.
 
 ## Known findings
 - **Map clamp:** until 616855f the CLI silently clamped `--map` to 600x400, so a "1650x1650" CLI
