@@ -358,6 +358,8 @@ pub struct World {
 const ATT_FLOOR: f32 = 1.0;
 /// how strongly a band's way of life steers which parts it puts together (see `experiment`)
 const NEED_FORM: f32 = 3.0;
+/// how readily know-how a band has no use for still sticks when shown (see `adopt_need`)
+const ADOPT_FLOOR: f32 = 0.4;
 fn raw(m: Mat) -> Item {
     item(Form::Raw, m)
 }
@@ -2294,6 +2296,30 @@ impl World {
         q
     }
 
+    /// How much a band's way of life and country call for an item of this kind: 1 for general
+    /// know-how, ADOPT_FLOOR..1 for things only some ways of life need.
+    fn adopt_need(&self, b: &Band, out: Item) -> f32 {
+        let h = b.d.harvest;
+        let tot = h.iter().sum::<f32>().max(1e-3);
+        let sh = |r: usize| (3.0 * h[r] / tot).min(1.0);
+        let ci = b.cell(self.map.w);
+        let u = match form(out) {
+            Form::Spear | Form::Point => sh(1).max(0.5 * sh(2)),
+            Form::Trap => sh(3),
+            Form::Net => sh(2).max(0.5 * sh(1)),
+            Form::Boat => {
+                if self.near_water(ci) {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            Form::Garment => (b.d.cold * 3.0).clamp(0.0, 1.0),
+            _ => return 1.0,
+        };
+        ADOPT_FLOOR + (1.0 - ADOPT_FLOOR) * u
+    }
+
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
     fn exchange(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         // fire can be shared
@@ -2331,7 +2357,9 @@ impl World {
         let (rid, skill) = cands[rng.below(cands.len())];
         let r = &self.reg.recipes[rid as usize];
         let relevant = r.inputs.iter().all(|&i| bands[dst].d.tk.avail.has(i));
-        let pl = skill * if relevant { 0.8 } else { 0.25 };
+        // and whether it answers the learner's own needs: nets stick with fishers, snares with
+        // trappers, clothing where winters bite; general know-how sticks anywhere
+        let pl = skill * if relevant { 0.8 } else { 0.25 } * self.adopt_need(&bands[dst], r.output);
         if !rng.chance(pl) {
             return;
         }
