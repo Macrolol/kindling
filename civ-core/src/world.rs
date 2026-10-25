@@ -614,22 +614,25 @@ impl World {
         }
     }
 
-    /// Every band's season, in three phases: (1) in parallel, each band works out its economy
-    /// from the stocks as they stood at the start of the season; (2) the harvests are taken from
-    /// the land, band by band; (3) in parallel, the rest of each band's season (farming,
+    /// Every band's season, in three phases: (1) in parallel, each band refits its knowledge and
+    /// works out its toolkit; (2) band by band, each plans its economy against the stocks the
+    /// earlier bands left and takes its harvest (exactly as in v5); (3) in parallel, the rest of each band's season (farming,
     /// materials, births and deaths, disease, fire, experiments, the sea, forgetting, moving),
     /// with its effects on the shared world buffered and applied afterwards in band order.
     fn bands_season(&mut self, bands: &mut [Band], rng: &mut Rng) {
         let s = self.season();
-        let ecs: Vec<(Econ, f64)> = {
+        let dts: Vec<f64> = {
             let me = &*self;
-            fx::par_map(bands, |b| me.band_econ(b, s))
+            fx::par_map(bands, |b| me.band_prep(b))
         };
         if let Some(p) = self.prof.as_mut() {
-            p.t[5] += ecs.iter().map(|e| e.1).sum::<f64>();
+            p.t[5] += dts.iter().sum::<f64>();
         }
-        let mut ecs: Vec<Econ> = ecs.into_iter().map(|e| e.0).collect();
-        self.share_harvest(&mut ecs);
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
+        let ecs = self.take_harvest(bands, s);
+        if let (Some(t), Some(p)) = (tk.as_mut(), self.prof.as_mut()) {
+            p.t[5] += t.lap();
+        }
         for (b, ec) in bands.iter_mut().zip(&ecs) {
             b.store = ec.store_after;
         }
@@ -641,6 +644,9 @@ impl World {
             fx::par_map(&mut work, |(b, ec)| {
                 let mut fx = Fx::default();
                 let mut r = Rng::new(key ^ (b.id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (tick << 40));
+                for &it in &ec.used {
+                    mark_used(&me.reg, &mut b.known, &b.d.tk, it);
+                }
                 me.band_season(b, ec, &mut r, &mut fx);
                 fx
             })
@@ -650,93 +656,42 @@ impl World {
         }
     }
 
-    /// Phase 2: take every band's harvest from the stocks. All bands planned against the same
-    /// start-of-season stock, so where home ranges overlap they compete: each cell loses what
-    /// the bands taking from it one after another would have left (`v * prod(1 - a_i)`, as when
-    /// bands ran one by one), shared between them in proportion to what each went for. Bands
-    /// that got less than they planned have their food recomputed.
-    fn share_harvest(&mut self, ecs: &mut [Econ]) {
-        let n = self.plants.len();
-        let mut sum = vec![0f32; n];
-        let mut keep = vec![1f32; n];
-        let mut scale = vec![[1f32; 5]; ecs.len()];
-        let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
-        for (r, st) in stocks.into_iter().enumerate() {
-            let phi = |ec: &Econ| if ec.ys[r] > 0.01 { (ec.h[r] / ec.ys[r]).min(1.0) } else { 0.0 };
-            let mut contested = false;
-            for ec in ecs.iter() {
-                let ph = phi(ec);
-                if ph <= 0.0 {
-                    continue;
-                }
-                for &(c, wt) in &ec.cells {
-                    if c < n && c < st.len() {
-                        let a = (ph * wt).min(1.0);
-                        if sum[c] > 0.0 {
-                            contested = true;
-                        }
-                        sum[c] += a;
-                        keep[c] *= 1.0 - a;
-                    }
-                }
-            }
-            if contested {
-                for (k, ec) in ecs.iter().enumerate() {
-                    let ph = phi(ec);
-                    if ph <= 0.0 {
-                        continue;
-                    }
-                    let (mut want, mut got) = (0f32, 0f32);
+    /// Phase 2, sequential and exactly as in v5: band by band, plan the economy against the
+    /// stocks as earlier bands left them, then take the harvest. (Planning every band in
+    /// parallel against the start-of-season stock and sharing out contested cells was tried
+    /// first: it left stocks fuller, gave +23% people and +40% war deaths over 10 seeds; and
+    /// with 8-cell home ranges over 90% of bands share a cell with an earlier one, so a
+    /// speculative parallel plan is almost never still valid.)
+    fn take_harvest(&mut self, bands: &[Band], s: u32) -> Vec<Econ> {
+        let mut ecs = Vec::with_capacity(bands.len());
+        for b in bands {
+            let ec = self.economy(b, s);
+            let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
+            for (r, st) in stocks.into_iter().enumerate() {
+                if ec.ys[r] > 0.01 {
+                    let phi = (ec.h[r] / ec.ys[r]).min(1.0);
                     for &(c, wt) in &ec.cells {
-                        if c < n && c < st.len() && sum[c] > 0.0 {
-                            let a = (ph * wt).min(1.0);
-                            let v = a * st[c];
-                            want += v;
-                            got += v * (1.0 - keep[c]) / sum[c];
+                        if let Some(v) = st.get_mut(c) {
+                            *v -= phi * wt * *v;
                         }
                     }
-                    if want > 1e-9 && got < want * 0.9999 {
-                        scale[k][r] = (got / want).clamp(0.0, 1.0);
-                    }
                 }
             }
-            for ec in ecs.iter() {
-                if phi(ec) <= 0.0 {
-                    continue;
-                }
-                for &(c, _) in &ec.cells {
-                    if c < n && c < st.len() && sum[c] > 0.0 {
-                        st[c] *= keep[c];
-                        sum[c] = 0.0;
-                        keep[c] = 1.0;
-                    }
-                }
-            }
+            ecs.push(ec);
         }
-        for (ec, sc) in ecs.iter_mut().zip(&scale) {
-            if sc.iter().any(|&x| x < 1.0) {
-                for r in 0..5 {
-                    ec.h[r] *= sc[r];
-                }
-                ec.finish();
-            }
-        }
+        ecs
     }
 
-    /// Phase 1 of a band's season (read-only on the world).
-    fn band_econ(&self, b: &mut Band, s: u32) -> (Econ, f64) {
+    /// Phase 1 of a band's season (read-only on the world): fit its knowledge vectors and work
+    /// out its toolkit.
+    fn band_prep(&self, b: &mut Band) -> f64 {
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         b.fit_vectors();
         for k in &mut b.known {
             k.used = false;
         }
         self.refresh_toolkit(b);
-        let ec = self.economy(b, s);
-        for &it in &ec.used {
-            mark_used(&self.reg, &mut b.known, &b.d.tk, it);
-        }
-        let dt = tk.as_mut().map(|t| t.lap()).unwrap_or(0.0);
-        (ec, dt)
+        tk.as_mut().map(|t| t.lap()).unwrap_or(0.0)
     }
 
     fn regrow(&mut self) {
