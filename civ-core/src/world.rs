@@ -469,10 +469,17 @@ impl World {
         // founders: one region anywhere people can live off the land - forest, grassland, coast,
         // cool or hot - more likely the richer it is. Where people start (what grows, what
         // lies about, how cold the winters are) shapes what they come to work with first.
+        // (v9) on a continent, and not beside a strait: no other landmass within
+        // `Map::START_CLEAR` cells, so nobody walks to a "new continent" in the first years.
+        // Fall back to any good land if no such place exists.
         let food = |i: usize| w.map.k_plants[i] + w.map.k_game[i] + 0.5 * w.map.k_fish[i];
+        let good = |i: usize| w.map.is_land(i) && w.map.temp[i] > 3.0 && w.map.temp[i] < 30.0 && food(i) > 38.0;
         let mut cands: Vec<usize> = (0..n)
-            .filter(|&i| w.map.is_land(i) && w.map.temp[i] > 3.0 && w.map.temp[i] < 30.0 && food(i) > 38.0)
+            .filter(|&i| good(i) && w.map.is_continent(w.map.landmass_of(i) as usize) && w.map.clear_of_other_land(i, Map::START_CLEAR))
             .collect();
+        if cands.is_empty() {
+            cands = (0..n).filter(|&i| good(i)).collect();
+        }
         if cands.is_empty() {
             cands = (0..n).filter(|&i| w.map.is_land(i) && w.map.k_plants[i] > 5.0).collect();
         }
@@ -513,7 +520,8 @@ impl World {
                 let x = (ox as i32 + rng.below(7) as i32 - 3).clamp(0, w.map.w as i32 - 1) as usize;
                 let y = (oy as i32 + rng.below(7) as i32 - 3).clamp(0, w.map.h as i32 - 1) as usize;
                 let i = y * w.map.w + x;
-                if w.map.is_land(i) {
+                // (v9) founders stay on their homeland's landmass
+                if w.map.is_land(i) && w.map.landmass_of(i) == w.map.landmass_of(origin) {
                     pos = i;
                     break;
                 }
@@ -2022,11 +2030,14 @@ impl World {
         let (sx, sy) = (x as i32 + dx, y as i32 + dy);
         if sx >= 0 && sy >= 0 && (sx as usize) < m.w && (sy as usize) < m.h {
             let c = sy as usize * m.w + sx as usize;
-            cands.push((c, effort(c)));
+            // (v9) on foot, never across water
+            if m.walkable(cur, c) {
+                cands.push((c, effort(c)));
+            }
         }
         // and people who paddle sometimes go a day or two up or down their river
         if boat {
-            if let Some((c, n)) = self.river_scout(cur, rng) {
+            if let Some((c, n)) = self.river_scout(cur, rng).filter(|&(c, _)| m.landmass_of(c) == m.landmass_of(cur)) {
                 let pen = 1.0 + terrain::MOVE_EFFORT * (n as f32 * terrain::RIVER_STEP - 1.0).max(0.0);
                 cands.push((c, pen));
             }
@@ -2561,6 +2572,10 @@ impl World {
                     continue;
                 }
                 let c = ny as usize * w + nx as usize;
+                // (v9) a daughter that walks stays on this side of the water
+                if !self.map.walkable(b.cell(w), c) {
+                    continue;
+                }
                 let s = self.cell_score(b, c);
                 if s > best.1 {
                     best = (c, s);

@@ -732,3 +732,29 @@ fn effective_number_and_sea_gaps() {
     assert!(g.iter().skip(2).all(|x| x.map_or(true, |d| d >= 1)));
     assert!(m.continent_cells() >= crate::map::Map::CONTINENT_CELLS);
 }
+
+/// (v9 step 1b) Nobody walks across water: a straight walk is allowed only over land, and the
+/// random homeland lies on a continent away from any strait.
+#[test]
+fn no_walking_across_water_and_clear_starts() {
+    for seed in [1u64, 4, 7] {
+        let w = World::new(Config { seed, ..Default::default() }, Params::default());
+        let m = &w.map;
+        let n = m.w * m.h;
+        let mut checked = 0;
+        for a in (0..n).step_by(97).filter(|&i| m.is_land(i)) {
+            for b in [a + 1, a + 4 * m.w + 3, a + 6].into_iter().filter(|&b| b < n) {
+                if m.walkable(a, b) {
+                    assert_eq!(m.landmass_of(a), m.landmass_of(b));
+                    checked += 1;
+                }
+            }
+            assert!(m.walkable(a, a));
+        }
+        assert!(checked > 0);
+        let home = w.bands[0].cell(m.w);
+        let l = m.landmass_of(home);
+        assert!(w.bands.iter().all(|b| m.landmass_of(b.cell(m.w)) == l), "founders on one landmass");
+        assert!(m.is_continent(l as usize));
+    }
+}

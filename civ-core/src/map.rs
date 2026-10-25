@@ -273,6 +273,52 @@ impl Map {
         let land: u32 = self.landmass_size.iter().skip(1).sum();
         Self::CONTINENT_CELLS.max(land / 100)
     }
+    /// How far (cells, Chebyshev) a random homeland must lie from any other landmass (v9): a
+    /// start beside a strait lets people walk to a "new continent" in the first years.
+    pub const START_CLEAR: usize = 6;
+    /// No land of another landmass within `r` cells (Chebyshev) of land cell `i`.
+    pub fn clear_of_other_land(&self, i: usize, r: usize) -> bool {
+        let (w, h) = (self.w, self.h);
+        let l = self.landmass_of(i);
+        let (x, y) = (i % w, i / w);
+        for ny in y.saturating_sub(r)..(y + r + 1).min(h) {
+            for nx in x.saturating_sub(r)..(x + r + 1).min(w) {
+                let o = self.landmass_of(ny * w + nx);
+                if o != 0 && o != l {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    /// Can people walk straight from cell `a` to cell `b`? True when every cell on the
+    /// rasterised line between them (Bresenham, both ends included) is land, so the walk never
+    /// wades through sea - and, the line being 8-connected, stays on one landmass (v9).
+    pub fn walkable(&self, a: usize, b: usize) -> bool {
+        let w = self.w as i32;
+        let (mut x, mut y) = (a as i32 % w, a as i32 / w);
+        let (x1, y1) = (b as i32 % w, b as i32 / w);
+        let (dx, dy) = ((x1 - x).abs(), -(y1 - y).abs());
+        let (sx, sy) = (if x < x1 { 1 } else { -1 }, if y < y1 { 1 } else { -1 });
+        let mut err = dx + dy;
+        loop {
+            if !self.is_land((y * w + x) as usize) {
+                return false;
+            }
+            if x == x1 && y == y1 {
+                return true;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
     /// Fewest open-water cells to cross (8-connected) from any landmass for which `from(l)` is
     /// true to each landmass, indexed by landmass id: `Some(0)` for the `from` landmasses
     /// themselves, `None` where no sea path exists. One breadth-first pass over the sea.

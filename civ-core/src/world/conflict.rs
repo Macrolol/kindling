@@ -263,7 +263,8 @@ impl World {
                 continue;
             }
             let c = (ny * w + nx) as usize;
-            if !m.is_land(c) {
+            // (v9) refugees on foot cannot cross water either
+            if !m.walkable(cur, c) {
                 continue;
             }
             let s = self.cell_score(b, c);
