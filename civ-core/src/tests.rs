@@ -602,3 +602,15 @@ fn bows_shields_and_metal_weapons() {
     let k = crate::band::make_kit(&s);
     assert!(crate::band::has_bow(&k) && crate::band::loss_guard(&k) < 1.0);
 }
+
+#[test]
+fn salt_from_brine() {
+    let ctx = Ctx { dryness: 0.5, water: true };
+    let brine = item(Form::Raw, Mat::Brine);
+    let fire = item(Form::Fire, Mat::Wood);
+    let heat = |inp| physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx).map(|o| o.out);
+    // boiled down in a fired pot it leaves salt; in an unfired or wooden one it does not
+    assert_eq!(heat([brine, item(Form::Vessel, Mat::Ceramic), fire, NONE]), Some(item(Form::Raw, Mat::Salt)));
+    assert_ne!(heat([brine, item(Form::Vessel, Mat::Wood), fire, NONE]), Some(item(Form::Raw, Mat::Salt)));
+    assert_ne!(heat([brine, NONE, fire, NONE]), Some(item(Form::Raw, Mat::Salt)));
+}
