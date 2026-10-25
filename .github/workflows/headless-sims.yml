@@ -1,0 +1,345 @@
+# Headless multi-seed simulation runs for Kindling.
+#
+# Manual trigger only (workflow_dispatch). Intended for small, test-sized runs that
+# check the simulator's own behaviour (regression / balance checks), in line with
+# GitHub's terms for hosted runners. For long or large sweeps, register a self-hosted
+# runner and pass its label in the `runner` input.
+#
+# Verified against the source tree (native/src/cli.rs):
+#   package / binary: kindling   (cargo build --release -p kindling)
+#   There is no `parallel` feature on `kindling`; native builds always enable
+#   civ-core/parallel (rayon) via native/Cargo.toml, so no --features flag is passed.
+#   headless:  kindling --headless --seeds A..B --years N [--map WxH] [--threads N]
+#                       [--config params.json] [--save out.civsave]
+#   screenshot (needs a window, run under Xvfb):
+#              kindling --seed S --screenshot out.png --years N [--map WxH]
+#   --config takes a JSON params file (Params::from_json_compat), not TOML.
+#   --save writes after every seed, so this workflow runs one process per seed when
+#   saves are requested, to keep one .civsave per seed.
+name: headless-sims
+
+on:
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "Seed range A..B (inclusive), e.g. 1..10"
+        required: true
+        default: "1..10"
+        type: string
+      years:
+        description: "Years to simulate per seed"
+        required: true
+        default: "500"
+        type: string
+      map:
+        description: "Map size WxH, e.g. 160x100 (blank = default 256x160)"
+        required: false
+        default: ""
+        type: string
+      config:
+        description: "Params JSON file path in the repo (blank = defaults)"
+        required: false
+        default: ""
+        type: string
+      ref:
+        description: "Git ref to build (branch, tag or SHA; blank = default branch)"
+        required: false
+        default: ""
+        type: string
+      seeds_per_job:
+        description: "Seeds per matrix job"
+        required: true
+        default: "5"
+        type: string
+      save_civsave:
+        description: "Upload the final .civsave of each seed"
+        required: false
+        default: false
+        type: boolean
+      screenshots:
+        description: "Also render a PNG per seed under Xvfb (re-runs each seed, about 2x cost)"
+        required: false
+        default: false
+        type: boolean
+      runner:
+        description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
+        required: false
+        default: "ubuntu-latest"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: headless-sims-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  SIM_THREADS: "4"
+  # Guard rails to keep hosted runs test-sized.
+  MAX_SEEDS: "200"
+  MAX_YEARS: "5000"
+
+jobs:
+  plan:
+    name: Plan seed matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      - name: Split seeds into ranges
+        id: plan
+        env:
+          SEEDS: ${{ inputs.seeds }}
+          YEARS: ${{ inputs.years }}
+          PER_JOB: ${{ inputs.seeds_per_job }}
+          MAP: ${{ inputs.map }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          def fail(msg):
+              print(f"::error::{msg}")
+              sys.exit(1)
+          seeds = os.environ["SEEDS"].strip()
+          m = re.fullmatch(r"(\d+)(?:\.\.(\d+))?", seeds)
+          if not m:
+              fail(f"seeds must look like A..B or A, got {seeds!r}")
+          a = int(m.group(1)); b = int(m.group(2) or a)
+          if b < a:
+              fail("seeds: B must be >= A")
+          if not re.fullmatch(r"\d+", os.environ["YEARS"].strip()):
+              fail("years must be a positive integer")
+          years = int(os.environ["YEARS"])
+          if not 1 <= years <= int(os.environ["MAX_YEARS"]):
+              fail(f"years must be 1..{os.environ['MAX_YEARS']}")
+          mp = os.environ["MAP"].strip()
+          if mp and not re.fullmatch(r"\d+x\d+", mp):
+              fail("map must look like WxH, e.g. 160x100")
+          if not re.fullmatch(r"\d+", os.environ["PER_JOB"].strip()) or int(os.environ["PER_JOB"]) < 1:
+              fail("seeds_per_job must be a positive integer")
+          k = int(os.environ["PER_JOB"])
+          n = b - a + 1
+          if n > int(os.environ["MAX_SEEDS"]):
+              fail(f"{n} seeds requested; limit is {os.environ['MAX_SEEDS']} per run")
+          chunks = [{"from": s, "to": min(s + k - 1, b), "name": f"{s}-{min(s + k - 1, b)}"}
+                    for s in range(a, b + 1, k)]
+          if len(chunks) > 256:
+              fail(f"{len(chunks)} jobs; GitHub allows at most 256 per matrix, raise seeds_per_job")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={json.dumps({'include': chunks})}\n")
+              f.write(f"jobs={len(chunks)}\n")
+          print(f"{n} seeds in {len(chunks)} jobs: {[c['name'] for c in chunks]}")
+          PY
+
+  build:
+    name: Build kindling (release)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # macroquad/miniquad are built with default-features = false and load X11/GL at
+      # run time (dlopen), so no -dev packages are needed to compile on Linux.
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build
+        run: cargo build --release --locked -p kindling
+
+      - name: Smoke test CLI
+        run: ./target/release/kindling --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kindling-bin
+          path: target/release/kindling
+          retention-days: 1
+          if-no-files-found: error
+
+  test:
+    name: cargo test (informational)
+    # main currently has a known failing test (v5beta_fixture_loads_and_runs, paused v6
+    # work), so this job never blocks the sims or the summary.
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+
+      - name: Test
+        run: cargo test --release --locked --workspace
+
+  sim:
+    name: Seeds ${{ matrix.name }}
+    needs: [plan, build]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      SEED_FROM: ${{ matrix.from }}
+      SEED_TO: ${{ matrix.to }}
+      CHUNK: ${{ matrix.name }}
+      YEARS: ${{ inputs.years }}
+      MAP: ${{ inputs.map }}
+      CONFIG: ${{ inputs.config }}
+      SAVE_CIVSAVE: ${{ inputs.save_civsave }}
+      SCREENSHOTS: ${{ inputs.screenshots }}
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.config != ''
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: kindling-bin
+          path: bin
+
+      - name: Run headless sims
+        run: |
+          set -euo pipefail
+          chmod +x bin/kindling
+          mkdir -p out
+          extra=(--years "$YEARS" --threads "$SIM_THREADS")
+          if [ -n "$MAP" ]; then extra+=(--map "$MAP"); fi
+          if [ -n "$CONFIG" ]; then
+            if [ ! -f "$CONFIG" ]; then echo "::error::config file '$CONFIG' not found in the repo"; exit 1; fi
+            extra+=(--config "$CONFIG")
+          fi
+          res="out/results-${CHUNK}.txt"
+          if [ "$SAVE_CIVSAVE" = "true" ]; then
+            # --save overwrites after every seed, so run one process per seed.
+            : > "$res"
+            for s in $(seq "$SEED_FROM" "$SEED_TO"); do
+              bin/kindling --headless --seed "$s" "${extra[@]}" --save "out/seed-${s}.civsave" \
+                2> >(tee -a "out/stderr-${CHUNK}.txt" >&2) | tee -a "$res"
+            done
+          else
+            bin/kindling --headless --seeds "${SEED_FROM}..${SEED_TO}" "${extra[@]}" \
+              2> >(tee "out/stderr-${CHUNK}.txt" >&2) | tee "$res"
+          fi
+
+      - name: Render screenshots (Xvfb)
+        if: inputs.screenshots
+        run: |
+          set -euo pipefail
+          if ! command -v xvfb-run >/dev/null; then
+            sudo apt-get update -q && sudo apt-get install -y -q xvfb libgl1-mesa-dri
+          fi
+          extra=(--years "$YEARS" --threads "$SIM_THREADS")
+          if [ -n "$MAP" ]; then extra+=(--map "$MAP"); fi
+          if [ -n "$CONFIG" ]; then extra+=(--config "$CONFIG"); fi
+          for s in $(seq "$SEED_FROM" "$SEED_TO"); do
+            xvfb-run -a -s "-screen 0 1400x860x24" \
+              bin/kindling --seed "$s" --screenshot "out/screenshot-seed${s}.png" "${extra[@]}" \
+              || echo "::warning::screenshot for seed $s failed"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.name }}
+          path: |
+            out/*.txt
+            out/*.png
+            out/*.civsave
+          retention-days: 14
+          if-no-files-found: warn
+
+  summary:
+    name: Summarise results
+    needs: [plan, sim]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          sparse-checkout: tools
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: artifacts
+
+      - name: Combine and summarise
+        env:
+          SEEDS: ${{ inputs.seeds }}
+          YEARS: ${{ inputs.years }}
+          MAP: ${{ inputs.map }}
+          CONFIG: ${{ inputs.config }}
+          SIM_RESULT: ${{ needs.sim.result }}
+        run: |
+          set -uo pipefail
+          mkdir -p combined
+          # Concatenate per-job results in seed order (tools/sum_results.py takes one file).
+          find artifacts -name 'results-*.txt' | sort -t- -k2,2n | xargs -r cat > combined/results-all.txt
+          {
+            echo "## Kindling headless sims"
+            echo
+            echo "seeds \`${SEEDS}\`, years \`${YEARS}\`, map \`${MAP:-default}\`, config \`${CONFIG:-defaults}\`, sim jobs: ${SIM_RESULT}"
+            echo
+            echo "seeds reported: $(grep -c '^seed [0-9]*: Y' combined/results-all.txt || true)"
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s combined/results-all.txt ] && python3 tools/sum_results.py combined/results-all.txt > combined/summary.txt 2> combined/summary.err; then
+            cat combined/summary.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "sum_results.py failed or no results; per-seed headline lines instead:" >> "$GITHUB_STEP_SUMMARY"
+            cat combined/summary.err >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+            grep '^seed [0-9]*: Y' combined/results-all.txt >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat combined/summary.txt 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: combined/
+          retention-days: 14
