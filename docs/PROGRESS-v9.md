@@ -144,3 +144,11 @@ intended, without a runaway. Effective lineages 5.41 (5.33), largest 25.2 % (26.
 - Local seed 1 x 500y: crossings #2 Y198 (gap 3), #3 Y224 (gap 5); pop 140114; war 0.362 %/yr;
   disease 0.196 %/yr; curiosity 1.10 (overseas 1.13); land ever camped 95 %; items 76;
   effective lineages 5.32 (largest 30 %). Run time 77 s (54 s): more, smaller moves.
+
+CI (run 40241789162, [results-v9-step5-seeds1-10-500y.txt](results-v9-step5-seeds1-10-500y.txt)):
+pop 1137257 (step 4 1053876), war 0.379 %/yr, disease 0.126 %/yr, items 67.3 (65.4), tau 0.15,
+sim time 572 s (560). Crossings in the same 4/10 worlds at shifted years: s1 Y198, s2 Y182,
+s7 Y261, s8 Y182 (none before Y100). Iron in 5 worlds (7), bronze in 3 (4): no runaway invention.
+Land ever camped 44-100 %. Concern: lineage dominance rose (effective 4.95 vs 5.41, largest
+29.6 % vs 25.2 %): new country is filled fastest by the lineage already on the frontier. P5
+(intermarriage / ancestry) and P7 (prestige) are meant to counter this; watch it there.
