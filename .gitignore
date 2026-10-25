@@ -1,8 +1,10 @@
 target/
 saves/
+user-saves/
 web-dist/
 *.zip
-web-dist/
-saves/
-user-saves/
-dist/kindling-farming-beta-linux-x86_64
+
+# release binaries are attached to GitHub Releases, never committed
+dist/
+*.exe
+kindling-*-x86_64

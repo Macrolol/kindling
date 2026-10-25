@@ -30,5 +30,5 @@ Updated 2026-10-24 16:55 EDT.
 1. (done) s7 1500y.
 2. Tests, builds (linux/windows/web), screenshot, Page, report.
 
-- Tests: civ-core 8 pass, 1 ignored. Screenshot dist/screenshot-farming-overlay.png (seed 1, Y500, overlay 8 + legend).
+- Tests: civ-core 8 pass, 1 ignored. Screenshot docs/images/screenshot-farming-overlay.png (seed 1, Y500, overlay 8 + legend).
 - Done: dist Linux/Windows/web rebuilt clean from e8727bc and committed (32df5da). v5 complete; next ideas: delay iron (bloomery needs more), lineage dominance check on s7.

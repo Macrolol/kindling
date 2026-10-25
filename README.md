@@ -1,32 +1,57 @@
-# Kindling (working name)
+# Kindling
 
-A living-civilisation simulator in Rust. No tech tree is written down anywhere: items, their properties and what can be made from them come out of a small material-physics model (hardness, fracture, sharpness, fuel temperature, refractoriness, ore reduction temperature…). Bands of foragers experiment with what is around them, keep what helps, teach neighbours and children, and forget what they stop using.
+An emergent living-civilisation simulation in Rust, with a native viewer and a WebAssembly build.
 
-Stage 1 prototype: map + resources, foraging bands that move, split and die, fire, emergent recipe discovery, teaching/copying/forgetting, a native viewer, a headless multi-seed runner and versioned saves.
+No tech tree is written down anywhere: items, their properties and what can be made from them come out of a small material-physics model (hardness, fracture, sharpness, fuel temperature, refractoriness, ore reduction temperature…). Bands of foragers experiment with what is around them, keep what helps, teach neighbours and children, and forget what they stop using. Later versions add trade, conflict, disease and farming (domesticated plants emerge from wild progenitors).
+
+![Farming overlay](docs/images/screenshot-farming-overlay.png)
 
 ## Layout
-- `civ-core/`: the simulation (no graphics). Includes rng, materials, physics (discovery rules), knowledge, map, params, band, world, save, analysis.
-- `native/`: the `kindling` binary. It has the macroquad + egui viewer and the headless mode, and builds for native and wasm.
-- `build-web.sh`: wasm build into `web-dist/` (+ zip).
-- `dist/`: prebuilt Linux / Windows binaries, web zip, screenshots.
-- `docs/SAVE_FORMAT.md`: save format and migration rules. `docs/results-*.txt`: raw multi-seed output.
+- `civ-core/`: the deterministic simulation (no graphics): rng, materials, physics (discovery rules), knowledge, map, params, bands, world, saves, analysis.
+- `native/`: the `kindling` binary: macroquad + egui viewer and the headless runner. Builds for native and wasm.
+- `web/`: the HTML/JS shell for the web build.
+- `build-web.sh`: the WebAssembly build script.
+- `docs/`: save format (`SAVE_FORMAT.md`), progress logs, raw multi-seed results, screenshots (`docs/images/`).
 
-## Running
-```
-kindling                                   # viewer, random seed
-kindling --seed 7                          # viewer, fixed seed
-kindling --load saves/x.civsave            # resume a save
-kindling --headless --seeds 1..8 --years 500   # multi-seed stats, no window
-kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-6] [--map WxH (default 256x160)] [--ui none|inspector,log,stats,settings]
-```
-Viewer keys: Space pause, +/- speed, F follow, 1–7 overlays (terrain, know-how, item spread, population, deposits, temperature, trade), Ctrl+S save, Ctrl+O load. Wheel zooms, drag pans, click selects a band.
-
-Settings can be changed live in the Settings window. Each change is recorded in the world's settings log, which is saved with the world.
+Prebuilt Linux, Windows and web builds are attached to the [GitHub Releases](https://github.com/Macrolol/kindling/releases).
 
 ## Building
+
+Requires a recent stable Rust toolchain.
+
+### Native viewer
+```sh
+cargo build --release -p kindling          # binary: target/release/kindling
+cargo run --release -p kindling            # viewer, random seed
+cargo run --release -p kindling -- --seed 7
 ```
-cargo build --release -p kindling                                       # Linux
-cargo build --release -p kindling --target x86_64-pc-windows-gnu        # Windows
-./build-web.sh                                                          # Web
-cargo test -p civ-core
+Windows cross-build: `cargo build --release -p kindling --target x86_64-pc-windows-gnu`.
+
+Viewer keys: Space pause, +/- speed, F follow, number keys switch overlays (terrain, know-how, item spread, population, deposits, temperature, trade, conflict, farming), Ctrl+S save, Ctrl+O load. Wheel zooms, drag pans, click selects a band. Settings can be changed live in the Settings window; each change is recorded in the world's settings log and saved with the world.
+
+### Headless runner (multi-seed statistics, no window)
+```sh
+kindling --headless --seeds 1..10 --years 500 [--map WxH] [--threads N] [--config params.json]
 ```
+- `--seeds A..B` runs each seed in the range (or `--seed S` for one).
+- `--map WxH` sets the map size (default 256x160).
+- `--threads N` sets sim worker threads (0 = all cores; `RAYON_NUM_THREADS` also works).
+- `--config f` loads a params JSON file.
+- Also: `--report K`, `--json`, `--verbose`, `--save out.civsave`, `--load file.civsave`.
+
+Screenshot mode: `kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-8]`.
+
+### Web (WebAssembly)
+```sh
+rustup target add wasm32-unknown-unknown   # once
+./build-web.sh
+```
+This runs `cargo build --release -p kindling --target wasm32-unknown-unknown`, then assembles `web-dist/` (the `.wasm`, the macroquad JS loaders from the cargo registry, and `web/index.html` + `web/civ_io.js`) and packages it as `web-dist.zip`. It needs `zip` installed. Serve `web-dist/` with any static file server, e.g. `python3 -m http.server -d web-dist`.
+
+### Tests
+```sh
+cargo test --release
+```
+
+## License
+MIT, see [LICENSE](LICENSE).
