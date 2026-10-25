@@ -662,9 +662,12 @@ impl World {
     /// first: it left stocks fuller, gave +23% people and +40% war deaths over 10 seeds; and
     /// with 8-cell home ranges over 90% of bands share a cell with an earlier one, so a
     /// speculative parallel plan is almost never still valid.)
-    fn take_harvest(&mut self, bands: &[Band], s: u32) -> Vec<Econ> {
+    fn take_harvest(&mut self, bands: &mut [Band], s: u32) -> Vec<Econ> {
         let mut ecs = Vec::with_capacity(bands.len());
-        for b in bands {
+        for b in bands.iter_mut() {
+            // as in v5, the toolkit reflects the cell as the earlier bands left it (usually
+            // the toolkit worked out in phase 1, or the one cached before it)
+            self.refresh_toolkit(b);
             let ec = self.economy(b, s);
             let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
             for (r, st) in stocks.into_iter().enumerate() {
@@ -793,9 +796,32 @@ impl World {
     fn refresh_toolkit(&self, b: &mut Band) {
         let raws = self.raws_at(b);
         let key = (raws, b.flame, b.d.known_ver);
-        if b.d.tk_key != Some(key) {
-            b.d.tk = closure(&self.reg, &b.known, &raws, b.flame);
-            b.d.kit = make_kit(&b.d.tk.avail);
+        if b.d.tk_key == Some(key) {
+            return;
+        }
+        // a two-entry cache: a band's toolkit tends to flip between two states within and
+        // across seasons (game or plants on its cell above / below the threshold as bands
+        // harvest and stocks regrow), so keep the previous one rather than recompute it
+        if b.d.tk_prev.as_ref().map(|p| p.0) == Some(key) {
+            let mut prev = b.d.tk_prev.take().unwrap();
+            std::mem::swap(&mut prev.1, &mut b.d.tk);
+            std::mem::swap(&mut prev.2, &mut b.d.kit);
+            prev.0 = b.d.tk_key.unwrap_or(key);
+            b.d.tk_key = Some(key);
+            if prev.0 != key {
+                b.d.tk_prev = Some(prev);
+            }
+            return;
+        }
+        {
+            let tk = closure(&self.reg, &b.known, &raws, b.flame);
+            let kit = make_kit(&tk.avail);
+            let old_tk = std::mem::replace(&mut b.d.tk, tk);
+            let old_kit = std::mem::replace(&mut b.d.kit, kit);
+            b.d.tk_prev = match b.d.tk_key {
+                Some(k) if k.2 == b.d.known_ver => Some(Box::new((k, old_tk, old_kit))),
+                _ => None,
+            };
             b.d.tk_key = Some(key);
             let mut uses = 0u32;
             for k in &b.known {

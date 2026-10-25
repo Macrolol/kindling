@@ -247,6 +247,8 @@ fn de_carry<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Derived, D::Error
 pub struct Derived {
     pub tk: Toolkit,
     pub tk_key: Option<(ItemSet, bool, u32)>,
+    /// the toolkit before the current one, with its key and kit
+    pub tk_prev: Option<Box<((ItemSet, bool, u32), Toolkit, Kit)>>,
     pub known_ver: u32,
     pub kit: Kit,
     pub food_ratio: f32,
