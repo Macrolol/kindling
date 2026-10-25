@@ -61,6 +61,21 @@ on:
         required: false
         default: false
         type: boolean
+      threads:
+        description: "Worker threads per sim (--threads); hosted runners have 4 cores"
+        required: false
+        default: "4"
+        type: string
+      run_tests:
+        description: "Also run cargo test on a separate runner (informational)"
+        required: false
+        default: true
+        type: boolean
+      baseline:
+        description: "Results file in the repo to compare against in the summary (blank = none)"
+        required: false
+        default: "docs/results-v5-seeds1-10-500y.txt"
+        type: string
       runner:
         description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
         required: false
@@ -76,7 +91,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: never
-  SIM_THREADS: "4"
+  SIM_THREADS: ${{ inputs.threads || '4' }}
   # Guard rails to keep hosted runs test-sized.
   MAX_SEEDS: "200"
   MAX_YEARS: "5000"
@@ -89,7 +104,21 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       jobs: ${{ steps.plan.outputs.jobs }}
+      sha: ${{ steps.ref.outputs.sha }}
     steps:
+      # Resolve the ref once to a full commit SHA: actions/checkout cannot fetch a short SHA,
+      # and every job then builds / reads exactly the same commit even if the branch moves.
+      - name: Resolve ref
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref || github.sha }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REF}" -q .sha)
+          echo "ref '${REF}' -> ${sha}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
       - name: Split seeds into ranges
         id: plan
         env:
@@ -136,12 +165,13 @@ jobs:
 
   build:
     name: Build kindling (release)
+    needs: plan
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
       # macroquad/miniquad are built with default-features = false and load X11/GL at
@@ -180,13 +210,15 @@ jobs:
     name: cargo test (informational)
     # main currently has a known failing test (v5beta_fixture_loads_and_runs, paused v6
     # work), so this job never blocks the sims or the summary.
+    needs: plan
+    if: inputs.run_tests
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
       - name: Install Rust (stable)
@@ -230,7 +262,7 @@ jobs:
       - uses: actions/checkout@v4
         if: inputs.config != ''
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@v4
@@ -298,9 +330,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-          sparse-checkout: tools
+          sparse-checkout: |
+            tools
+            docs
 
       - uses: actions/download-artifact@v4
         with:
@@ -314,6 +348,8 @@ jobs:
           MAP: ${{ inputs.map }}
           CONFIG: ${{ inputs.config }}
           SIM_RESULT: ${{ needs.sim.result }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          BASELINE: ${{ inputs.baseline }}
         run: |
           set -uo pipefail
           mkdir -p combined
@@ -322,7 +358,7 @@ jobs:
           {
             echo "## Kindling headless sims"
             echo
-            echo "seeds \`${SEEDS}\`, years \`${YEARS}\`, map \`${MAP:-default}\`, config \`${CONFIG:-defaults}\`, sim jobs: ${SIM_RESULT}"
+            echo "commit \`${SHA}\`, threads ${SIM_THREADS}, seeds \`${SEEDS}\`, years \`${YEARS}\`, map \`${MAP:-default}\`, config \`${CONFIG:-defaults}\`, sim jobs: ${SIM_RESULT}"
             echo
             echo "seeds reported: $(grep -c '^seed [0-9]*: Y' combined/results-all.txt || true)"
             echo
@@ -337,6 +373,14 @@ jobs:
           fi
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat combined/summary.txt 2>/dev/null || true
+          # Cross-seed aggregates that work for any seeds_per_job (sum_results.py relies on the
+          # aggregate lines a multi-seed process prints), side by side with the baseline.
+          base=()
+          if [ -n "$BASELINE" ] && [ -f "$BASELINE" ]; then base=("$BASELINE"); fi
+          if python3 tools/agg_results.py combined/results-all.txt "${base[@]}" > combined/aggregate.md 2> combined/aggregate.err; then
+            { echo; echo "### Aggregate${base:+ vs $BASELINE}"; echo; cat combined/aggregate.md; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat combined/aggregate.md combined/aggregate.err 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:

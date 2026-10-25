@@ -1,0 +1,114 @@
+# Thread-scaling and single-thread overhead benchmark for Kindling.
+#
+# Manual trigger only. One job on one runner builds the ref under test (and optionally a
+# baseline ref, e.g. v0.5.0), then runs the same seed with each --threads value in turn, so
+# all timings come from the same machine. Keep it small: one seed, a few hundred years.
+name: bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to benchmark (blank = default branch)"
+        required: false
+        default: ""
+        type: string
+      baseline_ref:
+        description: "Baseline ref run single-threaded for comparison (blank = none)"
+        required: false
+        default: "v0.5.0"
+        type: string
+      seed:
+        description: "Seed"
+        required: true
+        default: "5"
+        type: string
+      years:
+        description: "Years"
+        required: true
+        default: "300"
+        type: string
+      map:
+        description: "Map size WxH (blank = default)"
+        required: false
+        default: ""
+        type: string
+      threads:
+        description: "Space-separated --threads values"
+        required: true
+        default: "1 2 4"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build
+        env:
+          BASE: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          nproc; lscpu | grep -E 'Model name|^CPU\(s\)' || true
+          cargo build --release --locked -p kindling
+          mkdir -p bin && cp target/release/kindling bin/kindling-test
+          if [ -n "$BASE" ]; then
+            git worktree add ../base "$BASE"
+            (cd ../base && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target-base" cargo build --release --locked -p kindling)
+            cp target-base/release/kindling bin/kindling-base
+          fi
+
+      - name: Run
+        env:
+          SEED: ${{ inputs.seed }}
+          YEARS: ${{ inputs.years }}
+          MAP: ${{ inputs.map }}
+          THREADS: ${{ inputs.threads }}
+          BASE: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          mapa=(); if [ -n "$MAP" ]; then mapa=(--map "$MAP"); fi
+          out=bench.md
+          echo "| binary | threads | wall s | user s | sys s | final line |" > $out
+          echo "|---|---|---|---|---|---|" >> $out
+          run() { # name threads cmd...
+            local name=$1 th=$2; shift 2
+            /usr/bin/time -f '%e %U %S' -o t.txt "$@" > r.txt 2>/dev/null
+            read -r e u s < t.txt
+            echo "| $name | $th | $e | $u | $s | $(grep -m1 '^seed' r.txt | cut -c1-90) |" | tee -a $out
+          }
+          if [ -n "$BASE" ]; then
+            run "base $BASE" 1 env RAYON_NUM_THREADS=1 bin/kindling-base --headless --seed "$SEED" --years "$YEARS" "${mapa[@]}"
+          fi
+          for t in $THREADS; do
+            run test "$t" env RAYON_NUM_THREADS=$t bin/kindling-test --headless --seed "$SEED" --years "$YEARS" "${mapa[@]}" --threads "$t"
+          done
+          { echo "## bench seed $SEED, $YEARS years, map ${MAP:-default}"; echo; cat $out; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: bench.md
