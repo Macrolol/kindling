@@ -1,6 +1,6 @@
 # Kindling v7: iron through real prerequisites, kinship from descent, need-driven tinkering. Progress log
 
-25 Oct 2026, about 10:00 to 13:30 EDT. Rules: one local sim at a time, RAYON_NUM_THREADS=4,
+25 Oct 2026, about 10:40 to 11:45 EDT. Rules: one local sim at a time, RAYON_NUM_THREADS=4,
 cargo -j4, every run under `timeout`. All multi-seed checks are 10 seeds x 500 years on GitHub
 Actions (`headless-sims.yml`, 256x160 map), compared against `docs/results-v6.1-seeds1-10-500y.txt`.
 Final numbers: `docs/results-v7-seeds1-10-500y.txt` (run 40207341019, commit 6719bdf).
