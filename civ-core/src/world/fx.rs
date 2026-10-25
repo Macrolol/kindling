@@ -32,6 +32,9 @@ pub(crate) enum Op {
     FledBySea { band: u32, by: u32, cell: u32, boat: Item, from: u32 },
     TradedFirst { mi: usize, from: u32, to: u32, cell: u32 },
     Cell(Layer, u32, f32),
+    /// `v += k * (to - v)` (only while `v < to` if `below`), clamped to 0..1: a band's step on a
+    /// farm layer, applied to the live value so shared cells compound as in v5
+    Toward { l: Layer, c: u32, k: f32, to: f32, below: bool },
     TradeLine { from: u32, to: u32, d: i32, q: f32 },
     Conflict(u32, f32),
     Drift(Box<Band>, u32, u32),
@@ -60,6 +63,12 @@ impl Fx {
     pub fn cell(&mut self, l: Layer, c: usize, d: f32) {
         if d != 0.0 {
             self.ops.push(Op::Cell(l, c as u32, d));
+        }
+    }
+    #[inline]
+    pub fn toward(&mut self, l: Layer, c: usize, k: f32, to: f32, below: bool) {
+        if k != 0.0 {
+            self.ops.push(Op::Toward { l, c: c as u32, k, to, below });
         }
     }
     #[inline]
@@ -193,6 +202,20 @@ impl World {
                     if self.traded_first & (1 << mi) == 0 {
                         self.traded_first |= 1 << mi;
                         self.push_event(EventKind::FirstTraded, from, to, cell, raw(ALL_MATS[mi]), u32::MAX);
+                    }
+                }
+                Op::Toward { l, c, k, to, below } => {
+                    let c = c as usize;
+                    let v = match l {
+                        Layer::Camp => self.camp.get_mut(c),
+                        Layer::Tend => self.tend.get_mut(c),
+                        Layer::Dom => self.dom.get_mut(c),
+                        Layer::Fert => self.fert.get_mut(c),
+                    };
+                    if let Some(v) = v {
+                        if !below || *v < to {
+                            *v = (*v + k * (to - *v)).clamp(0.0, 1.0);
+                        }
                     }
                 }
                 Op::Cell(l, c, d) => {

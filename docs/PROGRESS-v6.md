@@ -103,3 +103,31 @@ cells an earlier band already took from this season re-plans its economy against
   - farm layers and world-firsts are read as at the start of the season;
   - an invention is not usable in the same season;
   - meetings run in band-disjoint rounds.
+
+### 4. Sequential harvest (done, c365b39) and balance check 2 (20:21-20:38 EDT): closer, **not yet accepted**
+Phase 2 plans each band's economy and takes its harvest in band order, exactly as v5 (only the
+toolkit refresh stays parallel). Measured with the speculative variant (parallel plan, re-plan if
+an earlier band already took from a shared cell: 89-94% of plans had to be redone, so c365b39 just
+plans sequentially; the two give identical worlds). docs/results-v6b-seqharvest-seeds1-10-500y*.txt.
+
+| metric (10 seeds) | v5 | v6a fair share | v6b seq. harvest |
+|---|---|---|---|
+| total pop Y500 | 909k | 1121k | 934k (+3%; higher on 4 of 10 seeds) |
+| fights per century (mean) | 4480 | 7116 | 3564 (-20%) |
+| killed in war, %/yr | 0.332 | 0.466 | 0.272 (lower on 10 of 10) |
+| farming origins (mean) | 16.5 | 11.7 | 8.3 |
+| farming share of people Y500 (mean) | 35% | 29% | 32% |
+| voyages / landings / lost at sea | 188k / 19.7k / 38.5k | 204k / 14.0k / 33.5k | 181k / 17.9k / 36.5k |
+
+Pop and sea are now within noise. Farming origins (half of v5) and war deaths (-18%, all seeds)
+are still off.
+
+Cause found for farming origins: farm-layer changes were buffered as deltas computed from the
+start-of-season value and summed. Where several bands tend the same cell, v5 compounds them
+(each step `t += k(0.4 - t)` sees the previous one, so foraging alone never pushes tending past 0.4);
+summed deltas overshoot past 0.45, which counts as "fields nearby", so new starts were logged as
+"took up farming" instead of independent origins. Fix (step 5): buffer each step as "move toward
+target by k" and apply it to the live value in band order, the exact v5 result.
+
+Next: balance check 3 with the farm-layer fix; then look at war deaths (candidates: movement now
+sees the stocks after every band has harvested; meeting order by rounds).

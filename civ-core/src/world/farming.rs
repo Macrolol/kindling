@@ -256,22 +256,29 @@ impl World {
         fx.cell(Layer::Camp, ci, dcamp);
         let camp = self.camp[ci] + dcamp;
         let campf = camp / (camp + 20.0);
+        // (the changes are buffered as "move toward" steps, which applied in band order give
+        // exactly the v5 result on cells that several bands share; `my_tend` is this band's view)
         let mut tend_ci = self.tend[ci];
+        let mut my_tend: Vec<f32> = Vec::with_capacity(ec.cells.len());
         for &(c, wt) in &ec.cells {
             if !self.map.is_land(c) {
+                my_tend.push(self.tend.get(c).copied().unwrap_or(0.0));
                 continue;
             }
-            let t0 = self.tend[c];
-            let mut td = t0;
+            let mut td = self.tend[c];
             if td < 0.4 {
-                td += p.farm_rate * 0.03 * wt * campf * plant_share * (0.4 - td);
+                let k = p.farm_rate * 0.03 * wt * campf * plant_share;
+                td += k * (0.4 - td);
+                fx.toward(Layer::Tend, c, k, 0.4, true);
             }
             if b.sow > 0.0 && self.crop_pot[c] > 0.05 {
                 // clearing and sowing: the home cell most, the edges of the range less
-                td += 0.25 * b.sow * wt * (1.0 - td) * (0.5 + 0.5 * kit.farm_m.min(1.5) / 1.5);
+                let k = 0.25 * b.sow * wt * (0.5 + 0.5 * kit.farm_m.min(1.5) / 1.5);
+                td += k * (1.0 - td);
+                fx.toward(Layer::Tend, c, k, 1.0, false);
             }
             td = td.min(1.0);
-            fx.cell(Layer::Tend, c, td - t0);
+            my_tend.push(td);
             if c == ci {
                 tend_ci = td;
             }
@@ -319,24 +326,26 @@ impl World {
                 let sickle = if kit.cut != NONE { 1.0 } else { 0.5 };
                 let strain = if b.stock[Mat::Grain as usize] > 0.05 { b.strain } else { 0.0 };
                 let mut dom_ci = self.dom[ci];
-                for &(c, wt) in &ec.cells {
-                    let cult = cultivated(self.tend.get(c).copied().unwrap_or(0.0));
+                for (&(c, wt), &td) in ec.cells.iter().zip(&my_tend) {
+                    let cult = cultivated(td);
                     if cult <= 0.0 {
                         continue;
                     }
-                    let d0 = self.dom[c];
-                    let mut d = d0;
-                    d += p.farm_rate * 0.02 * sickle * phi.max(0.2) * wt * cult * (1.0 - d);
+                    let mut d = self.dom[c];
+                    let k = p.farm_rate * 0.02 * sickle * phi.max(0.2) * wt * cult;
+                    d += k * (1.0 - d);
+                    fx.toward(Layer::Dom, c, k, 1.0, false);
                     if strain > d {
                         d += 0.3 * wt * (strain - d);
                     }
+                    // (v5 asks "strain > d" after this band's own step; at apply time the same
+                    // question is asked of the live value)
+                    fx.toward(Layer::Dom, c, 0.3 * wt, strain, true);
                     d = d.min(1.0);
-                    fx.cell(Layer::Dom, c, d - d0);
                     if c == ci {
                         dom_ci = d;
                     }
-                    let f = self.fert[c];
-                    fx.cell(Layer::Fert, c, -p.soil_drain * 0.05 * phi * wt * cult * f);
+                    fx.toward(Layer::Fert, c, p.soil_drain * 0.05 * phi * wt * cult, 0.0, false);
                 }
                 let was = b.strain;
                 b.strain = (b.strain * 0.999).max(dom_ci);
@@ -413,8 +422,7 @@ impl World {
             }
             b.tame = (b.tame + 0.004 * (1.0 - b.tame)).min(1.0);
             // dung on the fields
-            let f = self.fert[ci];
-            fx.cell(Layer::Fert, ci, 0.01 * b.herd.min(1.0) * (1.0 - f));
+            fx.toward(Layer::Fert, ci, 0.01 * b.herd.min(1.0), 1.0, false);
             let hb = 0.01 * b.herd.min(1.0);
             for mm in [Mat::Hide, Mat::Bone] {
                 b.stock[mm as usize] = (b.stock[mm as usize] + hb).min(1.5);
