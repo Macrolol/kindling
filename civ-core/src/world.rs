@@ -355,7 +355,9 @@ pub struct World {
 }
 
 /// attention every material gets regardless of place and need (see `attention`)
-const ATT_FLOOR: f32 = 0.5;
+const ATT_FLOOR: f32 = 1.0;
+/// how strongly a band's way of life steers which parts it puts together (see `experiment`)
+const NEED_FORM: f32 = 3.0;
 fn raw(m: Mat) -> Item {
     item(Form::Raw, m)
 }
@@ -1471,8 +1473,33 @@ impl World {
                 .collect();
             v[rng.weighted(&ws).unwrap_or_else(|| rng.below(v.len()))]
         };
+        // need-driven tinkering: when putting things together, people reach for the parts of
+        // what their way of life calls for - hunters for points, edges and shafts, trappers for
+        // sticks and cord, fishers for cord (lines, nets, floats), the cold for points to sew
+        // with, the storing for containers
+        let need_w = {
+            let h = b.d.harvest;
+            let tot = h.iter().sum::<f32>().max(1e-3);
+            let hunger = 1.0 + 1.5 * b.d.stress.clamp(0.0, 1.0);
+            let sh = move |r: usize| NEED_FORM * (h[r] / tot) * hunger;
+            let cold = (b.d.cold * 2.0).clamp(0.0, 1.5);
+            let ci = b.cell(self.map.w);
+            let store = ((5.0 - self.map.temp_winter(ci)) / 10.0).clamp(0.0, 1.0) + if self.near_water(ci) { 0.0 } else { 1.0 };
+            move |i: Item| match form(i) {
+                Form::Point => 1.0 + sh(1) + NEED_FORM * 0.5 * cold,
+                Form::Edge => 1.0 + 0.8 * sh(1),
+                Form::Shaft => 1.0 + 0.5 * sh(1) + sh(3),
+                Form::Cord => 1.0 + 0.5 * sh(3) + sh(2) + 0.3 * NEED_FORM * cold,
+                Form::Vessel => 1.0 + 0.5 * NEED_FORM * store,
+                _ => 1.0,
+            }
+        };
+        let pick_c = |rng: &mut Rng, v: &[Item]| {
+            let ws: Vec<f32> = v.iter().map(|&i| att[mat(i) as usize] * need_w(i)).collect();
+            v[rng.weighted(&ws).unwrap_or_else(|| rng.below(v.len()))]
+        };
         let (action, inputs): (Action, Inputs) = if roll < wh {
-            let t1 = pick_heat(rng, &pool);
+            let mut t1 = pick_heat(rng, &pool);
             let t2 = if rng.chance(0.25) { pick_heat(rng, &pool) } else { NONE };
             if t1 == t2 {
                 return;
@@ -1498,6 +1525,14 @@ impl World {
             if t2 == NONE && k != NONE && form(t1) != Form::Bellows && mat(fire).props().fuel_t >= 900.0 && rng.chance(0.5) {
                 if let Some(bw) = pool.iter().copied().find(|&i| form(i) == Form::Bellows) {
                     t2 = bw;
+                    // what a forced furnace is for: cooking stones. Its keepers feed it the
+                    // heavy, coloured stones they have (attention still picks which)
+                    if form(t1) == Form::Raw && mat(t1).props().reduces_to.is_none() && rng.chance(0.5) {
+                        let ores: Vec<Item> = pool.iter().copied().filter(|&i| form(i) == Form::Raw && mat(i).props().reduces_to.is_some()).collect();
+                        if !ores.is_empty() {
+                            t1 = pick(rng, &ores);
+                        }
+                    }
                 }
             }
             (Action::Heat, [t1, t2, fire, k])
@@ -1513,9 +1548,9 @@ impl World {
             // trying to get one back: goal-driven tinkering, still judged by physics
             let fuels: Vec<Item> = pool.iter().copied().filter(|&i| mat(i).props().fuel_t > 0.0).collect();
             let src = if !b.flame && fuels.len() >= 2 && rng.chance(0.4) { &fuels } else { &cpool };
-            let a = pick(rng, src);
-            let bb = pick(rng, src);
-            let c = if rng.chance(0.45) { pick(rng, src) } else { NONE };
+            let a = pick_c(rng, src);
+            let bb = pick_c(rng, src);
+            let c = if rng.chance(0.45) { pick_c(rng, src) } else { NONE };
             if a == bb || a == c || bb == c {
                 return;
             }
