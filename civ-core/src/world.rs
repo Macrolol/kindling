@@ -336,6 +336,9 @@ pub struct World {
     /// and the last one; reset only on the cells touched, so it costs nothing on big maps
     #[serde(skip)]
     hhead: Vec<(u32, u32)>,
+    /// `hlog` regrouped by cell (band order kept), what `seen` reads: (band's place, stocks)
+    #[serde(skip)]
+    hcell: Vec<(u32, [f32; 4])>,
     #[serde(skip)]
     rng: Option<Rng>,
     /// optional per-phase wall-clock timing (seconds), for perf work; native only, never saved
@@ -647,6 +650,29 @@ impl World {
         }
         // phase 3 reads the wild stocks as each band would have found them in v5, right after
         // its own harvest (before the later bands took theirs): see `seen`
+        // regroup the log by cell so each lookup reads one short contiguous run;
+        // hhead becomes (start, len) into hcell
+        const DONE: u32 = u32::MAX - 1;
+        self.hcell.clear();
+        for i in 0..self.hlog.len() {
+            if self.hlog[i].next == DONE {
+                continue;
+            }
+            // the first entry of a cell not yet seen is the head of its chain
+            let c = self.hlog[i].cell as usize;
+            let start = self.hcell.len() as u32;
+            let mut j = i;
+            loop {
+                let m = self.hlog[j];
+                self.hcell.push((m.k, m.v));
+                self.hlog[j].next = DONE;
+                if m.next == u32::MAX {
+                    break;
+                }
+                j = m.next as usize;
+            }
+            self.hhead[c] = (start, self.hcell.len() as u32 - start);
+        }
         self.hlog_on = true;
         let key = rng.next_u64();
         let tick = self.tick as u64;
@@ -676,16 +702,8 @@ impl World {
     /// the cell, or the current value if none did. Otherwise simply the current stock.
     #[inline]
     pub(crate) fn seen(&self, r: usize, c: usize, b: &Band) -> f32 {
-        if self.hlog_on {
-            if let Some(&(mut i, _)) = self.hhead.get(c) {
-                while i != u32::MAX {
-                    let m = &self.hlog[i as usize];
-                    if m.k > b.d.hk {
-                        return m.v[r];
-                    }
-                    i = m.next;
-                }
-            }
+        if let Some(v) = self.seen_logged(c, b) {
+            return v[r];
         }
         let v = match r {
             0 => &self.plants,
@@ -694,6 +712,30 @@ impl World {
             _ => &self.small,
         };
         v.get(c).copied().unwrap_or(0.0)
+    }
+
+    /// All four wild stocks of `seen` at once.
+    #[inline]
+    pub(crate) fn seen4(&self, c: usize, b: &Band) -> [f32; 4] {
+        if let Some(v) = self.seen_logged(c, b) {
+            return v;
+        }
+        let g = |v: &Vec<f32>| v.get(c).copied().unwrap_or(0.0);
+        [g(&self.plants), g(&self.game), g(&self.fish), g(&self.small)]
+    }
+
+    #[inline]
+    fn seen_logged(&self, c: usize, b: &Band) -> Option<[f32; 4]> {
+        if !self.hlog_on {
+            return None;
+        }
+        let &(start, len) = self.hhead.get(c)?;
+        if start == u32::MAX {
+            return None;
+        }
+        let run = &self.hcell[start as usize..(start + len) as usize];
+        let i = run.partition_point(|e| e.0 <= b.d.hk);
+        run.get(i).map(|e| e.1)
     }
 
     /// Phase 2, sequential and exactly as in v5: band by band, plan the economy against the
@@ -1459,12 +1501,12 @@ impl World {
         }
         let kit = &b.d.kit;
         let dg = kit.digest;
-        let sm = |j: usize| self.seen(3, j, b);
         let pot = |j: usize| {
-            3.0 * kit.plants_m * dg[0] * self.seen(0, j, b)
-                + 2.5 * kit.game_m * dg[1] * self.seen(1, j, b)
-                + 2.5 * kit.fish_m * dg[2] * self.seen(2, j, b)
-                + 2.5 * kit.small_m * dg[3] * sm(j)
+            let v = self.seen4(j, b);
+            3.0 * kit.plants_m * dg[0] * v[0]
+                + 2.5 * kit.game_m * dg[1] * v[1]
+                + 2.5 * kit.fish_m * dg[2] * v[2]
+                + 2.5 * kit.small_m * dg[3] * v[3]
                 + if b.sow > 0.0 { 3.5 * kit.farm_m * dg[4] * 0.6 * self.farm_prospect(b, j) } else { 0.0 }
         };
         let (x, y) = (c % m.w, c / m.w);
