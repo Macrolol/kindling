@@ -82,6 +82,8 @@ pub struct MotiveSummary {
     pub overseas_bands: u32,
     pub curiosity_overseas: f32,
     pub ambition_overseas: f32,
+    /// share of land cells any band has ever camped in (%)
+    pub explored_pct: f32,
 }
 
 fn motive_summary(w: &World) -> MotiveSummary {
@@ -100,6 +102,11 @@ fn motive_summary(w: &World) -> MotiveSummary {
         overseas_bands: away.len() as u32,
         curiosity_overseas: f(&away, |b| b.curiosity),
         ambition_overseas: f(&away, |b| b.ambition),
+        explored_pct: {
+            let land = (0..w.map.w * w.map.h).filter(|&i| w.map.is_land(i));
+            let (n, e) = land.fold((0u32, 0u32), |(n, e), i| (n + 1, e + (w.camped.get(i).copied().unwrap_or(0) > 0) as u32));
+            100.0 * e as f32 / n.max(1) as f32
+        },
     }
 }
 

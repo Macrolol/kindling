@@ -585,6 +585,10 @@ fn v8_0_fixture_loads_and_runs() {
     assert_eq!(im.migrated_from, Some(8));
     assert!(wm.bands.iter().take(5).all(|b| b.far_shore == Some(17) && b.far_shore_year == 110));
     assert!(wm.bands.iter().skip(5).all(|b| b.far_shore.is_some() || b.far_shore_year == 0));
+    // (v9) no camp layer in the save: settled land counts as camped in the load year
+    assert_eq!(w.camped.len(), w.map.w * w.map.h);
+    assert!(w.bands.iter().all(|b| w.camped[b.cell(w.map.w)] == 151));
+    assert!((0..w.camped.len()).all(|i| w.map.is_land(i) || w.camped[i] == 0));
     let s = crate::analysis::summarize(&w);
     assert!(s.continents.iter().all(|c| c.by_sea.is_none()));
     let pop = w.total_pop();

@@ -122,8 +122,8 @@ pub fn run(a: &Args) {
             println!("    lineages: alive {} | largest {:.0}% | effective {:.2} | by landmass: {}", l.alive, l.top_pct, l.effective, bl.join("; "));
             let mo = &s.motives;
             println!(
-                "    motives (v9): splits {} ({} after dissent) | dissent mean {:.2} | curiosity {:.2} (overseas {:.2}) | ambition {:+.2} (overseas {:+.2}, {} bands)",
-                mo.splits, mo.dissent_splits, mo.dissent_mean, mo.curiosity_mean, mo.curiosity_overseas, mo.ambition_mean, mo.ambition_overseas, mo.overseas_bands
+                "    motives (v9): splits {} ({} after dissent) | dissent mean {:.2} | curiosity {:.2} (overseas {:.2}) | ambition {:+.2} (overseas {:+.2}, {} bands) | land ever camped {:.0}%",
+                mo.splits, mo.dissent_splits, mo.dissent_mean, mo.curiosity_mean, mo.curiosity_overseas, mo.ambition_mean, mo.ambition_overseas, mo.overseas_bands, mo.explored_pct
             );
             let t = &s.trade;
             let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();

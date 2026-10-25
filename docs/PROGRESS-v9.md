@@ -124,3 +124,23 @@ follow dissent. Mean ambition drifts below 0 in 8 worlds (the bold die more), bu
 crossed the sea the overseas bands are bolder than at home (s2 +0.40 vs +0.19, s7 +0.09 vs -0.17,
 s8 +0.01 vs -0.05) and in s7 more curious (1.22 vs 1.03): founder voyages select the bold, as
 intended, without a runaway. Effective lineages 5.41 (5.33), largest 25.2 % (26.1).
+
+## Step 5 (P3): wanderlust and new country
+
+- `World::camped`: per cell, 1 + the last year any band camped there (0 = never), stamped in
+  `build_occupancy`. `World::novelty(c)` is 1 for never-camped land, falling linearly to 0 for
+  land camped this year (over `NOVELTY_YEARS` 100).
+- `novelty_pull`: a move candidate (walking, river or sea) and a daughter's new home score
+  x (1 + min(`NOVELTY_PULL` 0.15 x curiosity x youth, `NOVELTY_MAX` 0.3) x novelty), with youth =
+  pop / split size (capped at 1) standing in for the young-adult share. The bonus *size* is
+  capped; no dates or counts.
+- A band that has seen a far shore takes ship more often when curious and at home at sea
+  (season chance + `FAR_SHORE_LURE` 0.1 x (curiosity - 1)+ x seacraft).
+- Not done from the proposal: valuing unvisited cells at the band's expectation rather than the
+  true stock (needs a per-band or per-lineage memory; see REFACTOR-NOTES).
+- Saves: `camped` is additive; older saves rebuild it in `after_load` (settled landmasses
+  camped in the load year). The v8 fixture test checks it.
+- Measurement: `motives (v9)` adds the share of land ever camped.
+- Local seed 1 x 500y: crossings #2 Y198 (gap 3), #3 Y224 (gap 5); pop 140114; war 0.362 %/yr;
+  disease 0.196 %/yr; curiosity 1.10 (overseas 1.13); land ever camped 95 %; items 76;
+  effective lineages 5.32 (largest 30 %). Run time 77 s (54 s): more, smaller moves.

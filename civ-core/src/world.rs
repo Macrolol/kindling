@@ -58,6 +58,14 @@ pub const DISSENT_MIN_SIZE: f32 = 0.6;
 pub const DISSENT_SPLIT_P: f32 = 0.5;
 pub const DISSENT_RADIUS: i32 = 4;
 pub const EMIGRANT_TAIL: f32 = 0.1;
+/// (v9) Wanderlust: a cell nobody has camped in (or not for `NOVELTY_YEARS`) looks better by up
+/// to `NOVELTY_PULL` x curiosity x youth (pop / split size, capped at 1), never more than
+/// `NOVELTY_MAX`. A curious crew that has heard of a far shore and knows the sea takes ship
+/// more often (`FAR_SHORE_LURE` x (curiosity - 1) x seacraft a season).
+pub const NOVELTY_YEARS: f32 = 100.0;
+pub const NOVELTY_PULL: f32 = 0.15;
+pub const NOVELTY_MAX: f32 = 0.3;
+pub const FAR_SHORE_LURE: f32 = 0.1;
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -354,6 +362,10 @@ pub struct World {
     pub item_bands: BTreeMap<Item, u32>,
     /// landmass id -> tick people first arrived (u32::MAX = never); empty in stage-1 saves
     pub landfall: Vec<u32>,
+    /// (v9) per cell: 1 + the last year any band camped there (0 = nobody ever has). Cells left
+    /// empty for `NOVELTY_YEARS` count as new country again. Saves before it rebuild it in
+    /// `after_load` (settled landmasses as known now, the rest as never visited).
+    pub camped: Vec<u16>,
     /// (v9) how each landmass after the first was reached, in order of arrival; empty in older
     /// saves (their landfalls show as "how unknown" in the analysis)
     #[serde(default)]
@@ -665,6 +677,18 @@ impl World {
         }
         self.ensure_farm_layers();
         self.ensure_terrain_layers();
+        // (v9) saves before the camp layer: settled landmasses count as known now
+        if self.camped.len() != n {
+            let now = self.year_u16().saturating_add(1);
+            let lf = &self.landfall;
+            let m = &self.map;
+            self.camped = (0..n)
+                .map(|i| {
+                    let l = m.landmass_of(i) as usize;
+                    if m.is_land(i) && lf.get(l).is_some_and(|&t| t != u32::MAX) { now } else { 0 }
+                })
+                .collect();
+        }
         // saves from before v3 did not keep the overlay: sketch it from the standing trade
         // partnerships (who trades with whom is saved), so it is not blank after loading
         if self.trade_flow.iter().all(|&f| f == 0.0) {
@@ -965,10 +989,29 @@ impl World {
         let w = self.map.w;
         self.occ_pop.clear();
         self.occ_pop.resize(self.occ.len(), 0);
+        let stamp = self.year_u16().saturating_add(1);
+        self.camped.resize(self.occ.len(), 0);
         for (k, b) in self.bands.iter().enumerate() {
             self.occ[b.cell(w)].push(k as u32);
             self.occ_pop[b.cell(w)] += b.pop;
+            self.camped[b.cell(w)] = stamp;
         }
+    }
+
+    /// (v9) How new cell `c` is to people: 1 if nobody has ever camped there, falling to 0 for a
+    /// cell camped in this year (linear over `NOVELTY_YEARS`).
+    pub fn novelty(&self, c: usize) -> f32 {
+        match self.camped.get(c).copied().unwrap_or(0) {
+            0 => 1.0,
+            t => ((self.year_u16() + 1).saturating_sub(t) as f32 / NOVELTY_YEARS).min(1.0),
+        }
+    }
+
+    /// (v9) Wanderlust: the factor by which band `b` favours cell `c` for being new country.
+    /// Curious bands full of young people feel it most.
+    fn novelty_pull(&self, b: &Band, c: usize, split_size: f32) -> f32 {
+        let youth = (b.pop as f32 / split_size).min(1.0);
+        1.0 + (NOVELTY_PULL * b.curiosity * youth).min(NOVELTY_MAX) * self.novelty(c)
     }
 
     /// People in `cell` other than band `b` (from the last occupancy snapshot).
@@ -2129,7 +2172,12 @@ impl World {
         let mut by_sea: Option<(usize, f32)> = None;
         if b.d.kit.boat_q > 0.0 {
             let push = self.push_out(b);
-            let pv = 0.06 + 0.35 * push + if b.far_shore.is_some() { 0.1 } else { 0.0 };
+            let lure = if b.far_shore.is_some() {
+                0.1 + FAR_SHORE_LURE * (b.curiosity - 1.0).max(0.0) * b.seacraft
+            } else {
+                0.0
+            };
+            let pv = 0.06 + 0.35 * push + lure;
             if rng.chance(pv) {
                 let aim = if rng.chance(0.7) { b.far_shore } else { None };
                 if let Some((c, sea)) = self.voyage(b, rng, aim) {
@@ -2138,8 +2186,9 @@ impl World {
                 }
             }
         }
+        let split = self.params.split_size;
         for (c, pen) in cands {
-            let sc = self.cell_score(b, c) / pen;
+            let sc = self.cell_score(b, c) * self.novelty_pull(b, c, split) / pen;
             if sc > best_s {
                 best_s = sc;
                 best = c;
@@ -2694,7 +2743,7 @@ impl World {
                 if !self.map.walkable(b.cell(w), c) {
                     continue;
                 }
-                let s = self.cell_score(b, c);
+                let s = self.cell_score(b, c) * self.novelty_pull(b, c, p.split_size);
                 if s > best.1 {
                     best = (c, s);
                 }
@@ -2705,7 +2754,7 @@ impl World {
                 let push = self.push_out(b);
                 let aim = if rng.chance(if quarrel { 0.9 } else { 0.7 }) { b.far_shore } else { None };
                 if let Some((c, sea)) = self.voyage(b, rng, aim) {
-                    let s = self.cell_score(b, c) / ((1.1 + 0.05 * sea) * (1.0 - 0.3 * push));
+                    let s = self.cell_score(b, c) * self.novelty_pull(b, c, p.split_size) / ((1.1 + 0.05 * sea) * (1.0 - 0.3 * push));
                     if s > best.1 {
                         best = (c, s);
                         sailed = Some(sea);
