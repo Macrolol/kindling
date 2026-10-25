@@ -21,25 +21,13 @@ pub const BIOME_KEY: [(Biome, &str); 11] = [
 pub const RIVER_RGB: [f32; 3] = [0.25, 0.45, 0.75];
 /// Deposit colours, in drawing order (a later one wins when a cell has several).
 pub const DEPOSIT_KEY: [(u32, [f32; 3], &str); 7] = [
-    (
-        D_STONE as u32,
-        [0.55, 0.55, 0.6],
-        "hard stone (cobbles for hammers)",
-    ),
+    (D_STONE as u32, [0.55, 0.55, 0.6], "hard stone (cobbles for hammers)"),
     (D_CLAY as u32, [0.75, 0.45, 0.3], "clay (pots, kiln lining)"),
     (D_FLINT as u32, [0.95, 0.95, 0.85], "flint (sharp flakes)"),
-    (
-        D_OBSIDIAN as u32,
-        [0.15, 0.1, 0.25],
-        "obsidian (sharpest edges)",
-    ),
+    (D_OBSIDIAN as u32, [0.15, 0.1, 0.25], "obsidian (sharpest edges)"),
     (D_COPPER as u32, [0.15, 0.85, 0.6], "copper ore"),
     (D_TIN as u32, [0.55, 0.75, 1.0], "tin ore"),
-    (
-        D_IRON as u32,
-        [0.7, 0.25, 0.15],
-        "iron ore (bog and red earth)",
-    ),
+    (D_IRON as u32, [0.7, 0.25, 0.15], "iron ore (bog and red earth)"),
 ];
 /// Temperature overlay range (°C) and population overlay scale (ln people per cell).
 pub const TEMP_LO: f32 = -15.0;
@@ -51,17 +39,7 @@ pub const TRADE_LN_MAX: f32 = 3.0;
 /// Conflict overlay scale: ln(1 + people recently killed in fights around a cell).
 pub const CONFLICT_LN_MAX: f32 = 3.5;
 
-pub const OVERLAYS: [&str; 9] = [
-    "terrain",
-    "know-how",
-    "item spread",
-    "population",
-    "deposits",
-    "temperature",
-    "trade",
-    "conflict",
-    "farming",
-];
+pub const OVERLAYS: [&str; 9] = ["terrain", "know-how", "item spread", "population", "deposits", "temperature", "trade", "conflict", "farming"];
 
 /// Farming overlay colours.
 pub const FARM_TENDED: [f32; 3] = [0.45, 0.75, 0.4];
@@ -76,23 +54,11 @@ pub fn farm_rgb(w: &World, i: usize) -> Option<[f32; 3]> {
     let d = w.dom.get(i).copied().unwrap_or(0.0);
     let f = w.fert.get(i).copied().unwrap_or(1.0);
     if t > 0.4 {
-        let base = if d > 0.6 {
-            FARM_DOMESTIC
-        } else {
-            lerp3(FARM_FIELD, FARM_DOMESTIC, (d / 0.6) * 0.5)
-        };
+        let base = if d > 0.6 { FARM_DOMESTIC } else { lerp3(FARM_FIELD, FARM_DOMESTIC, (d / 0.6) * 0.5) };
         // worn-out soil browns the field
-        Some(lerp3(
-            FARM_EXHAUSTED,
-            base,
-            ((f - 0.3) / 0.5).clamp(0.0, 1.0),
-        ))
+        Some(lerp3(FARM_EXHAUSTED, base, ((f - 0.3) / 0.5).clamp(0.0, 1.0)))
     } else if t > 0.08 {
-        Some(lerp3(
-            [0.3, 0.42, 0.3],
-            FARM_TENDED,
-            ((t - 0.08) / 0.32).clamp(0.0, 1.0),
-        ))
+        Some(lerp3([0.3, 0.42, 0.3], FARM_TENDED, ((t - 0.08) / 0.32).clamp(0.0, 1.0)))
     } else {
         None
     }
@@ -115,36 +81,22 @@ impl View {
         (Self::fit_zoom(w) * 0.5).min(1.0)
     }
     pub const MAX_ZOOM: f32 = 80.0;
-    /// The whole map, centred (Home / "Fit map").
+    /// The whole map, centred below the top bar (Home / 0 / "Fit map").
     pub fn fit(w: &World) -> View {
-        View {
-            cx: w.map.w as f32 / 2.0,
-            cy: w.map.h as f32 / 2.0 - 15.0 / Self::fit_zoom(w),
-            zoom: Self::fit_zoom(w),
-        }
+        View { cx: w.map.w as f32 / 2.0, cy: w.map.h as f32 / 2.0 - 15.0 / Self::fit_zoom(w), zoom: Self::fit_zoom(w) }
     }
     pub fn to_screen(&self, x: f32, y: f32) -> Vec2 {
-        vec2(
-            (x - self.cx) * self.zoom + screen_width() / 2.0,
-            (y - self.cy) * self.zoom + screen_height() / 2.0,
-        )
+        vec2((x - self.cx) * self.zoom + screen_width() / 2.0, (y - self.cy) * self.zoom + screen_height() / 2.0)
     }
     pub fn to_world(&self, p: Vec2) -> Vec2 {
-        vec2(
-            (p.x - screen_width() / 2.0) / self.zoom + self.cx,
-            (p.y - screen_height() / 2.0) / self.zoom + self.cy,
-        )
+        vec2((p.x - screen_width() / 2.0) / self.zoom + self.cx, (p.y - screen_height() / 2.0) / self.zoom + self.cy)
     }
 }
 
 /// Dark red to orange to pale yellow: how much blood was shed here lately.
 pub fn conflict_ramp(t: f32) -> [f32; 3] {
     let t = t.clamp(0.0, 1.0);
-    [
-        0.35 + 0.65 * t.min(0.5) * 2.0,
-        0.05 + 0.9 * (t - 0.35).max(0.0) / 0.65,
-        0.05 + 0.6 * (t - 0.7).max(0.0) / 0.3,
-    ]
+    [0.35 + 0.65 * t.min(0.5) * 2.0, 0.05 + 0.9 * (t - 0.35).max(0.0) / 0.65, 0.05 + 0.6 * (t - 0.7).max(0.0) / 0.3]
 }
 
 pub fn biome_rgb(b: Biome) -> [f32; 3] {
@@ -164,22 +116,12 @@ pub fn biome_rgb(b: Biome) -> [f32; 3] {
     }
 }
 fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-    ]
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 /// Ramp from dark violet through teal to yellow (early -> late or low -> high).
 pub fn ramp(t: f32) -> [f32; 3] {
     let t = t.clamp(0.0, 1.0);
-    let stops = [
-        [0.27, 0.0, 0.33],
-        [0.23, 0.32, 0.55],
-        [0.13, 0.57, 0.55],
-        [0.37, 0.79, 0.38],
-        [0.99, 0.91, 0.14],
-    ];
+    let stops = [[0.27, 0.0, 0.33], [0.23, 0.32, 0.55], [0.13, 0.57, 0.55], [0.37, 0.79, 0.38], [0.99, 0.91, 0.14]];
     let f = t * 4.0;
     let i = (f.floor() as usize).min(3);
     lerp3(stops[i], stops[i + 1], f - i as f32)
@@ -229,12 +171,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
                 for dy in -2..=2i32 {
                     for dx in -2..=2i32 {
                         let (x, y) = (bx + dx, by + dy);
-                        if x >= 0
-                            && y >= 0
-                            && (x as usize) < m.w
-                            && (y as usize) < m.h
-                            && dx * dx + dy * dy <= 5
-                        {
+                        if x >= 0 && y >= 0 && (x as usize) < m.w && (y as usize) < m.h && dx * dx + dy * dy <= 5 {
                             let j = y as usize * m.w + x as usize;
                             know[j] = know[j].max(nk);
                         }
@@ -251,8 +188,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
             let i = m.idx(x, y);
             let land = m.is_land(i);
             // hillshade from the height gradient (light from the north-west)
-            let hgt =
-                |xx: usize, yy: usize| m.height[m.idx(xx.min(m.w - 1), yy.min(m.h - 1))].max(0.0);
+            let hgt = |xx: usize, yy: usize| m.height[m.idx(xx.min(m.w - 1), yy.min(m.h - 1))].max(0.0);
             let dz = hgt(x + 1, y + 1) - hgt(x.saturating_sub(1), y.saturating_sub(1));
             let shade = (1.0 - dz / 900.0).clamp(0.65, 1.25);
             let mut c = biome_rgb(m.biome_at(i));
@@ -339,9 +275,7 @@ pub fn map_pixels(w: &World, overlay: u8, item: Option<Item>) -> Vec<u8> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
-        px.par_chunks_mut(m.w * 4)
-            .enumerate()
-            .for_each(|(y, row)| fill_row(y, row));
+        px.par_chunks_mut(m.w * 4).enumerate().for_each(|(y, row)| fill_row(y, row));
     }
     #[cfg(target_arch = "wasm32")]
     for (y, row) in px.chunks_mut(m.w * 4).enumerate() {
@@ -372,12 +306,7 @@ impl MapTex {
         let tex = Texture2D::from_rgba8(w.map.w as u16, w.map.h as u16, &px);
         tex.set_filter(FilterMode::Nearest);
         let now = get_time();
-        MapTex {
-            tex,
-            key: Self::key(w, overlay, item),
-            at: now,
-            cost: now - t0,
-        }
+        MapTex { tex, key: Self::key(w, overlay, item), at: now, cost: now - t0 }
     }
     /// `fast`: fast mode (redraw the map at most every 2 s).
     pub fn refresh(&mut self, w: &World, overlay: u8, item: Option<Item>, fast: bool) {
@@ -385,14 +314,9 @@ impl MapTex {
         if key == self.key {
             return;
         }
-        let same_view =
-            (key.1, key.2, key.3, key.4) == (self.key.1, self.key.2, self.key.3, self.key.4);
+        let same_view = (key.1, key.2, key.3, key.4) == (self.key.1, self.key.2, self.key.3, self.key.4);
         if same_view {
-            let min_dt = if fast {
-                2.0
-            } else {
-                (4.0 * self.cost).min(0.5)
-            };
+            let min_dt = if fast { 2.0 } else { (4.0 * self.cost).min(0.5) };
             if get_time() - self.at < min_dt {
                 return;
             }
@@ -400,8 +324,7 @@ impl MapTex {
         let t0 = get_time();
         let px = map_pixels(w, overlay, item);
         if key.3 == self.key.3 && self.tex.width() as usize == w.map.w {
-            self.tex
-                .update_from_bytes(w.map.w as u32, w.map.h as u32, &px);
+            self.tex.update_from_bytes(w.map.w as u32, w.map.h as u32, &px);
         } else {
             self.tex = Texture2D::from_rgba8(w.map.w as u16, w.map.h as u16, &px);
             self.tex.set_filter(FilterMode::Nearest);
@@ -414,33 +337,18 @@ impl MapTex {
 }
 
 /// `bands`: draw the bands (off in the start picker; in fast mode only when zoomed in or few).
-pub fn draw_world(
-    w: &World,
-    v: &View,
-    mt: &MapTex,
-    overlay: u8,
-    item: Option<Item>,
-    selected: Option<u32>,
-    bands: bool,
-) {
+pub fn draw_world(w: &World, v: &View, mt: &MapTex, overlay: u8, item: Option<Item>, selected: Option<u32>, bands: bool) {
     clear_background(Color::from_rgba(12, 18, 30, 255));
     // under one pixel per cell, sample the map smoothly (each pixel blends the cells it covers)
     // instead of picking one cell per pixel, which shimmers when panning a zoomed-out big map
-    mt.tex.set_filter(if v.zoom < 1.0 {
-        FilterMode::Linear
-    } else {
-        FilterMode::Nearest
-    });
+    mt.tex.set_filter(if v.zoom < 1.0 { FilterMode::Linear } else { FilterMode::Nearest });
     let p0 = v.to_screen(0.0, 0.0);
     draw_texture_ex(
         &mt.tex,
         p0.x,
         p0.y,
         WHITE,
-        DrawTextureParams {
-            dest_size: Some(vec2(w.map.w as f32 * v.zoom, w.map.h as f32 * v.zoom)),
-            ..Default::default()
-        },
+        DrawTextureParams { dest_size: Some(vec2(w.map.w as f32 * v.zoom, w.map.h as f32 * v.zoom)), ..Default::default() },
     );
     if !bands {
         return;
@@ -450,8 +358,7 @@ pub fn draw_world(
     let crowded = w.bands.len() > 15000 && v.zoom < 3.0;
     for b in &w.bands {
         let p = v.to_screen(b.x as f32 + 0.5, b.y as f32 + 0.5);
-        if p.x < -20.0 || p.y < -20.0 || p.x > screen_width() + 20.0 || p.y > screen_height() + 20.0
-        {
+        if p.x < -20.0 || p.y < -20.0 || p.x > screen_width() + 20.0 || p.y > screen_height() + 20.0 {
             continue;
         }
         let r = band_radius(b.pop, v.zoom);

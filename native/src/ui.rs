@@ -11,19 +11,9 @@ pub enum FileReq {
     OpenLoad,
     Load(String),
     /// a new world: seed, map size, chosen starts (empty: random), founders (0: default)
-    New {
-        seed: u64,
-        w: usize,
-        h: usize,
-        starts: Vec<(u16, u16)>,
-        founders: usize,
-    },
+    New { seed: u64, w: usize, h: usize, starts: Vec<(u16, u16)>, founders: usize },
     /// generate a world's map and open the start picker on it
-    Preview {
-        seed: u64,
-        w: usize,
-        h: usize,
-    },
+    Preview { seed: u64, w: usize, h: usize },
 }
 
 /// Start picker state (the preview world itself is held by the main loop).
@@ -43,11 +33,7 @@ impl Picker {
     pub fn click(&mut self, map: &civ_core::map::Map, x: usize, y: usize) {
         use civ_core::StartCheck;
         let chk = map.start_check(x, y);
-        let what = if x < map.w && y < map.h {
-            map.biome_at(y * map.w + x).name()
-        } else {
-            "off the map"
-        };
+        let what = if x < map.w && y < map.h { map.biome_at(y * map.w + x).name() } else { "off the map" };
         if chk == StartCheck::Uninhabitable {
             self.note = format!("({x},{y}) is {what}: nobody can live there - pick land");
             return;
@@ -157,12 +143,7 @@ fn items_ever(w: &World) -> Vec<Item> {
 }
 
 /// Draws all windows. Returns a band id to jump to, if one was clicked.
-pub fn draw(
-    ctx: &egui::Context,
-    st: &mut UiState,
-    w: &mut World,
-    selected: Option<u32>,
-) -> Option<u32> {
+pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Option<u32>) -> Option<u32> {
     if st.picker.is_some() {
         picker(ctx, st, w);
         if st.show_legend {
@@ -238,162 +219,100 @@ pub fn draw(
     }
 
     if st.show_inspector {
-        egui::Window::new("Inspector")
-            .default_pos([8.0, 40.0])
-            .default_width(420.0)
-            .show(ctx, |ui| {
-                inspector(ui, w, selected, st);
-            });
+        egui::Window::new("Inspector").default_pos([8.0, 40.0]).default_width(420.0).show(ctx, |ui| {
+            inspector(ui, w, selected, st);
+        });
     }
     if st.show_log {
-        egui::Window::new("Events")
-            .default_pos([8.0, 470.0])
-            .default_size([480.0, 260.0])
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut st.log_mode, 0, "Chronicle");
-                    ui.selectable_value(&mut st.log_mode, 1, "All");
-                    ui.selectable_value(&mut st.log_mode, 2, "Selected band");
-                });
-                egui::ScrollArea::vertical()
-                    .max_height(220.0)
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        let evs: Vec<_> = match st.log_mode {
-                            0 => w.chronicle.iter().copied().collect(),
-                            1 => w.events.iter().rev().take(400).rev().copied().collect(),
-                            _ => match selected {
-                                Some(id) => {
-                                    let mut v: Vec<_> = w
-                                        .events
-                                        .iter()
-                                        .rev()
-                                        .filter(|e| e.band == id || e.other == id)
-                                        .take(300)
-                                        .copied()
-                                        .collect();
-                                    v.reverse();
-                                    v
-                                }
-                                None => vec![],
-                            },
-                        };
-                        for e in evs {
-                            let txt = w.event_text(&e);
-                            let r = if EventKind::from_u8(e.kind).major() {
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(txt).strong())
-                                        .sense(egui::Sense::click()),
-                                )
-                            } else {
-                                ui.add(egui::Label::new(txt).sense(egui::Sense::click()))
-                            };
-                            if r.clicked() && w.band_index(e.band).is_some() {
-                                jump = Some(e.band);
+        egui::Window::new("Events").default_pos([8.0, 470.0]).default_size([480.0, 260.0]).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut st.log_mode, 0, "Chronicle");
+                ui.selectable_value(&mut st.log_mode, 1, "All");
+                ui.selectable_value(&mut st.log_mode, 2, "Selected band");
+            });
+            egui::ScrollArea::vertical().max_height(220.0).stick_to_bottom(true).show(ui, |ui| {
+                let evs: Vec<_> = match st.log_mode {
+                    0 => w.chronicle.iter().copied().collect(),
+                    1 => w.events.iter().rev().take(400).rev().copied().collect(),
+                    _ => match selected {
+                        Some(id) => {
+                            {
+                                let mut v: Vec<_> = w.events.iter().rev().filter(|e| e.band == id || e.other == id).take(300).copied().collect();
+                                v.reverse();
+                                v
                             }
                         }
-                    });
+                        None => vec![],
+                    },
+                };
+                for e in evs {
+                    let txt = w.event_text(&e);
+                    let r = if EventKind::from_u8(e.kind).major() {
+                        ui.add(egui::Label::new(egui::RichText::new(txt).strong()).sense(egui::Sense::click()))
+                    } else {
+                        ui.add(egui::Label::new(txt).sense(egui::Sense::click()))
+                    };
+                    if r.clicked() && w.band_index(e.band).is_some() {
+                        jump = Some(e.band);
+                    }
+                }
             });
+        });
     }
     if st.show_stats {
-        egui::Window::new("Stats")
-            .default_pos([900.0, 40.0])
-            .default_width(360.0)
-            .show(ctx, |ui| stats(ui, w, st));
+        egui::Window::new("Stats").default_pos([900.0, 40.0]).default_width(360.0).show(ctx, |ui| stats(ui, w, st));
     }
     if st.show_settings {
-        egui::Window::new("Settings")
-            .default_pos([900.0, 300.0])
-            .default_width(340.0)
-            .show(ctx, |ui| {
-                settings(ui, w, st);
-            });
+        egui::Window::new("Settings").default_pos([900.0, 300.0]).default_width(340.0).show(ctx, |ui| {
+            settings(ui, w, st);
+        });
     }
     if st.show_history {
         egui::Window::new("Settings history").show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(300.0)
-                .show(ui, |ui| {
-                    if w.settings_log.is_empty() {
-                        ui.label("no changes yet");
-                    }
-                    for c in &w.settings_log {
-                        ui.label(format!(
-                            "Y{:.1}: {} {} → {}",
-                            c.tick as f32 / 4.0,
-                            c.name,
-                            c.old,
-                            c.new
-                        ));
-                    }
-                });
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                if w.settings_log.is_empty() {
+                    ui.label("no changes yet");
+                }
+                for c in &w.settings_log {
+                    ui.label(format!("Y{:.1}: {} {} → {}", c.tick as f32 / 4.0, c.name, c.old, c.new));
+                }
+            });
         });
     }
     if st.show_load {
         let mut open = true;
-        egui::Window::new("Load / new world")
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut st.new_seed).prefix("seed "));
-                    ui.add(
-                        egui::DragValue::new(&mut st.new_w)
-                            .range(32..=2048)
-                            .prefix("map ")
-                            .suffix(" w"),
-                    );
-                    ui.label("×");
-                    ui.add(
-                        egui::DragValue::new(&mut st.new_h)
-                            .range(24..=2048)
-                            .suffix(" h"),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .button("Choose start…")
-                        .on_hover_text("Show the new map and place the founders yourself")
-                        .clicked()
-                    {
-                        st.req = Some(FileReq::Preview {
-                            seed: st.new_seed,
-                            w: st.new_w,
-                            h: st.new_h,
-                        });
-                    }
-                    if ui.button("New world (random start)").clicked() {
-                        st.req = Some(FileReq::New {
-                            seed: st.new_seed,
-                            w: st.new_w,
-                            h: st.new_h,
-                            starts: vec![],
-                            founders: 0,
-                        });
-                    }
-                });
-                if st.new_w * st.new_h > 1_000_000 {
-                    ui.label("big map: slow to generate and to run (use fast mode)");
-                }
-                ui.separator();
-                #[cfg(target_arch = "wasm32")]
-                if ui.button("Open a .civsave file…").clicked() {
-                    crate::saveio::pick_file();
-                }
-                egui::ScrollArea::vertical()
-                    .max_height(300.0)
-                    .show(ui, |ui| {
-                        for (p, t, sz) in st.saves.clone() {
-                            let label = format!(
-                                "{p}  ({:.1} MB, {})",
-                                sz as f64 / 1e6,
-                                civ_core::save::format_unix_time(t as f64)
-                            );
-                            if ui.button(label).clicked() {
-                                st.req = Some(FileReq::Load(p));
-                            }
-                        }
-                    });
+        egui::Window::new("Load / new world").open(&mut open).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut st.new_seed).prefix("seed "));
+                ui.add(egui::DragValue::new(&mut st.new_w).range(32..=2048).prefix("map ").suffix(" w"));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut st.new_h).range(24..=2048).suffix(" h"));
             });
+            ui.horizontal(|ui| {
+                if ui.button("Choose start…").on_hover_text("Show the new map and place the founders yourself").clicked() {
+                    st.req = Some(FileReq::Preview { seed: st.new_seed, w: st.new_w, h: st.new_h });
+                }
+                if ui.button("New world (random start)").clicked() {
+                    st.req = Some(FileReq::New { seed: st.new_seed, w: st.new_w, h: st.new_h, starts: vec![], founders: 0 });
+                }
+            });
+            if st.new_w * st.new_h > 1_000_000 {
+                ui.label("big map: slow to generate and to run (use fast mode)");
+            }
+            ui.separator();
+            #[cfg(target_arch = "wasm32")]
+            if ui.button("Open a .civsave file…").clicked() {
+                crate::saveio::pick_file();
+            }
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                for (p, t, sz) in st.saves.clone() {
+                    let label = format!("{p}  ({:.1} MB, {})", sz as f64 / 1e6, civ_core::save::format_unix_time(t as f64));
+                    if ui.button(label).clicked() {
+                        st.req = Some(FileReq::Load(p));
+                    }
+                }
+            });
+        });
         st.show_load &= open;
     }
     if st.show_help {
@@ -414,24 +333,15 @@ pub fn draw(
 }
 
 fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiState) {
-    let Some(b) = selected
-        .and_then(|id| w.band_index(id))
-        .map(|i| &w.bands[i])
-    else {
+    let Some(b) = selected.and_then(|id| w.band_index(id)).map(|i| &w.bands[i]) else {
         ui.label("Click a band on the map.");
         ui.separator();
         ui.label("First discoveries:");
-        egui::ScrollArea::vertical()
-            .max_height(300.0)
-            .show(ui, |ui| {
-                for f in &w.firsts {
-                    ui.label(format!(
-                        "Y{:>5.1}  {}",
-                        f.tick as f32 / 4.0,
-                        item_name(f.item)
-                    ));
-                }
-            });
+        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+            for f in &w.firsts {
+                ui.label(format!("Y{:>5.1}  {}", f.tick as f32 / 4.0, item_name(f.item)));
+            }
+        });
         return;
     };
     let ci = b.cell(w.map.w);
@@ -455,35 +365,16 @@ fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiSta
         "food {:.2} of need · spare time {:.2} · stress {:.2} · cold {:.2}",
         b.d.food_ratio, b.d.spare, b.d.stress, b.d.cold
     ));
-    ui.label(format!(
-        "invented {} · learned {} · forgot {}",
-        b.inventions, b.learned, b.forgotten
-    ));
+    ui.label(format!("invented {} · learned {} · forgot {}", b.inventions, b.learned, b.forgotten));
     {
         let wq = civ_core::band::weapon_q(&b.d.kit);
-        let gs: Vec<String> = b
-            .grudges
-            .iter()
-            .map(|g| format!("band {} ({:.1})", g.id, g.w))
-            .collect();
+        let gs: Vec<String> = b.grudges.iter().map(|g| format!("band {} ({:.1})", g.id, g.w)).collect();
         ui.label(format!(
             "weapons {:.2}{} · grudges: {}{}",
             wq,
-            if b.d.kit.hunt != civ_core::materials::NONE {
-                format!(" ({})", item_name(b.d.kit.hunt))
-            } else {
-                String::new()
-            },
-            if gs.is_empty() {
-                "none".into()
-            } else {
-                gs.join(", ")
-            },
-            if b.pressed > 0.05 {
-                format!(" · pressed by neighbours {:.0}%", 100.0 * b.pressed)
-            } else {
-                String::new()
-            }
+            if b.d.kit.hunt != civ_core::materials::NONE { format!(" ({})", item_name(b.d.kit.hunt)) } else { String::new() },
+            if gs.is_empty() { "none".into() } else { gs.join(", ") },
+            if b.pressed > 0.05 { format!(" · pressed by neighbours {:.0}%", 100.0 * b.pressed) } else { String::new() }
         ));
     }
     {
@@ -499,11 +390,7 @@ fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiSta
             parts.push("forages".to_string());
         }
         if b.herd > 0.0 {
-            parts.push(format!(
-                "herd {:.2}/person, tameness {:.0}%",
-                b.herd,
-                100.0 * b.tame
-            ));
+            parts.push(format!("herd {:.2}/person, tameness {:.0}%", b.herd, 100.0 * b.tame));
         }
         parts.push(format!("settled {:.0}%", 100.0 * b.settled));
         if b.sick > 0.05 {
@@ -514,60 +401,37 @@ fn inspector(ui: &mut egui::Ui, w: &World, selected: Option<u32>, st: &mut UiSta
         }
         let t = w.tend.get(ci).copied().unwrap_or(0.0);
         let f = w.fert.get(ci).copied().unwrap_or(1.0);
-        parts.push(format!(
-            "here: tended {:.0}%, soil {:.0}%",
-            100.0 * t,
-            100.0 * f
-        ));
+        parts.push(format!("here: tended {:.0}%, soil {:.0}%", 100.0 * t, 100.0 * f));
         ui.label(parts.join(" · "));
     }
     ui.checkbox(&mut st.follow, "follow");
     ui.separator();
-    ui.label(format!(
-        "Knows {} recipes ({} things it can make):",
-        b.known.len(),
-        b.n_items()
-    ));
-    egui::ScrollArea::vertical()
-        .max_height(300.0)
-        .show(ui, |ui| {
-            for k in &b.known {
-                let Some(r) = w.reg.recipes.get(k.recipe as usize) else {
-                    continue;
-                };
-                let from = match k.from {
-                    FROM_SELF => "own idea".to_string(),
-                    FROM_PARENT => "from parent band".to_string(),
-                    id => format!("from band {id}"),
-                };
-                let resp = ui
-                    .add(
-                        egui::Label::new(
-                            egui::RichText::new(format!(
-                                "{:<22} skill {:.2}  {}",
-                                item_name(r.output),
-                                k.skill,
-                                from
-                            ))
-                            .monospace(),
-                        )
+    ui.label(format!("Knows {} recipes ({} things it can make):", b.known.len(), b.n_items()));
+    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+        for k in &b.known {
+            let Some(r) = w.reg.recipes.get(k.recipe as usize) else { continue };
+            let from = match k.from {
+                FROM_SELF => "own idea".to_string(),
+                FROM_PARENT => "from parent band".to_string(),
+                id => format!("from band {id}"),
+            };
+            let resp = ui
+                .add(
+                    egui::Label::new(egui::RichText::new(format!("{:<22} skill {:.2}  {}", item_name(r.output), k.skill, from)).monospace())
                         .sense(egui::Sense::click()),
-                    )
-                    .on_hover_text(r.describe());
-                if resp.clicked() {
-                    st.overlay = 2;
-                    st.item = Some(r.output);
-                }
+                )
+                .on_hover_text(r.describe());
+            if resp.clicked() {
+                st.overlay = 2;
+                st.item = Some(r.output);
             }
-        });
+        }
+    });
 }
 
 fn chart(ui: &mut egui::Ui, title: &str, series: &[(&[f32], egui::Color32)]) {
     ui.label(title);
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width().max(200.0), 90.0),
-        egui::Sense::hover(),
-    );
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 90.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
     for (s, col) in series {
@@ -586,13 +450,7 @@ fn chart(ui: &mut egui::Ui, title: &str, series: &[(&[f32], egui::Color32)]) {
             })
             .collect();
         p.add(egui::Shape::line(pts, egui::Stroke::new(1.5f32, *col)));
-        p.text(
-            rect.right_top(),
-            egui::Align2::RIGHT_TOP,
-            format!("max {mx:.0}"),
-            egui::FontId::monospace(10.0),
-            *col,
-        );
+        p.text(rect.right_top(), egui::Align2::RIGHT_TOP, format!("max {mx:.0}"), egui::FontId::monospace(10.0), *col);
     }
 }
 
@@ -605,35 +463,23 @@ fn stats(ui: &mut egui::Ui, w: &World, st: &mut UiState) {
     let tr: Vec<f32> = h.iter().map(|y| y.transfers as f32).collect();
     let fg: Vec<f32> = h.iter().map(|y| y.forgets as f32).collect();
     chart(ui, "population", &[(&pop, egui::Color32::LIGHT_GREEN)]);
-    chart(
-        ui,
-        "things makeable: world (gold), mean per band (blue)",
-        &[
-            (&items, egui::Color32::GOLD),
-            (&mean, egui::Color32::LIGHT_BLUE),
-        ],
-    );
-    chart(
-        ui,
-        "per year: inventions (gold), lessons (green), forgettings (red)",
-        &[
-            (&inv, egui::Color32::GOLD),
-            (&tr, egui::Color32::LIGHT_GREEN),
-            (&fg, egui::Color32::LIGHT_RED),
-        ],
-    );
+    chart(ui, "things makeable: world (gold), mean per band (blue)", &[
+        (&items, egui::Color32::GOLD),
+        (&mean, egui::Color32::LIGHT_BLUE),
+    ]);
+    chart(ui, "per year: inventions (gold), lessons (green), forgettings (red)", &[
+        (&inv, egui::Color32::GOLD),
+        (&tr, egui::Color32::LIGHT_GREEN),
+        (&fg, egui::Color32::LIGHT_RED),
+    ]);
     // lineage shares (v5 series; older saves have zeros for the years before they loaded)
     let top: Vec<f32> = h.iter().map(|y| y.top_lineage_pct).collect();
     let nlin: Vec<f32> = h.iter().map(|y| y.lineages as f32).collect();
     if top.iter().any(|&v| v > 0.0) {
-        chart(
-            ui,
-            "largest lineage % of people (violet), lineages alive (grey)",
-            &[
-                (&top, egui::Color32::from_rgb(190, 140, 255)),
-                (&nlin, egui::Color32::GRAY),
-            ],
-        );
+        chart(ui, "largest lineage % of people (violet), lineages alive (grey)", &[
+            (&top, egui::Color32::from_rgb(190, 140, 255)),
+            (&nlin, egui::Color32::GRAY),
+        ]);
     }
     let c = &w.counters;
     ui.label(format!(
@@ -642,39 +488,25 @@ fn stats(ui: &mut egui::Ui, w: &World, st: &mut UiState) {
     ));
     ui.separator();
     ui.label("How many bands can make each thing now (click to map it):");
-    egui::ScrollArea::vertical()
-        .max_height(200.0)
-        .show(ui, |ui| {
-            for f in &w.firsts {
-                let n = w.item_bands.get(&f.item).copied().unwrap_or(0);
-                if ui
-                    .add(
-                        egui::Label::new(
-                            egui::RichText::new(format!(
-                                "{:<26} {:>4}  (first Y{:.0})",
-                                item_name(f.item),
-                                n,
-                                f.tick as f32 / 4.0
-                            ))
-                            .monospace(),
-                        )
-                        .sense(egui::Sense::click()),
-                    )
-                    .clicked()
-                {
-                    st.overlay = 2;
-                    st.item = Some(f.item);
-                }
+    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+        for f in &w.firsts {
+            let n = w.item_bands.get(&f.item).copied().unwrap_or(0);
+            if ui
+                .add(egui::Label::new(egui::RichText::new(format!("{:<26} {:>4}  (first Y{:.0})", item_name(f.item), n, f.tick as f32 / 4.0)).monospace()).sense(egui::Sense::click()))
+                .clicked()
+            {
+                st.overlay = 2;
+                st.item = Some(f.item);
             }
-        });
+        }
+    });
 }
 
 fn settings(ui: &mut egui::Ui, w: &mut World, st: &mut UiState) {
     #[cfg(not(target_arch = "wasm32"))]
     ui.horizontal(|ui| {
         ui.label("Threads");
-        ui.add(egui::DragValue::new(&mut st.threads).range(0..=256))
-            .on_hover_text("sim worker threads; 0 = all cores");
+        ui.add(egui::DragValue::new(&mut st.threads).range(0..=256)).on_hover_text("sim worker threads; 0 = all cores");
         ui.label(if st.threads == 0 { "(all cores)" } else { "" });
     });
     ui.label("Changes apply immediately and are recorded in the save.");
@@ -686,22 +518,10 @@ fn settings(ui: &mut egui::Ui, w: &mut World, st: &mut UiState) {
             ui.label(&name);
             let is_int = v.get(&name).is_some_and(|x| x.is_u64());
             let mut x = val;
-            let range = if is_int {
-                0.0..=200.0
-            } else {
-                0.0..=(val.abs() * 4.0).max(1.0)
-            };
-            let r = ui.add(egui::DragValue::new(&mut x).range(range).speed(if is_int {
-                0.2
-            } else {
-                (val.abs() * 0.01).max(0.0005)
-            }));
+            let range = if is_int { 0.0..=200.0 } else { 0.0..=(val.abs() * 4.0).max(1.0) };
+            let r = ui.add(egui::DragValue::new(&mut x).range(range).speed(if is_int { 0.2 } else { (val.abs() * 0.01).max(0.0005) }));
             if r.changed() && x != val {
-                v[&name] = if is_int {
-                    serde_json::json!(x.round().max(0.0) as u64)
-                } else {
-                    serde_json::json!(x)
-                };
+                v[&name] = if is_int { serde_json::json!(x.round().max(0.0) as u64) } else { serde_json::json!(x) };
                 changed = true;
             }
             ui.end_row();
@@ -721,10 +541,7 @@ fn settings(ui: &mut egui::Ui, w: &mut World, st: &mut UiState) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         ui.separator();
-        ui.add(
-            egui::Slider::new(&mut st.autosave_min, 0.0..=60.0)
-                .text("autosave every (min, 0 = off)"),
-        );
+        ui.add(egui::Slider::new(&mut st.autosave_min, 0.0..=60.0).text("autosave every (min, 0 = off)"));
         ui.add(egui::Slider::new(&mut st.autosave_keep, 1..=10).text("autosaves kept"));
     }
 }
@@ -736,10 +553,7 @@ fn fixed(ui: &mut egui::Ui, width: f32, text: String) {
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             ui.set_min_width(width);
-            ui.add(
-                egui::Label::new(egui::RichText::new(text).monospace())
-                    .wrap_mode(egui::TextWrapMode::Extend),
-            );
+            ui.add(egui::Label::new(egui::RichText::new(text).monospace()).wrap_mode(egui::TextWrapMode::Extend));
         },
     );
 }
@@ -767,19 +581,12 @@ fn ramp_bar(ui: &mut egui::Ui, ticks: &[(f32, String)]) {
         let x0 = r.left() + width * k as f32 / n as f32;
         let x1 = r.left() + width * (k + 1) as f32 / n as f32 + 0.5;
         let col = c32(crate::render::ramp((k as f32 + 0.5) / n as f32));
-        p.rect_filled(
-            egui::Rect::from_min_max(egui::pos2(x0, r.top()), egui::pos2(x1, r.top() + 14.0)),
-            0.0,
-            col,
-        );
+        p.rect_filled(egui::Rect::from_min_max(egui::pos2(x0, r.top()), egui::pos2(x1, r.top() + 14.0)), 0.0, col);
     }
     let txt = ui.visuals().text_color();
     for (i, (f, s)) in ticks.iter().enumerate() {
         let x = r.left() + width * f.clamp(0.0, 1.0);
-        p.line_segment(
-            [egui::pos2(x, r.top() + 14.0), egui::pos2(x, r.top() + 18.0)],
-            egui::Stroke::new(1.0_f32, txt),
-        );
+        p.line_segment([egui::pos2(x, r.top() + 14.0), egui::pos2(x, r.top() + 18.0)], egui::Stroke::new(1.0_f32, txt));
         let align = if i == 0 {
             egui::Align2::LEFT_TOP
         } else if i + 1 == ticks.len() {
@@ -787,13 +594,7 @@ fn ramp_bar(ui: &mut egui::Ui, ticks: &[(f32, String)]) {
         } else {
             egui::Align2::CENTER_TOP
         };
-        p.text(
-            egui::pos2(x, r.top() + 18.0),
-            align,
-            s,
-            egui::FontId::proportional(12.0),
-            txt,
-        );
+        p.text(egui::pos2(x, r.top() + 18.0), align, s, egui::FontId::proportional(12.0), txt);
     }
 }
 
@@ -803,21 +604,12 @@ fn band_key(ui: &mut egui::Ui, item_mode: bool) {
     ui.label("Each dot is one band of people. Bigger dot = more people. Colour = family line (bands that split from the same ancestor share a colour).");
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-        ui.painter()
-            .circle_filled(r.center(), 5.0, egui::Color32::from_rgb(120, 200, 140));
-        ui.painter().circle_stroke(
-            r.center(),
-            6.5,
-            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 150, 40)),
-        );
+        ui.painter().circle_filled(r.center(), 5.0, egui::Color32::from_rgb(120, 200, 140));
+        ui.painter().circle_stroke(r.center(), 6.5, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 150, 40)));
         ui.label("orange ring = keeps a fire going");
     });
     if item_mode {
-        swatch(
-            ui,
-            egui::Color32::from_rgb(90, 90, 90),
-            "grey dot = this band can't make the chosen item",
-        );
+        swatch(ui, egui::Color32::from_rgb(90, 90, 90), "grey dot = this band can't make the chosen item");
     }
 }
 
@@ -1019,13 +811,7 @@ fn picker(ctx: &egui::Context, st: &mut UiState, w: &World) {
                 (p.starts, n)
             }
         };
-        st.req = Some(FileReq::New {
-            seed: p.seed,
-            w: p.w,
-            h: p.h,
-            starts,
-            founders,
-        });
+        st.req = Some(FileReq::New { seed: p.seed, w: p.w, h: p.h, starts, founders });
     } else if back {
         st.picker = None;
         st.show_load = true;

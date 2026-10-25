@@ -44,23 +44,12 @@ pub fn run(a: &Args) {
         }
         let el = t0.elapsed().as_secs_f32();
         if let Some(p) = &w.prof {
-            let parts: Vec<String> = civ_core::world::Prof::NAMES
-                .iter()
-                .zip(p.t.iter())
-                .map(|(n, t)| format!("{}: {:.1}s", n.trim(), t))
-                .collect();
-            eprintln!(
-                "  seed {seed} profile: {} | pairs in range {:.1}M, meetings {:.1}M",
-                parts.join(" | "),
-                w.counters.pairs_seen as f64 / 1e6,
-                w.counters.meetings as f64 / 1e6
-            );
+            let parts: Vec<String> = civ_core::world::Prof::NAMES.iter().zip(p.t.iter()).map(|(n, t)| format!("{}: {:.1}s", n.trim(), t)).collect();
+            eprintln!("  seed {seed} profile: {} | pairs in range {:.1}M, meetings {:.1}M", parts.join(" | "), w.counters.pairs_seen as f64 / 1e6, w.counters.meetings as f64 / 1e6);
         }
         let s = summarize(&w);
         if let Some(p) = &a.save {
-            let bytes = w
-                .save_bytes(None, env!("CARGO_PKG_VERSION"), "headless")
-                .unwrap();
+            let bytes = w.save_bytes(None, env!("CARGO_PKG_VERSION"), "headless").unwrap();
             std::fs::write(p, bytes).unwrap();
         }
         if a.json {
@@ -92,28 +81,13 @@ pub fn run(a: &Args) {
                 .continents
                 .iter()
                 .map(|c| match c.landfall_year {
-                    Some(y) => format!(
-                        "#{} {}c gap {} Y{:.0} pop {}",
-                        c.id,
-                        c.cells,
-                        c.gap.map(|g| g.to_string()).unwrap_or("-".into()),
-                        y,
-                        c.pop_now
-                    ),
-                    None => format!(
-                        "#{} {}c gap {} never",
-                        c.id,
-                        c.cells,
-                        c.gap.map(|g| g.to_string()).unwrap_or("-".into())
-                    ),
+                    Some(y) => format!("#{} {}c gap {} Y{:.0} pop {}", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into()), y, c.pop_now),
+                    None => format!("#{} {}c gap {} never", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into())),
                 })
                 .collect();
             println!(
                 "    continents settled {}/{}: {} | islands reached {}/{}",
-                s.continents
-                    .iter()
-                    .filter(|c| c.landfall_year.is_some())
-                    .count(),
+                s.continents.iter().filter(|c| c.landfall_year.is_some()).count(),
                 s.continents.len(),
                 cs.join(", "),
                 s.islands_reached,
@@ -128,11 +102,7 @@ pub fn run(a: &Args) {
                 q.lost_at_sea as f32 / q.crossings.max(1) as f32, q.bands_with_boats, q.seacraft_mean
             );
             let t = &s.trade;
-            let ft: Vec<String> = t
-                .first_traded
-                .iter()
-                .map(|(y, m)| format!("{m} Y{y:.0}"))
-                .collect();
+            let ft: Vec<String> = t.first_traded.iter().map(|(y, m)| format!("{m} Y{y:.0}")).collect();
             println!(
                 "    trade: {} exchanges, volume {:.0}, food shared {:.0}, mean dist {:.1} | last yr {} trades, {} partnerships, carried metal/obsidian {:.1} cells from source (max ever {:.0}) | first: {}",
                 t.trades, t.volume, t.food_shared, t.mean_dist, t.trades_last, t.partnerships_last, t.goods_dist_mean_last, t.goods_dist_max_ever, ft.join(", ")
@@ -152,24 +122,13 @@ pub fn run(a: &Args) {
         if !a.json {
             let g = &s.farming;
             let yo = |y: Option<f32>| y.map(|y| format!("Y{y:.0}")).unwrap_or("never".into());
-            let og: Vec<String> = g
-                .origins
-                .iter()
-                .map(|(y, b)| format!("Y{y:.0} {b}"))
-                .collect();
+            let og: Vec<String> = g.origins.iter().map(|(y, b)| format!("Y{y:.0} {b}")).collect();
             let fc: Vec<String> = w
                 .history
                 .iter()
                 .enumerate()
                 .filter(|(k, _)| (k + 1) % 100 == 0)
-                .map(|(_, h)| {
-                    format!(
-                        "{}/{} {:.0}%",
-                        h.farmer_pop,
-                        h.pop,
-                        100.0 * h.farm_food_share
-                    )
-                })
+                .map(|(_, h)| format!("{}/{} {:.0}%", h.farmer_pop, h.pop, 100.0 * h.farm_food_share))
                 .collect();
             println!(
                 "    farming: first fields {} | independent origins {} [{}] | domestic grain {} | herding {} | plough {} | first epidemic {} | took up {} gave up {} | epidemics {} disease deaths {}",
@@ -200,8 +159,7 @@ pub fn run(a: &Args) {
         for i in 0..sums.len() {
             for j in i + 1..sums.len() {
                 let dep = |s: &Summary| {
-                    let m: std::collections::HashMap<u16, Vec<u16>> =
-                        s.firsts.iter().map(|f| (f.item, f.needs.clone())).collect();
+                    let m: std::collections::HashMap<u16, Vec<u16>> = s.firsts.iter().map(|f| (f.item, f.needs.clone())).collect();
                     move |x: u16, y: u16| m.get(&x).map(|v| v.contains(&y)).unwrap_or(false)
                 };
                 let (da, db) = (dep(&sums[i]), dep(&sums[j]));
@@ -217,44 +175,14 @@ pub fn run(a: &Args) {
         let ls: Vec<String> = sums
             .iter()
             .map(|s| {
-                let n = s
-                    .continents
-                    .iter()
-                    .filter(|c| c.landfall_year.is_some())
-                    .count();
-                let second = s
-                    .continents
-                    .iter()
-                    .filter_map(|c| c.landfall_year)
-                    .filter(|&y| y > 0.0)
-                    .reduce(f32::min);
-                format!(
-                    "s{} {}/{}{}",
-                    s.seed,
-                    n,
-                    s.continents.len(),
-                    second
-                        .map(|y| format!(" (2nd Y{y:.0})"))
-                        .unwrap_or_default()
-                )
+                let n = s.continents.iter().filter(|c| c.landfall_year.is_some()).count();
+                let second = s.continents.iter().filter_map(|c| c.landfall_year).filter(|&y| y > 0.0).reduce(f32::min);
+                format!("s{} {}/{}{}", s.seed, n, s.continents.len(), second.map(|y| format!(" (2nd Y{y:.0})")).unwrap_or_default())
             })
             .collect();
-        let multi = sums
-            .iter()
-            .filter(|s| {
-                s.continents
-                    .iter()
-                    .filter(|c| c.landfall_year.is_some())
-                    .count()
-                    >= 2
-            })
-            .count();
+        let multi = sums.iter().filter(|s| s.continents.iter().filter(|c| c.landfall_year.is_some()).count() >= 2).count();
         let possible = sums.iter().filter(|s| s.continents.len() >= 2).count();
-        println!(
-            "  settled a second continent: {multi}/{} seeds ({possible} have more than one) | {}",
-            sums.len(),
-            ls.join(", ")
-        );
+        println!("  settled a second continent: {multi}/{} seeds ({possible} have more than one) | {}", sums.len(), ls.join(", "));
         {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();
             let land: u64 = sums.iter().map(|s| s.sea.crossings).sum();
@@ -263,15 +191,7 @@ pub fn run(a: &Args) {
             let sf: u64 = sums.iter().map(|s| s.sea.scout_finds).sum();
             let early: Vec<String> = sums
                 .iter()
-                .filter_map(|s| {
-                    s.continents
-                        .iter()
-                        .filter_map(|c| c.landfall_year)
-                        .filter(|&y| y > 0.0)
-                        .reduce(f32::min)
-                        .filter(|&y| y < 100.0)
-                        .map(|y| format!("s{} Y{y:.0}", s.seed))
-                })
+                .filter_map(|s| s.continents.iter().filter_map(|c| c.landfall_year).filter(|&y| y > 0.0).reduce(f32::min).filter(|&y| y < 100.0).map(|y| format!("s{} Y{y:.0}", s.seed)))
                 .collect();
             println!(
                 "  sea (all seeds): voyages {voy} | landed on another landmass {land} | lost at sea {lost} ({:.0} per landing) | scouting {sc} (found {sf}) | second continent before Y100: {}",
@@ -295,51 +215,25 @@ pub fn run(a: &Args) {
         }
         {
             let n = sums.len();
-            let farmed = sums
-                .iter()
-                .filter(|s| s.farming.first_cultivation.is_some())
-                .count();
-            let mut fy: Vec<f32> = sums
-                .iter()
-                .filter_map(|s| s.farming.first_cultivation)
-                .collect();
+            let farmed = sums.iter().filter(|s| s.farming.first_cultivation.is_some()).count();
+            let mut fy: Vec<f32> = sums.iter().filter_map(|s| s.farming.first_cultivation).collect();
             fy.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let origins: usize = sums.iter().map(|s| s.farming.origins.len()).sum();
             let farming_now = sums.iter().filter(|s| s.farming.farmers > 0).count();
-            let both = sums
-                .iter()
-                .filter(|s| s.farming.farmers > 0 && s.farming.forager_pop > 0)
-                .count();
-            let dom = sums
-                .iter()
-                .filter(|s| s.farming.first_domestic_grain.is_some())
-                .count();
-            let herd = sums
-                .iter()
-                .filter(|s| s.farming.first_herding.is_some())
-                .count();
+            let both = sums.iter().filter(|s| s.farming.farmers > 0 && s.farming.forager_pop > 0).count();
+            let dom = sums.iter().filter(|s| s.farming.first_domestic_grain.is_some()).count();
+            let herd = sums.iter().filter(|s| s.farming.first_herding.is_some()).count();
             let epi = sums.iter().filter(|s| s.farming.epidemics > 0).count();
             let fp: u32 = sums.iter().map(|s| s.farming.farmer_pop).sum();
             let tp: u32 = sums.iter().map(|s| s.pop).sum();
             let dd: u64 = sums.iter().map(|s| s.farming.disease_deaths).sum();
-            let fd: Vec<String> = sums
-                .iter()
-                .map(|s| {
-                    format!(
-                        "s{} {:.0}/{:.0}",
-                        s.seed, s.farming.farmer_density, s.farming.forager_density
-                    )
-                })
-                .collect();
+            let fd: Vec<String> = sums.iter().map(|s| format!("s{} {:.0}/{:.0}", s.seed, s.farming.farmer_density, s.farming.forager_density)).collect();
             println!(
                 "  farming: fields in {farmed}/{n} seeds (first-field years {:?}), {origins} independent origins in all | farming at end {farming_now}/{n}, with foragers alongside {both}/{n} | domestic grain {dom}/{n} | herding {herd}/{n} | epidemics {epi}/{n} ({dd} disease deaths) | farmers {:.0}% of all people at end",
                 fy.iter().map(|y| y.round() as i32).collect::<Vec<_>>(),
                 100.0 * fp as f32 / tp.max(1) as f32
             );
-            println!(
-                "  people per occupied cell at end, farmers/foragers: {}",
-                fd.join(", ")
-            );
+            println!("  people per occupied cell at end, farmers/foragers: {}", fd.join(", "));
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }
@@ -353,66 +247,19 @@ pub fn run(a: &Args) {
             mean(&|c| c.fled_by_sea as f32), mean(&|c| c.absorbed as f32), mean(&|c| c.tributes as f32), mean(&|c| c.avoided as f32),
             mean(&|c| c.top_lineage_pct), confl.iter().map(|c| c.top_lineage_pct).fold(0.0, f32::max), mean(&|c| c.lineages as f32)
         );
-        let cents = confl
-            .iter()
-            .map(|c| c.fights_by_century.len())
-            .max()
-            .unwrap_or(0);
-        let fc: Vec<String> = (0..cents)
-            .map(|k| {
-                format!(
-                    "{:.0}",
-                    confl
-                        .iter()
-                        .map(|c| c.fights_by_century.get(k).copied().unwrap_or(0))
-                        .sum::<u32>() as f32
-                        / n
-                )
-            })
-            .collect();
-        let pc: Vec<String> = (0..cents)
-            .map(|k| {
-                format!(
-                    "{:.0}",
-                    confl
-                        .iter()
-                        .map(|c| c.pop_by_century.get(k).copied().unwrap_or(0))
-                        .sum::<u32>() as f32
-                        / n
-                )
-            })
-            .collect();
-        let lc: Vec<String> = (0..cents)
-            .map(|k| {
-                format!(
-                    "{:.0}",
-                    confl
-                        .iter()
-                        .map(|c| c.lineage_by_century.get(k).copied().unwrap_or(0))
-                        .sum::<u32>() as f32
-                        / n
-                )
-            })
-            .collect();
+        let cents = confl.iter().map(|c| c.fights_by_century.len()).max().unwrap_or(0);
+        let fc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.fights_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
+        let pc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.pop_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
+        let lc: Vec<String> = (0..cents).map(|k| format!("{:.0}", confl.iter().map(|c| c.lineage_by_century.get(k).copied().unwrap_or(0)).sum::<u32>() as f32 / n)).collect();
         println!("  fights per century (mean): [{}] | population at end of each century (mean): [{}] | largest lineage % by century (mean): [{}] | disease deaths {:.3}%/yr", fc.join(", "), pc.join(", "), lc.join(", "), mean(&|c| c.disease_rate_pct));
-        let rs: Vec<f32> = sums
-            .iter()
-            .flat_map(|s| s.firsts.iter().filter_map(|f| f.diffusion_r))
-            .collect();
+        let rs: Vec<f32> = sums.iter().flat_map(|s| s.firsts.iter().filter_map(|f| f.diffusion_r)).collect();
         if !rs.is_empty() {
-            println!(
-                "  distance-vs-arrival correlation over {} item spreads: mean {:.2}",
-                rs.len(),
-                rs.iter().sum::<f32>() / rs.len() as f32
-            );
+            println!("  distance-vs-arrival correlation over {} item spreads: mean {:.2}", rs.len(), rs.iter().sum::<f32>() / rs.len() as f32);
         }
         let mut firsts_by_item: std::collections::BTreeMap<String, Vec<f32>> = Default::default();
         for s in &sums {
             for f in &s.firsts {
-                firsts_by_item
-                    .entry(f.name.clone())
-                    .or_default()
-                    .push(f.year_first);
+                firsts_by_item.entry(f.name.clone()).or_default().push(f.year_first);
             }
         }
         println!("  items found (in how many seeds; median year of first discovery):");
@@ -420,12 +267,7 @@ pub fn run(a: &Args) {
         v.sort_by_key(|(_, ys)| std::cmp::Reverse(ys.len()));
         for (name, mut ys) in v {
             ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "    {:<36} {:>3} seeds  median Y{:>6.1}",
-                name,
-                ys.len(),
-                ys[ys.len() / 2]
-            );
+            println!("    {:<36} {:>3} seeds  median Y{:>6.1}", name, ys.len(), ys[ys.len() / 2]);
         }
     }
 }
@@ -482,11 +324,7 @@ fn conflict_stats(w: &World) -> ConflictStats {
         fights: c.fights,
         fights_per_century: c.fights as f32 / years * 100.0,
         deaths: c.conflict_deaths,
-        death_rate_pct: if person_years > 0.0 {
-            (100.0 * c.conflict_deaths as f64 / person_years) as f32
-        } else {
-            0.0
-        },
+        death_rate_pct: if person_years > 0.0 { (100.0 * c.conflict_deaths as f64 / person_years) as f32 } else { 0.0 },
         displaced: c.displaced,
         fled_by_sea: c.fled_by_sea,
         absorbed: c.absorbed,
@@ -496,10 +334,6 @@ fn conflict_stats(w: &World) -> ConflictStats {
         lineages: lin.len() as u32,
         top_lineage_pct: 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tot,
         lineage_by_century: lbc,
-        disease_rate_pct: if person_years > 0.0 {
-            (100.0 * dd as f64 / person_years) as f32
-        } else {
-            0.0
-        },
+        disease_rate_pct: if person_years > 0.0 { (100.0 * dd as f64 / person_years) as f32 } else { 0.0 },
     }
 }
