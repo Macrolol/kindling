@@ -116,3 +116,11 @@ cap the range. Effective lineages 5.33, largest 26.1 %.
   die more at sea and in fights), overseas bands no bolder than at home (-0.13, curiosity 0.99 vs
   1.03): the tail is diluted by later local splits. Crossings #2 Y134 (gap 3), #3 Y202 (gap 5),
   pop 132747 (109085 in step 3), war 0.336 %/yr, disease 0.124, effective lineages 5.51 (26 %).
+
+CI (run 40241143469, [results-v9-step4-seeds1-10-500y.txt](results-v9-step4-seeds1-10-500y.txt)):
+pop 1053876 (step 3 1037037), war 0.370 %/yr, disease 0.122 %/yr, items 65.4 (69.7), tau 0.15.
+Crossings in the same 4/10 worlds: s1 Y134, s2 Y197, s7 Y327, s8 Y184. 22-43 % of splits now
+follow dissent. Mean ambition drifts below 0 in 8 worlds (the bold die more), but where people
+crossed the sea the overseas bands are bolder than at home (s2 +0.40 vs +0.19, s7 +0.09 vs -0.17,
+s8 +0.01 vs -0.05) and in s7 more curious (1.22 vs 1.03): founder voyages select the bold, as
+intended, without a runaway. Effective lineages 5.41 (5.33), largest 25.2 % (26.1).

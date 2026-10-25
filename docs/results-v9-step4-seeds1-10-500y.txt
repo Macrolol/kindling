@@ -1,0 +1,1010 @@
+seed 1: Y500 pop 132747 bands 7385 range 29290 cells | items now 74 (mean/band 33.6) | stage now: iron, ever: iron | exp 2147832 inv 1040 learned 1419229 forgot 1238032 | splits 21255 died 344 | lineage-found 5% of known, 0.1% of acquisitions | 64.9s (gen 0.0s)
+    Y  0.2 plant fibre cord                   inv   4 taught   41 bands now 7374 cells 11289 r  0.85 speed   0.3  [shape plant fibre with bare hands]
+    Y  3.2 fire                               inv   3 taught   61 bands now 7380 cells 11289 r  0.85 speed   0.3  [taken from a wildfire]
+    Y  6.0 wood shaft                         inv   9 taught 3312 bands now 7256 cells 11289 r  0.82 speed   0.3  [shape wood with bare hands]
+    Y  6.0 stone hammerstone                  inv   3 taught   27 bands now 7382 cells 11289 r  0.82 speed   0.3  [shape stone with bare hands]
+    Y  7.0 stone blade                        inv   2 taught   84 bands now 7381 cells 11289 r  0.83 speed   0.3  [shape stone with stone hammerstone]
+    Y 15.2 woven basket                       inv   8 taught  415 bands now 7374 cells 11289 r  0.83 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 16.8 unfired clay pot                   inv   2 taught  480 bands now 6784 cells 11286 r  0.79 speed   0.3  [shape clay with bare hands]
+    Y 31.8 sharpened-stick spear              inv  62 taught 18837 bands now 6994 cells 11289 r  0.83 speed   0.3  [shape wood shaft with stone blade]
+    Y 35.5 cooked wild plants                 inv   3 taught  521 bands now 4178 cells  8912 r  0.60 speed   0.4  [heat wild plants over fire]
+    Y 40.2 cooked meat                        inv   6 taught 4793 bands now 1138 cells 11071 r  0.64 speed   0.4  [heat meat over fire]
+    Y 50.5 cooked fish                        inv   4 taught 12469 bands now  780 cells  5643 r  0.57 speed   0.4  [heat fish over fire]
+    Y 50.5 hide thong                         inv   3 taught 18960 bands now  664 cells 11281 r  0.82 speed   0.4  [shape hide with stone blade]
+    Y 50.8 plant fibre snare                  inv  29 taught 21984 bands now 6526 cells 11289 r  0.80 speed   0.4  [combine wood shaft + plant fibre cord]
+    Y 52.2 bone point                         inv   7 taught 19251 bands now  838 cells 11285 r  0.83 speed   0.4  [shape bone with stone blade]
+    Y 54.0 plant fibre net                    inv  83 taught 14621 bands now 6772 cells 11289 r  0.84 speed   0.4  [shape plant fibre cord with wood shaft]
+    Y 57.2 flint blade                        inv   5 taught 30723 bands now 2897 cells  9666 r  0.53 speed   0.3  [shape flint with stone hammerstone]
+    Y 58.5 hide bag                           inv 109 taught 51621 bands now  575 cells 11258 r  0.81 speed   0.4  [shape hide thong with bare hands]
+    Y 63.5 fired pottery                      inv   3 taught  493 bands now 6690 cells 11285 r  0.77 speed   0.4  [heat unfired clay pot over fire]
+    Y 72.8 hide clothing                      inv   1 taught 21183 bands now  575 cells 11277 r  0.79 speed   0.4  [combine hide + bone point + hide thong]
+    Y 85.8 stone axe                          inv   7 taught 7136 bands now 7243 cells 11289 r  0.83 speed   0.5  [combine stone blade + wood shaft + hide thong]
+    Y 86.0 flint point                        inv   2 taught 96470 bands now 2893 cells  9658 r  0.51 speed   0.4  [shape flint blade with stone]
+    Y 88.5 rawhide snare                      inv   1 taught 21447 bands now  577 cells 11281 r  0.79 speed   0.5  [combine wood shaft + hide thong]
+    Y 90.8 clay-lined kiln                    inv   6 taught 55567 bands now 6443 cells 11284 r  0.77 speed   0.5  [combine clay + fire]
+    Y 91.5 bone beads                         inv  71 taught 40786 bands now  247 cells 11163 r  0.78 speed   0.5  [shape bone point with stone hammerstone]
+    Y 92.2 hide net                           inv  23 taught 82519 bands now  543 cells 11281 r  0.83 speed   0.5  [shape hide thong with wood shaft]
+    Y 99.2 charcoal                           inv  15 taught  889 bands now 7253 cells 11289 r  0.78 speed   0.5  [heat wood over fire in a clay-lined kiln]
+    Y103.2 stone-lined kiln                   inv   1 taught  591 bands now 7253 cells 11289 r  0.84 speed   0.5  [combine stone + fire]
+    Y111.2 reed bundle boat                   inv   5 taught 24018 bands now 6639 cells 11289 r  0.74 speed   0.6  [combine plant fibre + plant fibre cord]
+    Y114.8 hide shield                        inv   1 taught 19511 bands now  605 cells 11281 r  0.80 speed   0.6  [combine hide + wood shaft + plant fibre cord]
+    Y117.0 wool cord                          inv  32 taught 55218 bands now 3216 cells  9573 r  0.57 speed   0.5  [shape wool with bare hands]
+    Y138.5 bone-tipped spear                  inv   4 taught 36698 bands now  669 cells 11285 r  0.81 speed   0.7  [combine bone point + wood shaft + plant fibre cord]
+    Y138.8 carrying frame (plant fibre)       inv   1 taught  609 bands now 7252 cells 11289 r  0.57 speed   0.7  [combine wood shaft + plant fibre cord + woven basket]
+    Y144.2 charcoal fire                      inv   2 taught  633 bands now 7253 cells 11289 r  0.66 speed   0.8  [combine charcoal + fire]
+    Y146.0 wool net                           inv  30 taught 58100 bands now 1602 cells  8948 r  0.58 speed   0.5  [shape wool cord with bone point]
+    Y146.8 woollen bag                        inv 286 taught 36202 bands now 1965 cells  8981 r  0.60 speed   0.6  [shape wool cord with bare hands]
+    Y148.2 salt                               inv   6 taught 38776 bands now  640 cells  3526 r  0.48 speed   0.7  [heat brine + fired pottery over fire]
+    Y181.8 obsidian blade                     inv   1 taught 26022 bands now  356 cells  3295 r  0.53 speed   0.4  [shape obsidian with stone hammerstone]
+    Y198.5 flint axe                          inv  12 taught 34301 bands now 1651 cells  8432 r  0.35 speed   0.9  [combine flint blade + wood shaft + plant fibre cord]
+    Y199.0 tin (metal)                        inv   6 taught  501 bands now   96 cells   719 r  0.92 speed   0.4  [heat tin ore over charcoal fire in a stone-lined kiln]
+    Y216.0 tin knife                          inv   4 taught  979 bands now   60 cells  2209 r  0.95 speed   0.5  [shape tin (metal) with stone hammerstone]
+    Y219.8 wool snare                         inv   9 taught 28416 bands now 2618 cells  9116 r  0.43 speed   1.5  [combine wood shaft + wool cord]
+    Y223.5 flint-tipped spear                 inv   3 taught 28748 bands now 2858 cells  9380 r  0.31 speed   1.6  [combine flint point + wood shaft + plant fibre cord]
+    Y229.0 obsidian point                     inv   6 taught 35060 bands now  241 cells  2458 r  0.42 speed   0.5  [shape obsidian blade with iron ore]
+    Y229.0 dugout canoe                       inv   3 taught 6063 bands now 7228 cells 11289 r  0.36 speed   1.9  [shape wood with stone axe]
+    Y229.5 cooked grain                       inv   5 taught 31555 bands now 6509 cells  9581 r  0.57 speed   0.3  [heat grain over charcoal fire in a clay-lined kiln]
+    Y236.8 fired-brick kiln                   inv   1 taught 3702 bands now 6690 cells 11284 r  0.47 speed   2.3  [combine fired pottery + fire]
+    Y254.2 sinew-strung bow                   inv   1 taught 22978 bands now  604 cells 11259 r  0.26 speed   2.3  [shape wood shaft with hide thong]
+    Y256.2 carrying frame (wool)              inv   3 taught 19558 bands now  846 cells  6789 r  0.69 speed   1.1  [combine wood shaft + plant fibre cord + woollen bag]
+    Y276.0 copper (metal)                     inv   4 taught 50755 bands now  756 cells  5608 r  0.77 speed   0.8  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y279.5 skin boat                          inv   1 taught    8 bands now    0 cells    18 r     - speed     -  [combine hide + wood shaft + hide thong]
+    Y283.0 copper knife                       inv   2 taught 23423 bands now 3045 cells 10186 r  0.85 speed   1.0  [shape copper (metal) with stone hammerstone]
+    Y288.2 copper point                       inv   3 taught 25397 bands now 3029 cells 10144 r  0.82 speed   1.2  [shape copper knife with stone hammerstone]
+    Y293.2 hide bellows                       inv   3 taught 18842 bands now  256 cells 10290 r  0.63 speed   1.4  [combine wood shaft + plant fibre cord + hide bag]
+    Y297.0 copper-tipped spear                inv   1 taught 26837 bands now 2951 cells 10006 r  0.81 speed   1.2  [combine copper point + wood shaft + plant fibre cord]
+    Y297.8 bow (wool string)                  inv   1 taught 21992 bands now 2588 cells  9092 r  0.64 speed   1.9  [shape wood shaft with wool cord]
+    Y297.8 copper axe                         inv   1 taught 23540 bands now 2931 cells 10073 r  0.79 speed   1.3  [combine copper knife + wood shaft + plant fibre cord]
+    Y299.8 outrigger canoe                    inv   6 taught 25601 bands now 5086 cells 11289 r  0.03 speed   2.9  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y300.0 obsidian pendant                   inv   4 taught 1968 bands now    0 cells  1110 r  0.65 speed   0.5  [shape obsidian point with stone hammerstone]
+    Y305.8 copper ring                        inv  10 taught 19711 bands now 2002 cells  7574 r  0.67 speed   0.9  [shape copper point with stone hammerstone]
+    Y313.2 obsidian-tipped spear              inv   1 taught 11707 bands now  214 cells  2143 r  0.35 speed   0.6  [combine obsidian point + wood shaft + plant fibre cord]
+    Y325.0 flax cord                          inv   4 taught 12136 bands now 5974 cells  7852 r  0.65 speed   0.5  [shape flax with bare hands]
+    Y328.0 woven basket                       inv  80 taught 21152 bands now 4295 cells  6944 r  0.71 speed   0.5  [shape flax cord with bare hands]
+    Y332.8 woollen clothing                   inv   2 taught 19666 bands now  459 cells  8486 r  0.61 speed   1.3  [combine wool + bone point + plant fibre cord]
+    Y350.8 iron bloom                         inv   2 taught 4765 bands now  115 cells  3643 r  0.43 speed   0.5  [heat iron ore + hide bellows over charcoal fire in a fired-brick kiln]
+    Y373.8 flax net                           inv   5 taught 19244 bands now 5853 cells  7407 r  0.65 speed   0.8  [shape flax cord with copper point]
+    Y380.5 outrigger canoe                    inv   1 taught 8608 bands now 7201 cells 11279 r  0.83 speed   4.3  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y398.8 bow (flax string)                  inv   1 taught 8943 bands now 5923 cells  7643 r  0.69 speed   1.2  [shape wood shaft with flax cord]
+    Y399.0 wrought iron                       inv   2 taught 8190 bands now  112 cells  3270 r  0.77 speed   0.7  [heat stone hammerstone + iron bloom over charcoal fire in a clay-lined kiln]
+    Y403.0 flax snare                         inv   4 taught 8803 bands now 5930 cells  7642 r  0.71 speed   1.4  [combine wood shaft + flax cord]
+    Y416.5 iron knife                         inv   1 taught 4117 bands now 1538 cells  4756 r  0.84 speed   1.6  [shape wrought iron with stone hammerstone]
+    Y424.5 iron point                         inv   3 taught 3601 bands now 1532 cells  4723 r  0.72 speed   1.3  [shape iron knife with stone hammerstone]
+    Y445.2 iron axe                           inv   1 taught 3272 bands now 1479 cells  4509 r  0.62 speed   2.0  [combine iron knife + wood shaft + plant fibre cord]
+    Y451.8 iron-tipped spear                  inv   1 taught 2039 bands now  185 cells  3298 r  0.75 speed   1.3  [combine iron point + wood shaft + hide thong]
+    Y453.2 plank boat                         inv   1 taught  562 bands now  185 cells   729 r  0.81 speed   1.0  [shape wood with copper axe]
+    Y466.2 carrying frame (flax)              inv   1 taught 6395 bands now 2400 cells  4798 r  0.81 speed   3.1  [combine wood shaft + plant fibre cord + woven basket]
+    Y481.8 linen clothing                     inv   1 taught  830 bands now  510 cells   647 r  0.79 speed   2.3  [combine flax + copper point + plant fibre cord]
+    continents settled 3/4: #1 6038c gap 0 Y0 pop 68570, #2 2965c gap 3 Y134 pop 27369 [sea, 3 from settled], #3 2168c gap 17 Y202 pop 35271 [sea, 5 from settled], #4 546c gap 38 never | islands reached 3/3
+    started in: TempForest 15C, coast
+    sea: first boat Y111 | voyages 50532 | sightings 57260 | drifts 960 (ashore as new bands 33, got home 44) | scouting 4244 (found 188, lost 181) | landed on another landmass 13136 | disasters 1240 lost 8741 people (1 per landing) | bands with boats now 7342 (seacraft 0.45)
+    seafaring (v9): seacraft p50 0.45 p90 0.65 max 0.89 | sail-usable bands 0 | coastal boat range p90 19.5 cells | far-shore word held by 45.0% of bands (13.3% within range)
+    lineages: alive 6 | largest 26% | effective 5.51 | by landmass: #1 68570 people: top L3 20%, eff 5.9; #3 35271 people: top L1 30%, eff 4.7; #2 27369 people: top L1 35%, eff 4.5
+    motives (v9): splits 21255 (5101 after dissent) | dissent mean 0.21 | curiosity 1.03 (overseas 0.99) | ambition -0.13 (overseas -0.13, 3573 bands)
+    trade: 14366397 exchanges, volume 6127242, food shared 28130, mean dist 2.1 | last yr 81124 trades, 28916 partnerships, carried metal/obsidian 5.2 cells from source (max ever 68) | first: stone Y7, plant fibre Y7, tin ore Y9, clay Y12, flint Y44, hide Y54, bone Y65, iron ore Y72, wool Y98, copper ore Y108, obsidian Y151, salt Y158, tin Y200, grain Y221, copper Y276, flax Y306, iron Y400
+    lost worldwide: tin (metal) (Y224), tin knife (Y240), cooked grain (Y254), obsidian pendant (Y332), tin (metal) (Y423), tin knife (Y446), obsidian pendant (Y463), tin (metal) (Y471), tin knife (Y483)
+    conflict: 155681 confrontations (103103 avoided, 2763 paid off, 13686 fled) | 36129 fights (7225.8/century), 101457 killed = 0.336%/yr of people (lost at sea 8741) | 35994 displaced (1571 by sea), 6703 absorbed, 15045 captives | by century fights [7, 471, 5802, 12324, 17525] | lineages 6 (largest 26% of people; by century [21, 21, 24, 25, 26]) | disease deaths 0.124%/yr | pop by century [2879, 33524, 99463, 114568, 132747]
+    farming: first fields Y216 | independent origins 15 [Y216 TempForest 13C; Y222 TempForest 14C; Y238 TempForest 11C; Y254 Grassland 16C; Y255 TempForest 11C; Y296 Savanna 17C; Y299 Savanna 17C; Y325 TempForest 15C; Y350 TempForest 11C; Y352 Savanna 19C; Y386 Savanna 19C; Y393 Savanna 21C; Y422 TempForest 16C; Y422 Savanna 21C; Y440 Savanna 18C] | domestic grain Y330 | herding Y69 | plough Y235 | first epidemic Y192 | took up 3121 gave up 800 | epidemics 3070 disease deaths 37348
+    farming now: 4949 farming bands (95982 people) vs 2436 foraging bands (36765 people) | landmasses farming 5 foraging 6 | 5691 herding | fields 5398 (5163 domestic) soil 58% | food from farming 53% (peak 53%) | people/occupied cell farmers 45 foragers 28 | by century farmer pop/pop food% [0/2879 1%, 0/33524 2%, 180/99463 6%, 19259/114568 18%, 95982/132747 53%]
+seed 2: Y500 pop 121451 bands 6781 range 27863 cells | items now 64 (mean/band 33.2) | stage now: copper, ever: copper | exp 1433299 inv 731 learned 1121760 forgot 984169 | splits 17988 died 118 | lineage-found 3% of known, 0.1% of acquisitions | 44.5s (gen 0.0s)
+    Y  0.2 fire                               inv   3 taught   61 bands now 6767 cells 10249 r  0.95 speed   0.3  [taken from a wildfire]
+    Y 16.0 plant fibre cord                   inv   5 taught   27 bands now 6736 cells 10195 r  0.95 speed   0.3  [shape plant fibre with bare hands]
+    Y 16.8 stone hammerstone                  inv   3 taught   54 bands now 6773 cells 10267 r  0.95 speed   0.3  [shape stone with bare hands]
+    Y 24.2 woven basket                       inv   5 taught  352 bands now 6736 cells 10195 r  0.95 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 26.0 unfired clay pot                   inv   1 taught  228 bands now 6503 cells 10054 r  0.93 speed   0.3  [shape clay with bare hands]
+    Y 27.8 flint blade                        inv   3 taught 8799 bands now 3706 cells  7471 r  0.92 speed   0.3  [shape flint with stone hammerstone]
+    Y 36.2 stone blade                        inv   1 taught  298 bands now 6772 cells 10267 r  0.94 speed   0.3  [shape stone with stone hammerstone]
+    Y 36.5 hide thong                         inv  11 taught 64962 bands now  825 cells 10139 r  0.94 speed   0.3  [shape hide with flint blade]
+    Y 43.5 wood shaft                         inv   9 taught 1395 bands now 6608 cells  9853 r  0.94 speed   0.3  [shape wood with stone blade]
+    Y 46.2 cooked fish                        inv   2 taught 19940 bands now  934 cells  4227 r  0.87 speed   0.3  [heat fish over fire]
+    Y 47.2 cooked meat                        inv   5 taught 15469 bands now 1617 cells  9113 r  0.92 speed   0.3  [heat meat over fire]
+    Y 49.8 reed bundle boat                   inv   4 taught 31507 bands now 6162 cells 10143 r  0.95 speed   0.3  [combine plant fibre + plant fibre cord]
+    Y 50.0 hide net                           inv  15 taught 63028 bands now  651 cells 10105 r  0.94 speed   0.3  [shape hide thong with wood shaft]
+    Y 54.2 plant fibre snare                  inv  29 taught 14670 bands now 6019 cells  9740 r  0.94 speed   0.3  [combine wood shaft + plant fibre cord]
+    Y 55.0 fired pottery                      inv   1 taught  236 bands now 6374 cells  9522 r  0.94 speed   0.3  [heat unfired clay pot over fire]
+    Y 57.8 cooked wild plants                 inv   5 taught  842 bands now 5149 cells  7413 r  0.90 speed   0.3  [heat wild plants over fire]
+    Y 60.2 bone point                         inv   7 taught 50711 bands now 1228 cells 10218 r  0.93 speed   0.3  [shape bone with stone blade]
+    Y 69.8 hide bag                           inv  81 taught 38065 bands now  725 cells 10082 r  0.94 speed   0.3  [shape hide thong with bare hands]
+    Y 75.2 sharpened-stick spear              inv 134 taught 35583 bands now 6045 cells  9831 r  0.94 speed   0.4  [shape wood shaft with flint blade]
+    Y 75.5 flint point                        inv   7 taught 70376 bands now 3693 cells  7244 r  0.92 speed   0.3  [shape flint blade with stone]
+    Y 83.8 hide clothing                      inv   1 taught 21532 bands now  737 cells 10040 r  0.94 speed   0.4  [combine hide + bone point + plant fibre cord]
+    Y 86.2 plant fibre net                    inv  49 taught 17126 bands now 6128 cells  9729 r  0.95 speed   0.4  [shape plant fibre cord with wood shaft]
+    Y 89.2 flint-tipped spear                 inv   1 taught 8818 bands now 3660 cells  7106 r  0.90 speed   0.4  [combine flint point + wood shaft + plant fibre cord]
+    Y 94.8 bone beads                         inv  33 taught 25298 bands now  377 cells  9713 r  0.94 speed   0.4  [shape bone point with stone hammerstone]
+    Y104.0 stone axe                          inv   1 taught 1191 bands now 6571 cells  9739 r  0.95 speed   0.4  [combine stone blade + wood shaft + plant fibre cord]
+    Y118.0 rawhide snare                      inv   3 taught 20673 bands now  645 cells  9682 r  0.89 speed   0.4  [combine wood shaft + hide thong]
+    Y122.2 salt                               inv   1 taught   32 bands now    0 cells    36 r  0.45 speed   1.0  [heat brine + fired pottery over fire]
+    Y130.2 fired-brick kiln                   inv   1 taught  528 bands now 6374 cells  9522 r  0.90 speed   0.4  [combine fired pottery + fire]
+    Y133.0 flint axe                          inv  25 taught 42982 bands now 2552 cells  6630 r  0.88 speed   0.4  [combine flint blade + wood shaft + plant fibre cord]
+    Y136.8 charcoal                           inv  11 taught 5412 bands now 6566 cells  9765 r  0.89 speed   0.4  [heat wood over fire in a fired-brick kiln]
+    Y141.5 charcoal fire                      inv   1 taught  715 bands now 6566 cells  9765 r  0.92 speed   0.4  [combine charcoal + fire]
+    Y141.8 outrigger canoe                    inv   1 taught 42765 bands now 4959 cells  9360 r  0.91 speed   0.4  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y142.5 bone-tipped spear                  inv  13 taught 46506 bands now  804 cells  9611 r  0.93 speed   0.5  [combine bone point + wood shaft + hide thong]
+    Y154.0 clay-lined kiln                    inv  15 taught 56562 bands now 4560 cells  8660 r  0.87 speed   0.4  [combine clay + fire]
+    Y160.0 carrying frame (plant fibre)       inv   3 taught  736 bands now 6586 cells  9745 r  0.90 speed   0.4  [combine wood shaft + plant fibre cord + woven basket]
+    Y191.8 dugout canoe                       inv   3 taught 5030 bands now 6547 cells  9738 r  0.74 speed   0.4  [shape wood with stone axe]
+    Y202.0 copper (metal)                     inv   2 taught 26880 bands now  952 cells  5821 r  0.84 speed   0.5  [heat copper ore over charcoal fire in a fired-brick kiln]
+    Y203.5 stone-lined kiln                   inv   5 taught 42460 bands now 6371 cells  9704 r  0.95 speed   0.6  [combine stone + fire]
+    Y213.2 copper knife                       inv   2 taught 10383 bands now 3718 cells  7965 r  0.95 speed   0.6  [shape copper (metal) with stone hammerstone]
+    Y226.0 outrigger canoe                    inv   1 taught 6696 bands now 6524 cells  9737 r  0.90 speed   0.6  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y230.8 copper point                       inv   6 taught 17965 bands now 3668 cells  7864 r  0.95 speed   0.6  [shape copper knife with stone hammerstone]
+    Y235.2 cooked grain                       inv   6 taught 21217 bands now 4731 cells  5282 r  0.25 speed   0.3  [heat grain over fire in a stone-lined kiln]
+    Y235.5 sinew-strung bow                   inv   1 taught 21918 bands now  683 cells  9683 r  0.91 speed   0.6  [shape wood shaft with hide thong]
+    Y243.8 copper axe                         inv   1 taught 10110 bands now 3653 cells  7485 r  0.90 speed   0.7  [combine copper knife + wood shaft + plant fibre cord]
+    Y243.8 copper ring                        inv  12 taught 36972 bands now 2285 cells  6466 r  0.88 speed   1.1  [shape copper point with stone hammerstone]
+    Y248.2 copper-tipped spear                inv   1 taught 22662 bands now 3434 cells  7368 r  0.65 speed   0.8  [combine copper point + wood shaft + plant fibre cord]
+    Y258.8 skin boat                          inv   3 taught 15995 bands now  152 cells  8840 r  0.91 speed   0.6  [combine hide + wood shaft + hide thong]
+    Y259.8 wool cord                          inv   8 taught 14626 bands now 1733 cells  4140 r  0.89 speed   0.6  [shape wool with bare hands]
+    Y275.0 woollen bag                        inv  57 taught 14394 bands now 1191 cells  3530 r  0.53 speed   0.4  [shape wool cord with bare hands]
+    Y291.2 wool net                           inv   8 taught 16543 bands now  833 cells  3594 r  0.75 speed   0.8  [shape wool cord with bone point]
+    Y296.2 flax cord                          inv   2 taught 7360 bands now 4492 cells  4952 r  0.85 speed   0.6  [shape flax with bare hands]
+    Y297.8 bow (wool string)                  inv   1 taught 13395 bands now 1254 cells  3650 r  0.68 speed   0.9  [shape wood shaft with wool cord]
+    Y316.8 woven basket                       inv  90 taught 21846 bands now 3173 cells  4857 r  0.80 speed   0.6  [shape flax cord with bare hands]
+    Y328.8 wool snare                         inv   5 taught 17417 bands now 1250 cells  3628 r  0.58 speed   1.8  [combine wood shaft + wool cord]
+    Y345.0 flax snare                         inv   1 taught 6416 bands now 4461 cells  4930 r  0.81 speed   0.8  [combine wood shaft + flax cord]
+    Y351.0 tin (metal)                        inv   2 taught 2726 bands now  223 cells  1381 r  0.60 speed   0.7  [heat tin ore over charcoal fire in a stone-lined kiln]
+    Y355.0 flax net                           inv   7 taught 15314 bands now 4167 cells  4931 r  0.84 speed   1.0  [shape flax cord with flint point]
+    Y388.2 linen clothing                     inv   2 taught 12189 bands now 2781 cells  4633 r  0.68 speed   0.9  [combine flax + bone point + flax cord]
+    Y389.0 hide bellows                       inv   2 taught  184 bands now    0 cells   313 r  0.27 speed   1.1  [combine wood shaft + hide thong + hide bag]
+    Y397.8 woollen clothing                   inv   1 taught 8604 bands now  995 cells  3567 r  0.50 speed   1.0  [combine wool + copper point + plant fibre cord]
+    Y408.5 tin knife                          inv   1 taught 5796 bands now 1232 cells  2530 r -0.53 speed   1.0  [shape tin (metal) with stone hammerstone]
+    Y413.2 plank boat                         inv   2 taught    0 bands now    0 cells     3 r     - speed     -  [shape wood with copper axe]
+    Y431.8 bow (flax string)                  inv   2 taught 5715 bands now 4460 cells  4899 r  0.24 speed   4.2  [shape wood shaft with flax cord]
+    Y453.5 carrying frame (wool)              inv   1 taught 3834 bands now  738 cells  2528 r  0.48 speed   2.4  [combine wood shaft + plant fibre cord + woollen bag]
+    Y462.0 wool shaft                         inv   2 taught 1134 bands now  272 cells  1061 r  0.53 speed   1.0  [shape wool with tin knife]
+    Y470.0 carrying frame (flax)              inv   1 taught 4497 bands now 2120 cells  3713 r  0.78 speed   2.9  [combine wood shaft + plant fibre cord + woven basket]
+    Y475.5 wool-tipped spear                  inv   3 taught  621 bands now  168 cells   457 r  0.57 speed   1.2  [shape wool shaft with tin knife]
+    continents settled 3/4: #1 5753c gap 37 Y262 pop 22191 [sea, 6 from settled], #2 3796c gap 0 Y0 pop 66741, #3 1531c gap 10 Y197 pop 32519 [sea, 10 from settled], #4 896c gap 128 never | islands reached 0/1
+    started in: Savanna 23C
+    sea: first boat Y50 | voyages 14233 | sightings 180 | drifts 504 (ashore as new bands 10, got home 8) | scouting 1353 (found 29, lost 70) | landed on another landmass 1403 | disasters 565 lost 3622 people (3 per landing) | bands with boats now 6720 (seacraft 0.35)
+    seafaring (v9): seacraft p50 0.35 p90 0.50 max 0.74 | sail-usable bands 0 | coastal boat range p90 17.5 cells | far-shore word held by 40.9% of bands (7.1% within range)
+    lineages: alive 6 | largest 26% | effective 5.60 | by landmass: #2 66741 people: top L5 25%, eff 5.1; #3 32519 people: top L6 32%, eff 4.0; #1 22191 people: top L1 35%, eff 3.8
+    motives (v9): splits 17988 (7747 after dissent) | dissent mean 0.27 | curiosity 0.98 (overseas 0.95) | ambition +0.19 (overseas +0.40, 3340 bands)
+    trade: 10152854 exchanges, volume 4365156, food shared 30663, mean dist 2.0 | last yr 71001 trades, 26424 partnerships, carried metal/obsidian 5.7 cells from source (max ever 72) | first: plant fibre Y18, stone Y19, clay Y19, flint Y21, hide Y50, copper ore Y58, bone Y64, tin ore Y68, iron ore Y80, salt Y128, copper Y203, grain Y206, wool Y228, flax Y295, tin Y351, obsidian Y474
+    lost worldwide: salt (Y148), hide bellows (Y406)
+    conflict: 115738 confrontations (75824 avoided, 2558 paid off, 9017 fled) | 28339 fights (5667.8/century), 82958 killed = 0.403%/yr of people (lost at sea 3622) | 26252 displaced (533 by sea), 5349 absorbed, 10992 captives | by century fights [3, 792, 4774, 6000, 16770] | lineages 6 (largest 26% of people; by century [27, 25, 25, 26, 26]) | disease deaths 0.151%/yr | pop by century [2489, 34531, 44743, 81765, 121451]
+    farming: first fields Y201 | independent origins 13 [Y201 Savanna 23C; Y204 Savanna 23C; Y216 Savanna 23C; Y218 Savanna 21C; Y218 TropForest 27C; Y244 TempForest 11C; Y244 TempForest 12C; Y266 Savanna 24C; Y269 Savanna 21C; Y298 Savanna 23C; Y340 Savanna 21C; Y470 TempForest 16C; Y483 Savanna 24C] | domestic grain Y304 | herding Y199 | plough Y306 | first epidemic Y292 | took up 2648 gave up 672 | epidemics 2520 disease deaths 31012
+    farming now: 3874 farming bands (76000 people) vs 2907 foraging bands (45451 people) | landmasses farming 3 foraging 3 | 3893 herding | fields 4207 (3984 domestic) soil 63% | food from farming 41% (peak 47%) | people/occupied cell farmers 43 foragers 33 | by century farmer pop/pop food% [0/2489 0%, 0/34531 0%, 764/44743 1%, 28812/81765 27%, 76000/121451 41%]
+seed 3: Y500 pop 168172 bands 8725 range 27068 cells | items now 77 (mean/band 35.4) | stage now: bronze, ever: iron | exp 2830552 inv 975 learned 2050486 forgot 1816457 | splits 29479 died 367 | lineage-found 3% of known, 0.0% of acquisitions | 82.7s (gen 0.1s)
+    Y  4.5 wood shaft                         inv   3 taught   41 bands now 8538 cells 13196 r  0.88 speed   0.3  [shape wood with bare hands]
+    Y  5.2 stone hammerstone                  inv   2 taught   38 bands now 8722 cells 13206 r  0.92 speed   0.3  [shape stone with bare hands]
+    Y 10.5 unfired clay pot                   inv   5 taught  414 bands now 8359 cells 13167 r  0.89 speed   0.3  [shape clay with bare hands]
+    Y 11.0 plant fibre cord                   inv   4 taught   29 bands now 8709 cells 13206 r  0.92 speed   0.3  [shape plant fibre with bare hands]
+    Y 11.8 woven basket                       inv  38 taught 1421 bands now 8709 cells 13206 r  0.92 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 12.8 fire                               inv   1 taught   70 bands now 8703 cells 13206 r  0.92 speed   0.3  [taken from a wildfire]
+    Y 28.2 plant fibre snare                  inv  18 taught 19281 bands now 7722 cells 13193 r  0.88 speed   0.4  [combine wood shaft + plant fibre cord]
+    Y 32.2 cooked wild plants                 inv   2 taught  272 bands now 7208 cells 10486 r  0.71 speed   0.4  [heat wild plants over fire]
+    Y 33.2 cooked fish                        inv   5 taught 25436 bands now  946 cells  5360 r  0.63 speed   0.3  [heat fish over fire]
+    Y 33.2 stone blade                        inv   2 taught  315 bands now 8721 cells 13206 r  0.92 speed   0.4  [shape stone with stone hammerstone]
+    Y 38.5 sharpened-stick spear              inv  94 taught 35846 bands now 8185 cells 13196 r  0.88 speed   0.4  [shape wood shaft with stone blade]
+    Y 42.8 cooked meat                        inv   2 taught 7326 bands now 2343 cells 12419 r  0.72 speed   0.4  [heat meat over fire]
+    Y 42.8 hide thong                         inv   7 taught 30867 bands now 1063 cells 13189 r  0.89 speed   0.4  [shape hide with stone blade]
+    Y 43.8 flint blade                        inv   2 taught 36844 bands now 2868 cells 11511 r  0.65 speed   0.4  [shape flint with stone hammerstone]
+    Y 44.5 bone point                         inv   7 taught 39122 bands now 2422 cells 13206 r  0.92 speed   0.4  [shape bone with flint blade]
+    Y 50.2 hide bag                           inv 168 taught 57721 bands now  925 cells 13086 r  0.88 speed   0.4  [shape hide thong with bare hands]
+    Y 50.2 plant fibre net                    inv 131 taught 21825 bands now 8105 cells 13200 r  0.90 speed   0.4  [shape plant fibre cord with bone point]
+    Y 50.5 fired pottery                      inv   2 taught  453 bands now 8221 cells 13064 r  0.82 speed   0.4  [heat unfired clay pot over fire]
+    Y 60.8 stone axe                          inv   2 taught 1755 bands now 8512 cells 13194 r  0.88 speed   0.4  [combine stone blade + wood shaft + plant fibre cord]
+    Y 70.2 bone beads                         inv  57 taught 50077 bands now 1143 cells 13119 r  0.88 speed   0.4  [shape bone point with stone hammerstone]
+    Y 76.5 hide net                           inv  36 taught 78476 bands now  864 cells 13174 r  0.87 speed   0.5  [shape hide thong with wood shaft]
+    Y 80.2 bone-tipped spear                  inv   5 taught 50203 bands now 1760 cells 13186 r  0.85 speed   0.5  [combine bone point + wood shaft + plant fibre cord]
+    Y 98.0 clay-lined kiln                    inv   1 taught 1811 bands now 8219 cells 13061 r  0.82 speed   0.6  [combine clay + fire]
+    Y 99.0 rawhide snare                      inv   4 taught 27592 bands now  853 cells 13153 r  0.81 speed   0.6  [combine wood shaft + hide thong]
+    Y 99.2 flint point                        inv   2 taught 117400 bands now 2856 cells 11505 r  0.65 speed   0.5  [shape flint blade with stone blade]
+    Y112.5 salt                               inv   3 taught 38168 bands now  365 cells  2084 r  0.44 speed   0.5  [heat brine + fired pottery over fire in a clay-lined kiln]
+    Y126.0 charcoal                           inv  17 taught 8960 bands now 8508 cells 13193 r  0.89 speed   0.8  [heat wood over fire in a clay-lined kiln]
+    Y129.2 charcoal fire                      inv   2 taught  522 bands now 8508 cells 13193 r  0.88 speed   0.8  [combine charcoal + fire]
+    Y131.2 hide clothing                      inv   3 taught 151549 bands now  991 cells 13143 r  0.84 speed   0.7  [combine hide + flint point + plant fibre cord]
+    Y143.8 flint axe                          inv  15 taught 40043 bands now 1549 cells  9657 r  0.71 speed   0.6  [combine flint blade + wood shaft + hide thong]
+    Y147.2 fired-brick kiln                   inv   1 taught 1347 bands now 8221 cells 13064 r  0.80 speed   0.9  [combine fired pottery + charcoal fire]
+    Y148.8 stone-lined kiln                   inv   8 taught 83492 bands now 8156 cells 13195 r  0.88 speed   0.9  [combine stone + fire]
+    Y151.8 hide shield                        inv   1 taught 29652 bands now  945 cells 13146 r  0.81 speed   0.9  [combine hide + wood shaft + hide thong]
+    Y152.5 hide bellows                       inv   2 taught 38981 bands now  471 cells 12590 r  0.76 speed   0.9  [combine wood shaft + plant fibre cord + hide bag]
+    Y157.2 carrying frame (plant fibre)       inv   2 taught 1440 bands now 8536 cells 13194 r  0.86 speed   1.1  [combine wood shaft + plant fibre cord + woven basket]
+    Y164.5 reed bundle boat                   inv   5 taught 47422 bands now 8145 cells 13206 r  0.93 speed   1.1  [combine plant fibre + plant fibre cord]
+    Y165.2 copper (metal)                     inv   3 taught 56605 bands now  924 cells  9683 r  0.66 speed   0.8  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y169.2 dugout canoe                       inv   1 taught 8468 bands now 8475 cells 13194 r  0.88 speed   1.1  [shape wood with stone axe]
+    Y172.5 copper knife                       inv   6 taught 26263 bands now 4379 cells 12643 r  0.82 speed   1.0  [shape copper (metal) with stone hammerstone]
+    Y175.5 tin (metal)                        inv   1 taught 27410 bands now  784 cells  3623 r  0.60 speed   0.8  [heat tin ore over charcoal fire in a clay-lined kiln]
+    Y176.5 copper point                       inv   3 taught 32468 bands now 4359 cells 12634 r  0.80 speed   1.1  [shape copper knife with stone hammerstone]
+    Y184.2 copper-tipped spear                inv   2 taught 39086 bands now 4156 cells 12525 r  0.73 speed   1.1  [combine copper point + wood shaft + plant fibre cord]
+    Y185.2 tin knife                          inv   6 taught 32059 bands now 3125 cells  9877 r  0.67 speed   1.1  [shape tin (metal) with stone hammerstone]
+    Y191.8 tin point                          inv   9 taught 33920 bands now 3077 cells  9454 r  0.63 speed   1.2  [shape tin knife with stone hammerstone]
+    Y193.8 copper axe                         inv   1 taught 27013 bands now 4284 cells 12546 r  0.72 speed   1.3  [combine copper knife + wood shaft + plant fibre cord]
+    Y194.0 tin ring                           inv   7 taught 35626 bands now 1742 cells  7850 r  0.51 speed   1.2  [shape tin point with stone hammerstone]
+    Y194.5 outrigger canoe                    inv   6 taught 69066 bands now 6690 cells 13164 r  0.81 speed   1.4  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y194.5 obsidian blade                     inv   2 taught 24780 bands now  185 cells  2382 r  0.69 speed   0.3  [shape obsidian with stone hammerstone]
+    Y197.5 copper ring                        inv  26 taught 52948 bands now 2350 cells 11283 r  0.61 speed   1.1  [shape copper point with stone hammerstone]
+    Y209.5 iron bloom                         inv   3 taught  150 bands now    0 cells   880 r -0.32 speed   1.4  [heat iron ore + hide bellows over charcoal fire in a clay-lined kiln]
+    Y211.0 obsidian point                     inv   2 taught 38791 bands now  177 cells  1825 r  0.38 speed   0.3  [shape obsidian blade with copper-tipped spear]
+    Y213.5 bronze (metal)                     inv   2 taught 24192 bands now  337 cells  2943 r -0.06 speed   0.2  [heat copper (metal) + tin (metal) over charcoal fire in a clay-lined kiln]
+    Y221.8 sinew-strung bow                   inv   2 taught 31198 bands now  948 cells 13100 r -0.05 speed   0.9  [shape wood shaft with hide thong]
+    Y236.5 outrigger canoe                    inv   1 taught 13311 bands now 8429 cells 13193 r  0.64 speed   1.8  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y238.2 flint-tipped spear                 inv   3 taught 34294 bands now 2766 cells 10838 r  0.41 speed   2.0  [combine flint point + wood shaft + plant fibre cord]
+    Y251.2 obsidian-tipped spear              inv   1 taught 20546 bands now  171 cells  1718 r  0.33 speed   0.4  [combine obsidian point + wood shaft + plant fibre cord]
+    Y256.8 wool cord                          inv  29 taught 31890 bands now 2346 cells 11026 r  0.43 speed   0.6  [shape wool with bare hands]
+    Y267.0 woollen bag                        inv  50 taught 11911 bands now 1046 cells  8599 r  0.15 speed   0.3  [shape wool cord with bare hands]
+    Y277.2 tin-tipped spear                   inv   2 taught 28047 bands now 2090 cells  6610 r  0.68 speed   1.5  [combine tin point + wood shaft + plant fibre cord]
+    Y282.8 bronze knife                       inv   2 taught 24832 bands now 1356 cells  6466 r  0.73 speed   1.0  [shape bronze (metal) with stone hammerstone]
+    Y282.8 cooked grain                       inv   6 taught 30390 bands now 6405 cells  7017 r  0.87 speed   0.6  [heat grain over charcoal fire in a stone-lined kiln]
+    Y293.2 wrought iron                       inv   1 taught    4 bands now    0 cells    47 r  0.97 speed   2.5  [heat stone hammerstone + iron bloom over charcoal fire in a clay-lined kiln]
+    Y297.8 wool net                           inv   7 taught 20154 bands now 1957 cells  9745 r  0.47 speed   0.5  [shape wool cord with flint point]
+    Y315.2 wool snare                         inv   2 taught 19601 bands now 2075 cells 10341 r  0.46 speed   0.8  [combine wood shaft + wool cord]
+    Y315.8 iron knife                         inv   1 taught   13 bands now    0 cells     2 r     - speed     -  [shape wrought iron with stone hammerstone]
+    Y316.5 bronze axe                         inv   1 taught 21496 bands now 1333 cells  5601 r  0.71 speed   1.8  [combine bronze knife + wood shaft + plant fibre cord]
+    Y323.0 bronze point                       inv   1 taught 21614 bands now 1355 cells  6269 r  0.70 speed   0.9  [shape bronze knife with stone hammerstone]
+    Y337.2 bronze ring                        inv   4 taught 12909 bands now  883 cells  4624 r  0.54 speed   1.1  [shape bronze point with stone hammerstone]
+    Y348.5 flax cord                          inv   1 taught 7485 bands now 6053 cells  6151 r  0.70 speed   0.6  [shape flax with bare hands]
+    Y355.8 woven basket                       inv  95 taught 29602 bands now 4606 cells  5841 r  0.72 speed   0.6  [shape flax cord with bare hands]
+    Y357.0 plank boat                         inv   1 taught 24137 bands now 4244 cells 12196 r  0.65 speed   2.7  [shape wood with copper axe]
+    Y387.2 bow (wool string)                  inv   2 taught 11902 bands now 2076 cells  9819 r  0.60 speed   1.7  [shape wood shaft with wool cord]
+    Y387.5 flax net                           inv   5 taught 23543 bands now 3940 cells  5946 r  0.74 speed   1.0  [shape flax cord with copper point]
+    Y393.2 flax snare                         inv   3 taught 6692 bands now 6027 cells  6056 r  0.77 speed   2.0  [combine wood shaft + flax cord]
+    Y412.2 bow (flax string)                  inv   1 taught 6794 bands now 6026 cells  6051 r  0.82 speed   2.4  [shape wood shaft with flax cord]
+    Y430.0 bronze-tipped spear                inv   1 taught 8117 bands now 1292 cells  3112 r  0.74 speed   1.7  [combine bronze point + wood shaft + flax cord]
+    Y431.0 wool shaft                         inv   2 taught 3614 bands now  467 cells  3358 r  0.69 speed   1.0  [shape wool with tin knife]
+    Y439.5 linen clothing                     inv   2 taught 10192 bands now 3758 cells  5102 r  0.72 speed   2.0  [combine flax + flint point + flax cord]
+    Y440.5 carrying frame (flax)              inv   2 taught 15342 bands now 2976 cells  5352 r  0.73 speed   3.0  [combine wood shaft + plant fibre cord + woven basket]
+    Y471.8 wool-tipped spear                  inv   7 taught 1064 bands now  299 cells  1946 r  0.71 speed   1.7  [shape wool shaft with stone blade]
+    continents settled 1/1: #1 13079c gap 0 Y0 pop 164645 | islands reached 5/5
+    started in: Savanna 24C
+    sea: first boat Y164 | voyages 36134 | sightings 34834 | drifts 621 (ashore as new bands 12, got home 24) | scouting 2437 (found 109, lost 107) | landed on another landmass 8946 | disasters 771 lost 5238 people (1 per landing) | bands with boats now 8686 (seacraft 0.33)
+    seafaring (v9): seacraft p50 0.32 p90 0.54 max 0.91 | sail-usable bands 0 | coastal boat range p90 20.1 cells | far-shore word held by 37.7% of bands (4.4% within range)
+    lineages: alive 6 | largest 25% | effective 5.36 | by landmass: #1 164645 people: top L1 25%, eff 5.4
+    motives (v9): splits 29479 (8730 after dissent) | dissent mean 0.21 | curiosity 1.09 (overseas 1.04) | ambition -0.09 (overseas -0.03, 224 bands)
+    trade: 17921955 exchanges, volume 7667132, food shared 28790, mean dist 2.1 | last yr 97771 trades, 34085 partnerships, carried metal/obsidian 6.3 cells from source (max ever 107) | first: stone Y7, clay Y7, plant fibre Y15, flint Y28, bone Y46, hide Y46, tin ore Y82, copper ore Y84, salt Y116, iron ore Y141, copper Y166, grain Y172, obsidian Y175, tin Y176, bronze Y214, wool Y219, iron Y294, flax Y343
+    lost worldwide: woollen bag (Y276), iron bloom (Y332)
+    conflict: 192347 confrontations (127046 avoided, 3200 paid off, 16940 fled) | 45161 fights (9032.2/century), 129967 killed = 0.360%/yr of people (lost at sea 5238) | 44101 displaced (1253 by sea), 8922 absorbed, 18561 captives | by century fights [28, 1103, 8541, 13037, 22452] | lineages 6 (largest 25% of people; by century [22, 23, 21, 21, 25]) | disease deaths 0.155%/yr | pop by century [3644, 52809, 85219, 129811, 168172]
+    farming: first fields Y161 | independent origins 18 [Y161 Savanna 21C; Y167 Savanna 23C; Y213 Savanna 24C; Y215 Savanna 22C; Y220 Savanna 21C; Y220 Savanna 27C; Y243 Savanna 19C; Y248 Savanna 23C; Y249 Savanna 26C; Y250 Savanna 25C; Y253 Savanna 24C; Y261 Savanna 24C; Y274 Savanna 26C; Y282 Savanna 24C; Y286 Savanna 25C; Y312 Savanna 26C; Y382 Grassland 15C; Y392 TempForest 16C] | domestic grain Y338 | herding Y139 | plough Y253 | first epidemic Y200 | took up 3193 gave up 890 | epidemics 5160 disease deaths 56169
+    farming now: 5458 farming bands (111321 people) vs 3267 foraging bands (56851 people) | landmasses farming 6 foraging 6 | 7347 herding | fields 4698 (4596 domestic) soil 55% | food from farming 48% (peak 62%) | people/occupied cell farmers 46 foragers 33 | by century farmer pop/pop food% [0/3644 0%, 0/52809 0%, 225/85219 2%, 32454/129811 23%, 111321/168172 48%]
+seed 4: Y500 pop 86810 bands 4754 range 14256 cells | items now 71 (mean/band 34.5) | stage now: bronze, ever: bronze | exp 1816946 inv 791 learned 1259874 forgot 1136474 | splits 15994 died 328 | lineage-found 3% of known, 0.1% of acquisitions | 49.6s (gen 0.0s)
+    Y  5.2 unfired clay pot                   inv   7 taught  430 bands now 4473 cells 10443 r  0.41 speed   0.3  [shape clay with bare hands]
+    Y  6.8 plant fibre cord                   inv   8 taught   86 bands now 4680 cells 10444 r  0.55 speed   0.3  [shape plant fibre with bare hands]
+    Y 20.5 woven basket                       inv  11 taught  678 bands now 4673 cells 10444 r  0.54 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 29.8 fire                               inv   3 taught 3568 bands now 4734 cells 10458 r  0.63 speed   0.3  [taken from a wildfire]
+    Y 31.5 cooked wild plants                 inv  10 taught 1178 bands now 3721 cells  6357 r  0.39 speed   0.3  [heat wild plants over fire]
+    Y 32.2 wood shaft                         inv   6 taught  235 bands now 4522 cells  9777 r  0.38 speed   0.3  [shape wood with bare hands]
+    Y 38.5 plant fibre net                    inv  80 taught 5041 bands now 4491 cells 10174 r  0.26 speed   0.3  [shape plant fibre cord with wood shaft]
+    Y 47.2 cooked fish                        inv   7 taught 6871 bands now  881 cells  4406 r  0.42 speed   0.3  [heat fish over fire]
+    Y 48.0 cooked meat                        inv   7 taught 29937 bands now 2087 cells  9214 r  0.26 speed   0.4  [heat meat over fire]
+    Y 48.0 plant fibre snare                  inv   8 taught 4705 bands now 4445 cells  9721 r  0.33 speed   0.3  [combine wood shaft + plant fibre cord]
+    Y 55.0 fired pottery                      inv   2 taught  418 bands now 4375 cells  9519 r  0.31 speed   0.4  [heat unfired clay pot over fire]
+    Y 78.2 stone hammerstone                  inv   3 taught   99 bands now 4750 cells 10461 r  0.57 speed   0.4  [shape stone with bare hands]
+    Y 84.8 reed bundle boat                   inv   4 taught 21384 bands now 4338 cells 10443 r  0.62 speed   0.4  [combine plant fibre + plant fibre cord]
+    Y 95.0 flint blade                        inv   4 taught 27029 bands now 1400 cells  8754 r  0.29 speed   0.4  [shape flint with stone hammerstone]
+    Y 97.2 clay-lined kiln                    inv   1 taught 2608 bands now 4369 cells  9524 r  0.24 speed   0.5  [combine clay + fire]
+    Y 97.8 sharpened-stick spear              inv 132 taught 30513 bands now 4253 cells  9760 r  0.34 speed   0.5  [shape wood shaft with flint blade]
+    Y102.5 flint point                        inv   9 taught 28451 bands now 1343 cells  8685 r  0.30 speed   0.4  [shape flint blade with stone hammerstone]
+    Y103.2 stone blade                        inv   1 taught  332 bands now 4750 cells 10461 r  0.63 speed   0.5  [shape stone with stone hammerstone]
+    Y103.5 hide thong                         inv   5 taught 36488 bands now 1210 cells 10453 r  0.51 speed   0.5  [shape hide with flint blade]
+    Y108.8 hide bag                           inv 215 taught 40187 bands now 1058 cells 10433 r  0.52 speed   0.5  [shape hide thong with bare hands]
+    Y109.2 bone point                         inv   1 taught 15290 bands now 1806 cells 10461 r  0.57 speed   0.5  [shape bone with stone blade]
+    Y115.2 hide net                           inv  24 taught 68469 bands now 1121 cells 10446 r  0.53 speed   0.6  [shape hide thong with bone point]
+    Y121.5 bone-tipped spear                  inv   5 taught 35557 bands now 1389 cells  9708 r  0.26 speed   0.6  [combine bone point + wood shaft + plant fibre cord]
+    Y122.2 flint axe                          inv   1 taught 43800 bands now  968 cells  6812 r  0.27 speed   0.6  [combine flint blade + wood shaft + plant fibre cord]
+    Y125.0 charcoal                           inv  18 taught 7923 bands now 4488 cells  9765 r  0.31 speed   0.6  [heat wood over fire in a clay-lined kiln]
+    Y130.2 rawhide snare                      inv   2 taught 16848 bands now  983 cells  9747 r  0.43 speed   0.6  [combine wood shaft + hide thong]
+    Y136.0 stone-lined kiln                   inv   2 taught 50650 bands now 4340 cells  9773 r  0.44 speed   0.7  [combine stone + fire]
+    Y138.5 bone beads                         inv  53 taught 31480 bands now  531 cells 10401 r  0.28 speed   0.7  [shape bone point with stone hammerstone]
+    Y143.2 stone axe                          inv   1 taught 1383 bands now 4509 cells  9726 r  0.38 speed   0.8  [combine stone blade + wood shaft + plant fibre cord]
+    Y149.0 carrying frame (plant fibre)       inv   4 taught 5876 bands now 4512 cells  9727 r  0.46 speed   0.8  [combine wood shaft + hide thong + woven basket]
+    Y155.2 hide clothing                      inv   4 taught 74189 bands now 1145 cells 10440 r  0.36 speed   0.9  [combine hide + bone point + plant fibre cord]
+    Y157.2 skin boat                          inv   3 taught 26116 bands now  168 cells  9539 r  0.30 speed   0.9  [combine hide + wood shaft + hide thong]
+    Y172.8 charcoal fire                      inv   1 taught 1352 bands now 4488 cells  9765 r  0.43 speed   1.3  [combine charcoal + fire]
+    Y178.2 tin (metal)                        inv   2 taught 46078 bands now  331 cells  3447 r  0.26 speed   0.4  [heat tin ore over charcoal fire in a clay-lined kiln]
+    Y181.5 copper (metal)                     inv   3 taught 29817 bands now  599 cells  5288 r  0.46 speed   0.6  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y181.5 flint-tipped spear                 inv   2 taught 28072 bands now 1220 cells  7197 r  0.32 speed   1.3  [combine flint point + wood shaft + plant fibre cord]
+    Y190.8 bronze (metal)                     inv   2 taught 29811 bands now 1864 cells  5305 r  0.56 speed   0.3  [heat copper ore + tin (metal) over charcoal fire in a clay-lined kiln]
+    Y194.5 copper knife                       inv   6 taught 21977 bands now 2804 cells 10125 r  0.58 speed   1.2  [shape copper (metal) with stone hammerstone]
+    Y194.8 tin knife                          inv  10 taught 31165 bands now 2046 cells  8704 r  0.71 speed   1.2  [shape tin (metal) with stone hammerstone]
+    Y199.0 copper point                       inv   4 taught 26460 bands now 2641 cells 10093 r  0.39 speed   1.2  [shape copper knife with stone hammerstone]
+    Y200.8 dugout canoe                       inv   2 taught 10332 bands now 4494 cells  9703 r -0.03 speed   1.2  [shape wood with flint axe]
+    Y203.8 tin point                          inv   9 taught 32079 bands now 1835 cells  8467 r  0.44 speed   1.3  [shape tin knife with stone hammerstone]
+    Y209.0 bronze knife                       inv   2 taught 16442 bands now 2881 cells  8217 r  0.56 speed   1.3  [shape bronze (metal) with stone hammerstone]
+    Y209.8 sinew-strung bow                   inv   1 taught 17293 bands now  994 cells  9607 r  0.26 speed   2.2  [shape wood shaft with hide thong]
+    Y213.5 outrigger canoe                    inv   3 taught 38804 bands now 3492 cells  9585 r  0.54 speed   1.7  [combine wood shaft + hide thong + reed bundle boat]
+    Y217.8 copper-tipped spear                inv   2 taught 32720 bands now 2319 cells  8664 r  0.47 speed   1.9  [combine copper point + wood shaft + plant fibre cord]
+    Y218.0 tin ring                           inv   6 taught 26842 bands now 1219 cells  7561 r  0.33 speed   1.0  [shape tin point with stone hammerstone]
+    Y218.8 bronze point                       inv   3 taught 16526 bands now 2864 cells  8131 r  0.62 speed   1.6  [shape bronze knife with stone hammerstone]
+    Y221.5 copper ring                        inv   8 taught 31501 bands now 1281 cells  8467 r  0.72 speed   1.4  [shape copper point with stone hammerstone]
+    Y224.2 bronze ring                        inv   7 taught 27401 bands now 1818 cells  6900 r  0.67 speed   1.3  [shape bronze point with stone hammerstone]
+    Y243.0 bronze axe                         inv   1 taught 15992 bands now 2813 cells  7321 r  0.58 speed   3.5  [combine bronze knife + wood shaft + plant fibre cord]
+    Y243.2 copper axe                         inv   1 taught 35274 bands now 2492 cells  8675 r  0.36 speed   2.5  [combine copper knife + wood shaft + plant fibre cord]
+    Y245.2 fired-brick kiln                   inv   2 taught 3943 bands now 4374 cells  9495 r  0.36 speed   2.7  [combine fired pottery + fire]
+    Y261.5 salt                               inv   4 taught 10582 bands now   70 cells   969 r  0.41 speed   0.8  [heat brine + fired pottery over fire in a clay-lined kiln]
+    Y262.8 bronze-tipped spear                inv   1 taught 14787 bands now 2799 cells  7200 r  0.60 speed   2.2  [combine bronze point + wood shaft + plant fibre cord]
+    Y266.5 tin-tipped spear                   inv   5 taught 23216 bands now 1068 cells  6721 r  0.17 speed   2.4  [combine tin point + wood shaft + plant fibre cord]
+    Y296.8 wool cord                          inv  22 taught 11363 bands now  902 cells  7439 r -0.06 speed   0.4  [shape wool with flint blade]
+    Y297.8 plank boat                         inv   1 taught 14509 bands now 2767 cells  7100 r  0.59 speed   1.9  [shape wood with bronze axe]
+    Y298.2 hide shield                        inv   1 taught 8660 bands now  988 cells  9093 r  0.01 speed   0.6  [combine hide + wood shaft + hide thong]
+    Y300.2 cooked grain                       inv   4 taught 6414 bands now 1134 cells  2703 r -0.19 speed   0.6  [heat grain over charcoal fire in a stone-lined kiln]
+    Y302.8 outrigger canoe                    inv   1 taught 6407 bands now 4487 cells  9635 r  0.35 speed   4.0  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y313.0 hide bellows                       inv   3 taught 6394 bands now  239 cells  7472 r -0.41 speed   0.5  [combine wood shaft + plant fibre cord + hide bag]
+    Y354.0 flax cord                          inv   1 taught 2517 bands now  896 cells  1805 r  0.68 speed   0.3  [shape flax with bare hands]
+    Y360.0 obsidian blade                     inv   2 taught 1041 bands now    6 cells   658 r  0.39 speed   0.2  [shape obsidian with stone hammerstone]
+    Y379.2 woollen bag                        inv  14 taught 1929 bands now  237 cells  3183 r  0.17 speed   0.7  [shape wool cord with bare hands]
+    Y387.5 wool net                           inv   1 taught 1708 bands now  113 cells  2233 r  0.40 speed   1.1  [shape wool cord with copper point]
+    Y402.0 woven basket                       inv   9 taught 2375 bands now  618 cells  1480 r  0.70 speed   0.5  [shape flax cord with bare hands]
+    Y402.8 flax snare                         inv   1 taught 1870 bands now  893 cells  1656 r  0.60 speed   0.6  [combine wood shaft + flax cord]
+    Y418.2 wool snare                         inv   1 taught 2588 bands now  364 cells  2040 r  0.64 speed   1.2  [combine wood shaft + wool cord]
+    Y434.8 flax net                           inv   1 taught 1600 bands now  256 cells  1249 r  0.74 speed   1.0  [shape flax cord with copper point]
+    Y468.5 bow (flax string)                  inv   1 taught 1112 bands now  886 cells  1445 r  0.49 speed   2.1  [shape wood shaft with flax cord]
+    continents settled 1/2: #1 10495c gap 0 Y0 pop 86636, #2 4288c gap 48 never | islands reached 2/2
+    started in: TropForest 19C, coast
+    sea: first boat Y85 | voyages 19874 | sightings 19467 | drifts 474 (ashore as new bands 6, got home 20) | scouting 1221 (found 30, lost 59) | landed on another landmass 3527 | disasters 532 lost 3547 people (1 per landing) | bands with boats now 4606 (seacraft 0.33)
+    seafaring (v9): seacraft p50 0.32 p90 0.53 max 0.86 | sail-usable bands 0 | coastal boat range p90 19.1 cells | far-shore word held by 38.1% of bands (7.4% within range)
+    lineages: alive 6 | largest 21% | effective 5.72 | by landmass: #1 86636 people: top L6 21%, eff 5.7
+    motives (v9): splits 15994 (4034 after dissent) | dissent mean 0.21 | curiosity 0.97 (overseas 0.93) | ambition -0.21 (overseas -0.24, 11 bands)
+    trade: 10186816 exchanges, volume 4317950, food shared 21329, mean dist 2.0 | last yr 44307 trades, 18428 partnerships, carried metal/obsidian 12.4 cells from source (max ever 93) | first: stone Y9, plant fibre Y9, clay Y24, flint Y25, iron ore Y36, hide Y105, bone Y111, tin ore Y129, copper ore Y154, obsidian Y174, tin Y180, copper Y183, bronze Y192, grain Y201, salt Y265, wool Y268, flax Y352
+    conflict: 111331 confrontations (77466 avoided, 1331 paid off, 8677 fled) | 23857 fights (4771.4/century), 78967 killed = 0.340%/yr of people (lost at sea 3547) | 22916 displaced (503 by sea), 4845 absorbed, 10898 captives | by century fights [3, 978, 6343, 8191, 8342] | lineages 6 (largest 21% of people; by century [24, 23, 22, 22, 21]) | disease deaths 0.077%/yr | pop by century [3091, 39103, 76120, 70509, 86810]
+    farming: first fields Y197 | independent origins 24 [Y197 Savanna 20C; Y222 Savanna 21C; Y238 Savanna 19C; Y247 Savanna 20C; Y268 Savanna 25C; Y286 Savanna 20C; Y286 TropForest 20C; Y293 TempForest 8C; Y299 TempForest 13C; Y309 Savanna 18C; Y310 Savanna 20C; Y317 Grassland 14C; Y330 Savanna 20C; Y330 Savanna 20C; Y350 TropForest 21C; Y351 Savanna 18C; Y351 Savanna 19C; Y370 Savanna 25C; Y406 TropForest 21C; Y423 TropForest 21C; Y430 Savanna 19C; Y436 Savanna 19C; Y480 Savanna 25C; Y488 TropForest 22C] | domestic grain Y360 | herding Y209 | plough Y363 | first epidemic Y302 | took up 441 gave up 146 | epidemics 489 disease deaths 17907
+    farming now: 702 farming bands (14884 people) vs 4052 foraging bands (71926 people) | landmasses farming 1 foraging 3 | 2380 herding | fields 1830 (929 domestic) soil 85% | food from farming 17% (peak 17%) | people/occupied cell farmers 41 foragers 40 | by century farmer pop/pop food% [0/3091 0%, 33/39103 0%, 69/76120 0%, 1524/70509 3%, 14884/86810 17%]
+seed 5: Y500 pop 260010 bands 14521 range 30672 cells | items now 73 (mean/band 34.7) | stage now: copper, ever: iron | exp 3802681 inv 1558 learned 3568797 forgot 3211558 | splits 48797 died 300 | lineage-found 3% of known, 0.0% of acquisitions | 140.1s (gen 0.0s)
+    Y  3.0 plant fibre cord                   inv   1 taught   41 bands now 14488 cells 13615 r  0.93 speed   0.5  [shape plant fibre with bare hands]
+    Y  4.0 wood shaft                         inv   3 taught  118 bands now 14331 cells 13615 r  0.93 speed   0.5  [shape wood with bare hands]
+    Y  8.5 woven basket                       inv   6 taught   55 bands now 14488 cells 13615 r  0.93 speed   0.5  [shape plant fibre cord with bare hands]
+    Y  9.2 fire                               inv   2 taught 4490 bands now 14517 cells 13615 r  0.93 speed   0.5  [taken from a wildfire]
+    Y 11.2 plant fibre snare                  inv  51 taught 69699 bands now 13121 cells 13615 r  0.92 speed   0.5  [combine wood shaft + plant fibre cord]
+    Y 12.5 cooked meat                        inv   8 taught 30974 bands now 1447 cells 13286 r  0.74 speed   0.5  [heat meat over fire]
+    Y 16.2 cooked wild plants                 inv   4 taught  586 bands now 8972 cells 12672 r  0.71 speed   0.5  [heat wild plants over fire]
+    Y 28.8 stone hammerstone                  inv   2 taught   73 bands now 14520 cells 13615 r  0.93 speed   0.5  [shape stone with bare hands]
+    Y 29.0 unfired clay pot                   inv   3 taught  428 bands now 13702 cells 13615 r  0.91 speed   0.5  [shape clay with bare hands]
+    Y 29.2 cooked fish                        inv   9 taught 74239 bands now  638 cells  5658 r  0.71 speed   0.5  [heat fish over fire]
+    Y 34.0 fired pottery                      inv   2 taught  439 bands now 13531 cells 13615 r  0.90 speed   0.6  [heat unfired clay pot over fire]
+    Y 77.5 plant fibre net                    inv 195 taught 76881 bands now 12468 cells 13615 r  0.93 speed   0.7  [shape plant fibre cord with wood shaft]
+    Y 78.2 stone blade                        inv   2 taught  448 bands now 14520 cells 13615 r  0.94 speed   0.7  [shape stone with stone hammerstone]
+    Y 83.8 sharpened-stick spear              inv 120 taught 55609 bands now 13846 cells 13615 r  0.93 speed   0.8  [shape wood shaft with stone blade]
+    Y 84.8 carrying frame (plant fibre)       inv   1 taught  221 bands now 14305 cells 13615 r  0.93 speed   0.8  [combine wood shaft + plant fibre cord + woven basket]
+    Y 87.2 stone axe                          inv   7 taught 1824 bands now 14318 cells 13615 r  0.93 speed   0.7  [combine stone blade + wood shaft + plant fibre cord]
+    Y 88.8 hide thong                         inv   5 taught 55218 bands now  747 cells 13610 r  0.91 speed   0.7  [shape hide with stone blade]
+    Y 92.2 hide bag                           inv 138 taught 95284 bands now  549 cells 13607 r  0.90 speed   0.7  [shape hide thong with bare hands]
+    Y 94.0 reed bundle boat                   inv   7 taught 88486 bands now 13335 cells 13615 r  0.93 speed   0.7  [combine plant fibre + hide thong]
+    Y 96.8 rawhide snare                      inv   6 taught 61832 bands now  585 cells 13608 r  0.89 speed   0.7  [combine wood shaft + hide thong]
+    Y106.5 bone point                         inv   5 taught 53188 bands now 1267 cells 13614 r  0.91 speed   0.8  [shape bone with stone blade]
+    Y115.5 hide net                           inv  38 taught 134544 bands now  313 cells 13604 r  0.90 speed   0.9  [shape hide thong with bone point]
+    Y118.2 flint blade                        inv   3 taught 36043 bands now 7775 cells 11655 r  0.67 speed   0.8  [shape flint with stone hammerstone]
+    Y120.8 bone beads                         inv  50 taught 66748 bands now  195 cells 13579 r  0.87 speed   0.8  [shape bone point with stone hammerstone]
+    Y127.8 dugout canoe                       inv   1 taught 16938 bands now 14233 cells 13615 r  0.93 speed   1.1  [shape wood with stone axe]
+    Y134.0 bone-tipped spear                  inv   3 taught 82172 bands now  907 cells 13614 r  0.89 speed   0.9  [combine bone point + wood shaft + plant fibre cord]
+    Y142.2 hide clothing                      inv   1 taught 55368 bands now  673 cells 13607 r  0.87 speed   1.0  [combine hide + bone point + plant fibre cord]
+    Y145.0 sinew-strung bow                   inv   1 taught 54163 bands now  687 cells 13608 r  0.90 speed   1.1  [shape wood shaft with hide thong]
+    Y148.5 stone-lined kiln                   inv   1 taught  912 bands now 14328 cells 13615 r  0.94 speed   1.1  [combine stone + fire]
+    Y148.8 flint point                        inv   4 taught 228012 bands now 7775 cells 11653 r  0.66 speed   1.0  [shape flint blade with stone hammerstone]
+    Y150.8 salt                               inv   5 taught 84450 bands now  706 cells  2833 r  0.49 speed   0.9  [heat brine + fired pottery over fire]
+    Y158.5 charcoal                           inv  10 taught 1302 bands now 14327 cells 13615 r  0.94 speed   1.4  [heat wood over fire in a stone-lined kiln]
+    Y165.5 charcoal fire                      inv   1 taught 1319 bands now 14327 cells 13615 r  0.94 speed   1.7  [combine charcoal + fire]
+    Y168.2 wool cord                          inv  75 taught 141472 bands now 3889 cells 11325 r  0.54 speed   0.7  [shape wool with bare hands]
+    Y178.5 tin (metal)                        inv   2 taught 42276 bands now  712 cells  3973 r  0.78 speed   1.0  [heat tin ore over charcoal fire in a stone-lined kiln]
+    Y181.2 woollen bag                        inv 243 taught 64121 bands now 2500 cells 10561 r  0.49 speed   0.7  [shape wool cord with bare hands]
+    Y184.2 tin knife                          inv   9 taught 65330 bands now 3814 cells 10857 r  0.83 speed   1.0  [shape tin (metal) with stone hammerstone]
+    Y185.5 outrigger canoe                    inv   2 taught 107415 bands now 10881 cells 13615 r  0.92 speed   1.9  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y190.2 clay-lined kiln                    inv   2 taught 31621 bands now 13466 cells 13615 r  0.87 speed   2.4  [combine clay + charcoal fire]
+    Y192.2 tin point                          inv  12 taught 67893 bands now 3656 cells 10452 r  0.83 speed   1.2  [shape tin knife with stone hammerstone]
+    Y200.2 hide shield                        inv   2 taught 166077 bands now  692 cells 13608 r  0.80 speed   1.5  [combine hide + wood shaft + plant fibre cord]
+    Y204.5 flint axe                          inv  17 taught 104613 bands now 5075 cells 11129 r  0.46 speed   1.4  [combine flint blade + wood shaft + hide thong]
+    Y215.5 flint-tipped spear                 inv   2 taught 36768 bands now 7732 cells 11562 r  0.50 speed   1.8  [combine flint point + wood shaft + plant fibre cord]
+    Y216.8 tin ring                           inv  16 taught 56056 bands now 2240 cells  9706 r  0.87 speed   1.4  [shape tin point with stone hammerstone]
+    Y219.8 cooked grain                       inv  22 taught 55949 bands now 13946 cells 13598 r  0.86 speed   0.7  [heat grain over charcoal fire in a clay-lined kiln]
+    Y238.5 wool net                           inv  29 taught 94554 bands now 2458 cells 10822 r  0.41 speed   1.5  [shape wool cord with tin point]
+    Y253.0 wool shaft                         inv  17 taught 31168 bands now  309 cells  5850 r  0.79 speed   0.8  [shape wool with tin knife]
+    Y257.2 flax cord                          inv   5 taught 17976 bands now 13297 cells 13168 r  0.88 speed   0.8  [shape flax with bare hands]
+    Y259.8 bow (wool string)                  inv   3 taught 79245 bands now 3025 cells 11015 r  0.54 speed   1.3  [shape wood shaft with wool cord]
+    Y263.5 woven basket                       inv 293 taught 96184 bands now 10233 cells 12866 r  0.89 speed   0.9  [shape flax cord with bare hands]
+    Y264.8 wool snare                         inv   7 taught 83463 bands now 2988 cells 11078 r  0.39 speed   2.0  [combine wood shaft + wool cord]
+    Y269.2 obsidian blade                     inv   2 taught 16474 bands now   54 cells  1631 r  0.79 speed   0.2  [shape obsidian with stone hammerstone]
+    Y271.8 fired-brick kiln                   inv   1 taught 7070 bands now 13531 cells 13615 r  0.17 speed   3.6  [combine fired pottery + fire]
+    Y273.0 flax net                           inv  12 taught 79004 bands now 13130 cells 13117 r  0.86 speed   0.9  [shape flax cord with flint point]
+    Y276.8 copper (metal)                     inv   2 taught 60510 bands now 1255 cells  9209 r  0.34 speed   0.9  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y290.8 wool-tipped spear                  inv  22 taught 40764 bands now  223 cells  3734 r  0.85 speed   0.8  [shape wool shaft with flint blade]
+    Y291.2 outrigger canoe                    inv   2 taught 37755 bands now 14090 cells 13614 r  0.10 speed   6.2  [combine wood shaft + flax cord + dugout canoe]
+    Y293.5 flax snare                         inv   1 taught 15383 bands now 13187 cells 13126 r  0.88 speed   1.2  [combine wood shaft + flax cord]
+    Y297.0 copper knife                       inv   5 taught 47515 bands now 5419 cells 12609 r  0.32 speed   1.8  [shape copper (metal) with stone hammerstone]
+    Y302.2 hide bellows                       inv   4 taught 30114 bands now   91 cells 12365 r  0.24 speed   2.1  [combine wood shaft + plant fibre cord + hide bag]
+    Y305.8 copper point                       inv  11 taught 56534 bands now 5292 cells 12501 r  0.61 speed   1.7  [shape copper knife with stone hammerstone]
+    Y315.8 bow (flax string)                  inv   3 taught 15545 bands now 13186 cells 13123 r  0.80 speed   1.1  [shape wood shaft with flax cord]
+    Y318.0 copper-tipped spear                inv   2 taught 55723 bands now 5090 cells 12324 r  0.67 speed   2.6  [combine copper point + wood shaft + plant fibre cord]
+    Y318.2 copper ring                        inv  10 taught 50884 bands now 3579 cells 11411 r  0.62 speed   2.1  [shape copper point with stone hammerstone]
+    Y324.2 tin-tipped spear                   inv   6 taught 38781 bands now 2228 cells  8018 r  0.36 speed   3.0  [combine tin point + wood shaft + flax cord]
+    Y327.5 copper axe                         inv   1 taught 43143 bands now 5329 cells 12399 r  0.64 speed   3.5  [combine copper knife + wood shaft + plant fibre cord]
+    Y336.8 woollen clothing                   inv   4 taught 30467 bands now  526 cells  5567 r -0.50 speed   2.0  [combine wool + flint point + hide thong]
+    Y337.8 carrying frame (flax)              inv   4 taught 78246 bands now 6956 cells 12404 r  0.82 speed   1.4  [combine wood shaft + plant fibre cord + woven basket]
+    Y344.8 obsidian point                     inv   3 taught  257 bands now    1 cells   121 r  0.21 speed   0.1  [shape obsidian blade with bone point]
+    Y350.8 carrying frame (wool)              inv   3 taught 16470 bands now  890 cells  3927 r  0.76 speed   0.6  [combine wood shaft + plant fibre cord + woollen bag]
+    Y371.2 iron bloom                         inv   2 taught 3543 bands now    1 cells  2708 r  0.57 speed   1.1  [heat iron ore + hide bellows over charcoal fire in a fired-brick kiln]
+    Y380.2 plank boat                         inv   1 taught 37760 bands now 5261 cells 11867 r  0.71 speed   3.1  [shape wood with copper axe]
+    Y388.2 wrought iron                       inv   3 taught  244 bands now    0 cells   418 r -0.03 speed   1.0  [heat stone hammerstone + iron bloom over charcoal fire in a clay-lined kiln]
+    Y434.2 linen clothing                     inv   1 taught 20422 bands now 7391 cells  9505 r  0.64 speed   3.4  [combine flax + flint point + plant fibre cord]
+    continents settled 1/2: #1 13548c gap 0 Y0 pop 258993, #2 876c gap 31 never | islands reached 4/4
+    started in: Savanna 24C, coast
+    sea: first boat Y94 | voyages 33321 | sightings 18536 | drifts 697 (ashore as new bands 8, got home 20) | scouting 2168 (found 40, lost 67) | landed on another landmass 4235 | disasters 744 lost 4790 people (1 per landing) | bands with boats now 14458 (seacraft 0.25)
+    seafaring (v9): seacraft p50 0.24 p90 0.41 max 0.91 | sail-usable bands 0 | coastal boat range p90 17.4 cells | far-shore word held by 14.3% of bands (2.1% within range)
+    lineages: alive 6 | largest 26% | effective 5.54 | by landmass: #1 258993 people: top L4 26%, eff 5.5
+    motives (v9): splits 48797 (16500 after dissent) | dissent mean 0.26 | curiosity 1.01 (overseas 0.92) | ambition +0.04 (overseas -0.01, 52 bands)
+    trade: 31807978 exchanges, volume 13602249, food shared 68352, mean dist 2.5 | last yr 178085 trades, 56814 partnerships, carried metal/obsidian 5.4 cells from source (max ever 94) | first: plant fibre Y6, clay Y6, stone Y30, iron ore Y56, tin ore Y80, hide Y90, flint Y102, bone Y114, wool Y142, salt Y154, copper ore Y171, grain Y178, tin Y179, obsidian Y215, flax Y240, copper Y278, iron Y388
+    lost worldwide: woollen clothing (Y356), obsidian blade (Y361), wrought iron (Y434), iron bloom (Y468)
+    conflict: 329589 confrontations (202556 avoided, 7995 paid off, 34586 fled) | 84452 fights (16890.4/century), 212282 killed = 0.389%/yr of people (lost at sea 4790) | 86044 displaced (1416 by sea), 15878 absorbed, 27616 captives | by century fights [17, 1001, 9219, 29468, 44747] | lineages 6 (largest 26% of people; by century [23, 25, 25, 25, 26]) | disease deaths 0.311%/yr | pop by century [3555, 54926, 144115, 203949, 260010]
+    farming: first fields Y174 | independent origins 20 [Y174 Savanna 19C; Y175 Savanna 24C; Y177 Savanna 22C; Y199 Savanna 25C; Y200 Savanna 18C; Y206 Savanna 25C; Y214 Savanna 18C; Y215 TropForest 19C; Y228 Savanna 25C; Y237 Savanna 18C; Y255 Savanna 20C; Y263 TropForest 25C; Y266 TropForest 25C; Y272 Savanna 25C; Y293 Savanna 21C; Y297 Savanna 26C; Y343 Savanna 25C; Y348 Savanna 19C; Y348 TropForest 25C; Y348 TempForest 15C] | domestic grain Y241 | herding Y112 | plough Y199 | first epidemic Y174 | took up 9783 gave up 5966 | epidemics 20719 disease deaths 169595
+    farming now: 11200 farming bands (209572 people) vs 3321 foraging bands (50438 people) | landmasses farming 5 foraging 5 | 13685 herding | fields 9776 (9743 domestic) soil 61% | food from farming 63% (peak 65%) | people/occupied cell farmers 53 foragers 29 | by century farmer pop/pop food% [0/3555 0%, 58/54926 1%, 28932/144115 25%, 120158/203949 49%, 209572/260010 63%]
+
+== 5 seeds, 500 years
+discovery-order distance between seeds (Kendall tau, 0 same .. 1 reversed): mean 0.15 over 10 pairs
+  same, over item pairs with no prerequisite link in either seed (diagnostic): mean 0.16
+  settled a second continent: 2/5 seeds (4 have more than one) | s1 3/4 (2nd Y134), s2 3/4 (2nd Y197), s3 1/1, s4 1/2, s5 1/2
+  boat-borne crossings to another continent: 2/5 seeds, 4 continents in all | first per seed: s1 Y134 (gap 3), s2 Y197 (gap 10) | before Y100: none | reached on foot: none
+  sea (all seeds): voyages 154094 | landed on another landmass 31247 | lost at sea 25938 (1 per landing) | scouting 11423 (found 396) | second continent before Y100: none
+  recipes found by experiment: 0.1% of acquisitions (mean); known recipes found in-lineage at end: 3% (mean)
+  stage copper         reached (highest ever)   1   holding now   2
+  stage bronze         reached (highest ever)   1   holding now   2
+  stage iron           reached (highest ever)   3   holding now   1
+  farming: fields in 5/5 seeds (first-field years [161, 174, 197, 201, 216]), 90 independent origins in all | farming at end 5/5, with foragers alongside 5/5 | domestic grain 5/5 | herding 5/5 | epidemics 5/5 (312031 disease deaths) | farmers 66% of all people at end
+  people per occupied cell at end, farmers/foragers: s1 45/28, s2 43/33, s3 46/33, s4 41/40, s5 53/29
+  total population at end (sum over seeds): 769190
+  alive at end: 5/5
+  conflict (mean per seed): 8717.5 fights/century, 121126 killed = 0.366%/yr of people, 43061 displaced (1055.2 by sea), 8339.4 absorbed, 3569 paid off, 117199 avoided | largest lineage 25% of people (max 26%), lineages alive 6.0
+  lineages (v9): effective number 5.54 (mean; min 5.36) | top lineage on the most populous landmass 23% (mean; max 26%) | effective by century (mean): [5.6, 5.6, 5.6, 5.6, 5.5]
+  fights per century (mean): [12, 869, 6936, 13804, 21967] | population at end of each century (mean): [3132, 42979, 89932, 120120, 153838] | largest lineage % by century (mean): [23, 23, 23, 24, 25] | disease deaths 0.164%/yr
+  distance-vs-arrival correlation over 365 item spreads: mean 0.66
+  items found (in how many seeds; median year of first discovery):
+    outrigger canoe                       10 seeds  median Y 236.5
+    woven basket                          10 seeds  median Y 263.5
+    bone beads                             5 seeds  median Y  94.8
+    bone point                             5 seeds  median Y  60.2
+    bone-tipped spear                      5 seeds  median Y 134.0
+    bow (flax string)                      5 seeds  median Y 412.2
+    carrying frame (plant fibre)           5 seeds  median Y 149.0
+    charcoal                               5 seeds  median Y 126.0
+    charcoal fire                          5 seeds  median Y 144.2
+    clay-lined kiln                        5 seeds  median Y  98.0
+    cooked fish                            5 seeds  median Y  46.2
+    cooked grain                           5 seeds  median Y 235.2
+    cooked meat                            5 seeds  median Y  42.8
+    cooked wild plants                     5 seeds  median Y  32.2
+    copper (metal)                         5 seeds  median Y 202.0
+    copper axe                             5 seeds  median Y 243.8
+    copper knife                           5 seeds  median Y 213.2
+    copper point                           5 seeds  median Y 230.8
+    copper ring                            5 seeds  median Y 243.8
+    copper-tipped spear                    5 seeds  median Y 248.2
+    dugout canoe                           5 seeds  median Y 191.8
+    fire                                   5 seeds  median Y   9.2
+    fired pottery                          5 seeds  median Y  55.0
+    fired-brick kiln                       5 seeds  median Y 236.8
+    flax                                   5 seeds  median Y 305.5
+    flax cord                              5 seeds  median Y 325.0
+    flax net                               5 seeds  median Y 373.8
+    flax snare                             5 seeds  median Y 393.2
+    flint axe                              5 seeds  median Y 143.8
+    flint blade                            5 seeds  median Y  57.2
+    flint point                            5 seeds  median Y  99.2
+    flint-tipped spear                     5 seeds  median Y 215.5
+    grain                                  5 seeds  median Y 330.2
+    hide bag                               5 seeds  median Y  69.8
+    hide bellows                           5 seeds  median Y 302.2
+    hide clothing                          5 seeds  median Y 131.2
+    hide net                               5 seeds  median Y  92.2
+    hide shield                            5 seeds  median Y 200.2
+    hide thong                             5 seeds  median Y  50.5
+    plank boat                             5 seeds  median Y 380.2
+    plant fibre cord                       5 seeds  median Y   6.8
+    plant fibre net                        5 seeds  median Y  54.0
+    plant fibre snare                      5 seeds  median Y  48.0
+    rawhide snare                          5 seeds  median Y  99.0
+    reed bundle boat                       5 seeds  median Y  94.0
+    salt                                   5 seeds  median Y 148.2
+    sharpened-stick spear                  5 seeds  median Y  75.2
+    sinew-strung bow                       5 seeds  median Y 221.8
+    stone axe                              5 seeds  median Y  87.2
+    stone blade                            5 seeds  median Y  36.2
+    stone hammerstone                      5 seeds  median Y  16.8
+    stone-lined kiln                       5 seeds  median Y 148.5
+    tin (metal)                            5 seeds  median Y 178.5
+    tin knife                              5 seeds  median Y 194.8
+    unfired clay pot                       5 seeds  median Y  16.8
+    wood shaft                             5 seeds  median Y   6.0
+    wool                                   5 seeds  median Y 219.2
+    wool cord                              5 seeds  median Y 256.8
+    wool net                               5 seeds  median Y 291.2
+    wool snare                             5 seeds  median Y 315.2
+    woollen bag                            5 seeds  median Y 267.0
+    bow (wool string)                      4 seeds  median Y 297.8
+    carrying frame (flax)                  4 seeds  median Y 466.2
+    carrying frame (wool)                  4 seeds  median Y 420.0
+    linen clothing                         4 seeds  median Y 439.5
+    obsidian blade                         4 seeds  median Y 269.2
+    iron bloom                             3 seeds  median Y 350.8
+    obsidian point                         3 seeds  median Y 229.0
+    skin boat                              3 seeds  median Y 258.8
+    tin point                              3 seeds  median Y 192.2
+    tin ring                               3 seeds  median Y 216.8
+    tin-tipped spear                       3 seeds  median Y 277.2
+    wool shaft                             3 seeds  median Y 431.0
+    wool-tipped spear                      3 seeds  median Y 471.8
+    woollen clothing                       3 seeds  median Y 336.8
+    wrought iron                           3 seeds  median Y 388.2
+    bronze (metal)                         2 seeds  median Y 213.5
+    bronze axe                             2 seeds  median Y 316.5
+    bronze knife                           2 seeds  median Y 282.8
+    bronze point                           2 seeds  median Y 323.0
+    bronze ring                            2 seeds  median Y 337.2
+    bronze-tipped spear                    2 seeds  median Y 430.0
+    iron knife                             2 seeds  median Y 416.5
+    obsidian-tipped spear                  2 seeds  median Y 313.2
+    iron axe                               1 seeds  median Y 445.2
+    iron point                             1 seeds  median Y 424.5
+    iron-tipped spear                      1 seeds  median Y 451.8
+    obsidian pendant                       1 seeds  median Y 300.0
+seed 6: Y500 pop 49283 bands 2543 range 9600 cells | items now 49 (mean/band 31.8) | stage now: copper, ever: iron | exp 1320491 inv 373 learned 656184 forgot 575555 | splits 10701 died 213 | lineage-found 5% of known, 0.1% of acquisitions | 31.4s (gen 0.0s)
+    Y  0.8 fire                               inv   3 taught 1188 bands now 2540 cells  5588 r  0.74 speed   0.2  [taken from a wildfire]
+    Y  3.2 plant fibre cord                   inv   4 taught   17 bands now 2537 cells  5587 r  0.77 speed   0.3  [shape plant fibre with bare hands]
+    Y  7.2 stone hammerstone                  inv   3 taught   22 bands now 2543 cells  5588 r  0.77 speed   0.2  [shape stone with bare hands]
+    Y 11.2 wood shaft                         inv   4 taught  462 bands now 2526 cells  5588 r  0.72 speed   0.2  [shape wood with bare hands]
+    Y 16.5 woven basket                       inv  11 taught  675 bands now 2537 cells  5587 r  0.77 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 20.5 cooked fish                        inv   2 taught 4401 bands now  662 cells  2767 r  0.33 speed   0.2  [heat fish over fire]
+    Y 23.8 cooked wild plants                 inv   4 taught  186 bands now 2492 cells  4100 r  0.52 speed   0.2  [heat wild plants over fire]
+    Y 26.2 unfired clay pot                   inv   5 taught  104 bands now 2368 cells  5587 r  0.76 speed   0.3  [shape clay with bare hands]
+    Y 28.2 cooked meat                        inv   2 taught 1055 bands now 1589 cells  5529 r  0.43 speed   0.3  [heat meat over fire]
+    Y 36.5 stone blade                        inv   3 taught  248 bands now 2543 cells  5588 r  0.79 speed   0.3  [shape stone with stone hammerstone]
+    Y 38.8 fired pottery                      inv   1 taught  108 bands now 2353 cells  5587 r  0.73 speed   0.3  [heat unfired clay pot over fire]
+    Y 49.2 plant fibre snare                  inv   3 taught 1969 bands now 2521 cells  5587 r  0.76 speed   0.3  [combine wood shaft + plant fibre cord]
+    Y 60.5 hide thong                         inv   4 taught 22466 bands now  734 cells  5588 r  0.75 speed   0.4  [shape hide with stone blade]
+    Y 67.8 hide bag                           inv  83 taught 28605 bands now  692 cells  5588 r  0.75 speed   0.4  [shape hide thong with bare hands]
+    Y 70.8 sharpened-stick spear              inv  86 taught 22902 bands now 2376 cells  5588 r  0.74 speed   0.4  [shape wood shaft with stone blade]
+    Y 73.5 plant fibre net                    inv  13 taught 3086 bands now 2519 cells  5587 r  0.75 speed   0.4  [shape plant fibre cord with wood shaft]
+    Y 76.8 bone point                         inv   3 taught 13840 bands now 1104 cells  5588 r  0.78 speed   0.4  [shape bone with stone blade]
+    Y 78.5 stone axe                          inv   2 taught 5029 bands now 2522 cells  5586 r  0.78 speed   0.5  [combine stone blade + wood shaft + plant fibre cord]
+    Y 79.5 hide net                           inv  14 taught 53213 bands now  720 cells  5588 r  0.69 speed   0.4  [shape hide thong with wood shaft]
+    Y 87.8 bone-tipped spear                  inv   2 taught 31143 bands now  891 cells  5587 r  0.69 speed   0.5  [combine bone point + wood shaft + plant fibre cord]
+    Y 88.5 rawhide snare                      inv   1 taught 14140 bands now  717 cells  5587 r  0.76 speed   0.5  [combine wood shaft + hide thong]
+    Y 95.5 bone beads                         inv  28 taught 27571 bands now  446 cells  5586 r  0.65 speed   0.5  [shape bone point with stone hammerstone]
+    Y 96.8 reed bundle boat                   inv   1 taught 5907 bands now 2189 cells  5587 r  0.79 speed   0.6  [combine plant fibre + plant fibre cord]
+    Y 98.2 clay-lined kiln                    inv   1 taught  395 bands now 2353 cells  5587 r  0.72 speed   0.6  [combine clay + fire]
+    Y108.2 charcoal                           inv   6 taught 3910 bands now 2498 cells  5587 r  0.76 speed   0.6  [heat wood over fire in a clay-lined kiln]
+    Y128.8 charcoal fire                      inv   1 taught  415 bands now 2498 cells  5587 r  0.76 speed   0.9  [combine charcoal + fire]
+    Y132.5 sinew-strung bow                   inv   1 taught 14574 bands now  718 cells  5587 r  0.69 speed   0.8  [shape wood shaft with hide thong]
+    Y149.8 stone-lined kiln                   inv   3 taught 41335 bands now 2183 cells  5588 r  0.73 speed   1.4  [combine stone + fire]
+    Y152.2 copper (metal)                     inv   2 taught 17064 bands now  605 cells  5456 r  0.21 speed   0.8  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y155.2 copper knife                       inv   1 taught 1702 bands now 1830 cells  5588 r  0.74 speed   1.3  [shape copper (metal) with stone hammerstone]
+    Y158.0 carrying frame (plant fibre)       inv   1 taught  933 bands now 2524 cells  5587 r  0.73 speed   1.9  [combine wood shaft + plant fibre cord + woven basket]
+    Y161.2 copper point                       inv   1 taught 5921 bands now 1825 cells  5588 r  0.74 speed   1.5  [shape copper knife with stone hammerstone]
+    Y164.8 copper axe                         inv   1 taught 1939 bands now 1817 cells  5587 r  0.54 speed   1.5  [combine copper knife + wood shaft + plant fibre cord]
+    Y165.8 hide bellows                       inv   2 taught 22451 bands now  324 cells  5503 r  0.29 speed   1.4  [combine wood shaft + hide thong + hide bag]
+    Y168.2 copper ring                        inv  19 taught 39857 bands now 1049 cells  5586 r  0.60 speed   1.7  [shape copper point with stone hammerstone]
+    Y172.5 hide clothing                      inv   2 taught 20997 bands now  693 cells  5582 r  0.38 speed   1.7  [combine hide + bone point + plant fibre cord]
+    Y173.8 flint blade                        inv   3 taught 11773 bands now 1089 cells  5338 r  0.10 speed   1.5  [shape flint with stone hammerstone]
+    Y178.0 flint point                        inv   7 taught 103977 bands now 1088 cells  5336 r  0.13 speed   1.9  [shape flint blade with stone]
+    Y185.2 flint axe                          inv   4 taught 30780 bands now  973 cells  5250 r  0.28 speed   1.3  [combine flint blade + wood shaft + plant fibre cord]
+    Y190.5 copper-tipped spear                inv   2 taught 8229 bands now 1807 cells  5587 r  0.28 speed   3.4  [combine copper point + wood shaft + plant fibre cord]
+    Y194.2 fired-brick kiln                   inv   1 taught 2143 bands now 2353 cells  5587 r  0.23 speed   3.4  [combine fired pottery + fire]
+    Y200.8 flint-tipped spear                 inv   4 taught 24196 bands now 1079 cells  5306 r -0.04 speed   2.1  [combine flint point + wood shaft + plant fibre cord]
+    Y205.2 outrigger canoe                    inv   1 taught 9329 bands now 1684 cells  5587 r  0.59 speed   3.5  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y208.2 obsidian blade                     inv   2 taught 9187 bands now    0 cells   716 r  0.43 speed   0.1  [shape obsidian with stone hammerstone]
+    Y209.0 iron bloom                         inv   3 taught 8379 bands now    0 cells  4168 r  0.33 speed   1.4  [heat iron ore + hide bellows over charcoal fire in a fired-brick kiln]
+    Y236.0 wrought iron                       inv   6 taught  446 bands now    0 cells   429 r -0.66 speed   2.2  [heat stone hammerstone + iron bloom over charcoal fire in a clay-lined kiln]
+    Y253.8 dugout canoe                       inv   3 taught 7175 bands now 2516 cells  5586 r  0.37 speed   2.0  [shape wood with flint axe]
+    Y256.5 salt                               inv   1 taught   20 bands now    0 cells    53 r  0.56 speed   4.1  [heat brine + fired pottery over charcoal fire in a stone-lined kiln]
+    Y256.8 plank boat                         inv   1 taught 5493 bands now 1810 cells  5587 r  0.55 speed   3.2  [shape wood with copper axe]
+    Y270.2 tin (metal)                        inv   3 taught  377 bands now    0 cells   771 r  0.22 speed   0.2  [heat tin ore + hide bellows over charcoal fire in a clay-lined kiln]
+    Y306.0 hide shield                        inv   1 taught 9912 bands now  719 cells  5535 r  0.20 speed   1.5  [combine hide + wood shaft + plant fibre cord]
+    Y331.2 wool cord                          inv   1 taught 5186 bands now  116 cells  2702 r  0.33 speed   0.5  [shape wool with bare hands]
+    Y404.2 tin knife                          inv   1 taught 1814 bands now    0 cells  2099 r  0.23 speed   1.8  [shape tin (metal) with stone hammerstone]
+    Y407.0 outrigger canoe                    inv   1 taught 3251 bands now 2513 cells  5575 r  0.57 speed   4.2  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y408.8 cooked grain                       inv   2 taught 2674 bands now   10 cells   513 r  0.64 speed   0.4  [heat grain over charcoal fire]
+    Y414.8 woollen bag                        inv   3 taught   89 bands now    0 cells   421 r -0.16 speed   1.7  [shape wool cord with bare hands]
+    continents settled 1/2: #1 7121c gap 47 never, #2 5588c gap 0 Y0 pop 49283 | islands reached 0/4
+    started in: Savanna 21C
+    sea: first boat Y97 | voyages 11306 | sightings 0 | drifts 337 (ashore as new bands 5, got home 15) | scouting 615 (found 0, lost 27) | landed on another landmass 0 | disasters 333 lost 2140 people (2140 per landing) | bands with boats now 2525 (seacraft 0.35)
+    seafaring (v9): seacraft p50 0.33 p90 0.54 max 0.73 | sail-usable bands 0 | coastal boat range p90 19.2 cells | far-shore word held by 0.0% of bands (0.0% within range)
+    lineages: alive 6 | largest 23% | effective 5.43 | by landmass: #2 49283 people: top L3 23%, eff 5.4
+    motives (v9): splits 10701 (2891 after dissent) | dissent mean 0.18 | curiosity 1.03 (overseas 0.00) | ambition -0.22 (overseas +0.00, 0 bands)
+    trade: 6932396 exchanges, volume 2960620, food shared 12748, mean dist 1.9 | last yr 19930 trades, 9873 partnerships, carried metal/obsidian 8.8 cells from source (max ever 67) | first: clay Y17, plant fibre Y17, stone Y21, copper ore Y54, hide Y61, iron ore Y76, bone Y78, flint Y132, copper Y152, tin ore Y198, obsidian Y203, grain Y212, iron Y239, wool Y256, salt Y262, tin Y271
+    lost worldwide: iron bloom (Y213), obsidian blade (Y255), salt (Y274), tin (metal) (Y296), obsidian blade (Y363), obsidian blade (Y398), iron bloom (Y421), woollen bag (Y450), tin (metal) (Y456), tin knife (Y467)
+    conflict: 80351 confrontations (55238 avoided, 989 paid off, 6366 fled) | 17758 fights (3551.6/century), 58252 killed = 0.370%/yr of people (lost at sea 2140) | 16895 displaced (344 by sea), 3748 absorbed, 8040 captives | by century fights [4, 1017, 5432, 5973, 5332] | lineages 6 (largest 23% of people; by century [25, 24, 24, 24, 23]) | disease deaths 0.067%/yr | pop by century [3339, 42183, 53785, 41640, 49283]
+    farming: first fields Y204 | independent origins 26 [Y204 Savanna 24C; Y214 Savanna 23C; Y225 Savanna 21C; Y238 Savanna 21C; Y245 Savanna 24C; Y256 TempForest 9C; Y274 TropForest 24C; Y279 Savanna 22C; Y288 TempForest 11C; Y292 Savanna 25C; Y298 Savanna 23C; Y311 Savanna 23C; Y312 Grassland 12C; Y328 Savanna 21C; Y332 Savanna 20C; Y350 Savanna 21C; Y350 TropForest 24C; Y378 Savanna 22C; Y379 TempForest 10C; Y386 Savanna 23C; Y414 Grassland 12C; Y424 Savanna 23C; Y434 Savanna 22C; Y449 Savanna 21C; Y474 Savanna 25C; Y476 Savanna 24C] | domestic grain never | herding Y226 | plough Y395 | first epidemic Y434 | took up 21 gave up 40 | epidemics 4 disease deaths 10508
+    farming now: 3 farming bands (73 people) vs 2540 foraging bands (49210 people) | landmasses farming 1 foraging 1 | 114 herding | fields 651 (0 domestic) soil 100% | food from farming 1% (peak 1%) | people/occupied cell farmers 24 foragers 40 | by century farmer pop/pop food% [0/3339 0%, 0/42183 0%, 6/53785 0%, 82/41640 0%, 73/49283 1%]
+seed 7: Y500 pop 58140 bands 3058 range 17473 cells | items now 53 (mean/band 28.3) | stage now: iron, ever: iron | exp 924344 inv 417 learned 493028 forgot 429247 | splits 8714 died 168 | lineage-found 6% of known, 0.1% of acquisitions | 25.5s (gen 0.0s)
+    Y  3.2 plant fibre cord                   inv   3 taught   23 bands now 3037 cells  6150 r  0.84 speed   0.3  [shape plant fibre with bare hands]
+    Y 14.2 stone hammerstone                  inv   2 taught   17 bands now 3050 cells  6150 r  0.85 speed   0.3  [shape stone with bare hands]
+    Y 27.2 unfired clay pot                   inv   7 taught  452 bands now 2879 cells  6146 r  0.85 speed   0.3  [shape clay with bare hands]
+    Y 27.5 fire                               inv   5 taught 1054 bands now 3046 cells  6150 r  0.85 speed   0.3  [taken from a wildfire]
+    Y 30.5 cooked fish                        inv   8 taught 4552 bands now  685 cells  2613 r  0.69 speed   0.3  [heat fish over fire]
+    Y 32.2 cooked meat                        inv  10 taught  723 bands now 1509 cells  6014 r  0.77 speed   0.3  [heat meat over fire]
+    Y 37.5 cooked wild plants                 inv   9 taught   89 bands now 2530 cells  4522 r  0.79 speed   0.4  [heat wild plants over fire]
+    Y 40.2 wood shaft                         inv   5 taught  969 bands now 2980 cells  6149 r  0.83 speed   0.3  [shape wood with bare hands]
+    Y 51.2 woven basket                       inv   8 taught  220 bands now 3036 cells  6150 r  0.85 speed   0.4  [shape plant fibre cord with bare hands]
+    Y 56.5 stone blade                        inv   3 taught   25 bands now 3050 cells  6150 r  0.85 speed   0.3  [shape stone with stone hammerstone]
+    Y 74.8 hide thong                         inv   5 taught 7953 bands now 1001 cells  6143 r  0.84 speed   0.4  [shape hide with stone blade]
+    Y 77.8 fired pottery                      inv   3 taught 3828 bands now 2823 cells  6138 r  0.84 speed   0.4  [heat unfired clay pot over fire]
+    Y 86.2 hide bag                           inv  57 taught 22178 bands now  968 cells  6137 r  0.85 speed   0.4  [shape hide thong with bare hands]
+    Y 87.0 bone point                         inv   4 taught 7938 bands now 1119 cells  6148 r  0.86 speed   0.4  [shape bone with stone blade]
+    Y109.2 plant fibre snare                  inv   7 taught 4293 bands now 2920 cells  6140 r  0.85 speed   0.5  [combine wood shaft + plant fibre cord]
+    Y116.0 bone beads                         inv  39 taught 20641 bands now  712 cells  6078 r  0.87 speed   0.5  [shape bone point with stone hammerstone]
+    Y124.5 sharpened-stick spear              inv  22 taught 7090 bands now 2932 cells  6141 r  0.85 speed   0.5  [shape wood shaft with stone blade]
+    Y126.8 clay-lined kiln                    inv   2 taught 17883 bands now 2741 cells  6130 r  0.83 speed   0.5  [combine clay + fire]
+    Y128.0 rawhide snare                      inv   6 taught 8260 bands now  925 cells  6142 r  0.84 speed   0.5  [combine wood shaft + hide thong]
+    Y131.8 stone-lined kiln                   inv   2 taught 13337 bands now 2948 cells  6149 r  0.86 speed   0.4  [combine stone + fire]
+    Y133.2 plant fibre net                    inv  39 taught 4576 bands now 2911 cells  6134 r  0.85 speed   0.6  [shape plant fibre cord with wood shaft]
+    Y138.2 hide net                           inv  20 taught 39590 bands now  979 cells  6143 r  0.84 speed   0.4  [shape hide thong with wood shaft]
+    Y139.2 stone axe                          inv   1 taught  260 bands now 2970 cells  6148 r  0.85 speed   0.6  [combine stone blade + wood shaft + plant fibre cord]
+    Y149.5 charcoal                           inv  17 taught 5183 bands now 2968 cells  6148 r  0.86 speed   0.5  [heat wood over fire in a stone-lined kiln]
+    Y160.2 carrying frame (plant fibre)       inv   2 taught  372 bands now 2978 cells  6148 r  0.86 speed   0.6  [combine wood shaft + plant fibre cord + woven basket]
+    Y163.5 bone-tipped spear                  inv   4 taught 31923 bands now 1016 cells  6143 r  0.06 speed   0.6  [combine bone point + wood shaft + hide thong]
+    Y166.5 charcoal fire                      inv   2 taught  704 bands now 2968 cells  6148 r  0.89 speed   0.7  [combine charcoal + fire]
+    Y184.0 flint blade                        inv   5 taught 11763 bands now 1132 cells  4932 r  0.67 speed   0.6  [shape flint with stone hammerstone]
+    Y186.8 dugout canoe                       inv   1 taught 1818 bands now 2965 cells  6147 r  0.86 speed   1.1  [shape wood with stone axe]
+    Y191.0 hide clothing                      inv  11 taught 15117 bands now  920 cells  6116 r  0.87 speed   0.9  [combine hide + bone point + plant fibre cord]
+    Y198.8 sinew-strung bow                   inv   1 taught 9831 bands now  923 cells  6131 r  0.36 speed   0.8  [shape wood shaft with hide thong]
+    Y200.8 reed bundle boat                   inv   4 taught 21473 bands now 2890 cells  6134 r  0.13 speed   1.0  [combine plant fibre + hide thong]
+    Y205.5 flint point                        inv   5 taught 45642 bands now 1130 cells  4912 r  0.68 speed   1.1  [shape flint blade with stone hammerstone]
+    Y227.2 flint-tipped spear                 inv   1 taught 11661 bands now  868 cells  3983 r  0.24 speed   1.1  [combine flint point + wood shaft + plant fibre cord]
+    Y232.0 skin boat                          inv   2 taught 16259 bands now  517 cells  5494 r  0.78 speed   0.9  [combine hide + wood shaft + plant fibre cord]
+    Y236.0 flint axe                          inv   6 taught 16616 bands now  644 cells  3748 r  0.71 speed   1.2  [combine flint blade + wood shaft + plant fibre cord]
+    Y237.0 salt                               inv   2 taught 17200 bands now  276 cells  1290 r  0.15 speed   1.6  [heat brine + fired pottery over charcoal fire]
+    Y238.5 outrigger canoe                    inv   1 taught 2864 bands now 2962 cells  6145 r  0.77 speed   2.0  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y253.5 wool cord                          inv  12 taught 14954 bands now  697 cells  4783 r  0.18 speed   0.9  [shape wool with bare hands]
+    Y263.8 tin (metal)                        inv   1 taught 7213 bands now  105 cells  1267 r  0.53 speed   0.4  [heat tin ore over charcoal fire in a clay-lined kiln]
+    Y269.5 fired-brick kiln                   inv   1 taught 2481 bands now 2822 cells  6133 r  0.80 speed   2.1  [combine fired pottery + fire]
+    Y281.2 woollen bag                        inv  38 taught 8991 bands now  438 cells  4372 r  0.41 speed   0.5  [shape wool cord with bare hands]
+    Y288.2 outrigger canoe                    inv   3 taught 22638 bands now 2492 cells  6090 r -0.02 speed   3.2  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y298.5 obsidian blade                     inv   4 taught 4508 bands now    0 cells   444 r  0.43 speed   0.1  [shape obsidian with stone hammerstone]
+    Y301.5 wool snare                         inv   2 taught 9658 bands now  622 cells  4729 r  0.28 speed   0.7  [combine wood shaft + wool cord]
+    Y302.2 tin knife                          inv   3 taught 8818 bands now  347 cells  4086 r  0.69 speed   0.4  [shape tin (metal) with stone hammerstone]
+    Y314.0 hide bellows                       inv   3 taught 8790 bands now  329 cells  4962 r  0.26 speed   0.7  [combine wood shaft + plant fibre cord + hide bag]
+    Y323.0 wool net                           inv   4 taught 14935 bands now  620 cells  4671 r  0.23 speed   0.6  [shape wool cord with flint point]
+    Y356.8 tin point                          inv   2 taught 7448 bands now  329 cells  3951 r  0.70 speed   0.9  [shape tin knife with stone hammerstone]
+    Y399.5 copper (metal)                     inv   3 taught  360 bands now   31 cells   680 r  0.49 speed   0.5  [heat copper ore + hide bellows over charcoal fire in a stone-lined kiln]
+    Y416.5 tin ring                           inv   1 taught  241 bands now    0 cells   341 r  0.57 speed   2.6  [shape tin point with stone hammerstone]
+    Y423.0 bow (wool string)                  inv   2 taught 4691 bands now  618 cells  4485 r  0.43 speed   2.7  [shape wood shaft with wool cord]
+    Y425.0 iron bloom                         inv   2 taught 1080 bands now   53 cells  1772 r  0.24 speed   0.4  [heat iron ore + hide bellows over charcoal fire in a fired-brick kiln]
+    Y474.5 wrought iron                       inv   3 taught   76 bands now    8 cells   147 r  0.75 speed   1.1  [heat stone hammerstone + iron bloom over charcoal fire in a stone-lined kiln]
+    Y475.5 wool shaft                         inv   2 taught    5 bands now    1 cells    15 r     - speed     -  [shape wool with tin knife]
+    continents settled 2/3: #1 7335c gap 14 Y327 pop 13221 [sea, 14 from settled], #2 5252c gap 0 Y0 pop 44867, #3 3364c gap 38 never | islands reached 2/2
+    started in: TempForest 7C
+    sea: first boat Y187 | voyages 16699 | sightings 15641 | drifts 333 (ashore as new bands 5, got home 7) | scouting 1145 (found 17, lost 39) | landed on another landmass 2072 | disasters 370 lost 2292 people (1 per landing) | bands with boats now 3024 (seacraft 0.43)
+    seafaring (v9): seacraft p50 0.43 p90 0.55 max 0.79 | sail-usable bands 0 | coastal boat range p90 17.8 cells | far-shore word held by 57.7% of bands (20.0% within range)
+    lineages: alive 6 | largest 40% | effective 3.77 | by landmass: #2 44867 people: top L3 48%, eff 3.3; #1 13221 people: top L2 50%, eff 2.8
+    motives (v9): splits 8714 (2223 after dissent) | dissent mean 0.22 | curiosity 1.03 (overseas 1.22) | ambition -0.17 (overseas +0.09, 571 bands)
+    trade: 5397532 exchanges, volume 2312327, food shared 9171, mean dist 1.8 | last yr 26677 trades, 11752 partnerships, carried metal/obsidian 9.0 cells from source (max ever 90) | first: plant fibre Y28, iron ore Y28, stone Y58, clay Y60, bone Y89, hide Y90, flint Y128, tin ore Y132, copper ore Y145, wool Y219, obsidian Y233, salt Y240, tin Y264, grain Y282, copper Y400, iron Y476
+    lost worldwide: tin (metal) (Y285), tin (metal) (Y324), tin ring (Y444)
+    conflict: 63376 confrontations (42906 avoided, 942 paid off, 5340 fled) | 14188 fights (2837.6/century), 42244 killed = 0.332%/yr of people (lost at sea 2292) | 13915 displaced (499 by sea), 2739 absorbed, 6637 captives | by century fights [0, 106, 3060, 5694, 5328] | lineages 6 (largest 40% of people; by century [46, 48, 44, 47, 40]) | disease deaths 0.077%/yr | pop by century [827, 14798, 43059, 37964, 58140]
+    farming: first fields Y276 | independent origins 2 [Y276 TropForest 24C; Y485 Savanna 23C] | domestic grain never | herding Y158 | plough never | first epidemic Y262 | took up 1 gave up 1 | epidemics 204 disease deaths 9829
+    farming now: 3 farming bands (63 people) vs 3055 foraging bands (58077 people) | landmasses farming 1 foraging 4 | 935 herding | fields 56 (0 domestic) soil 100% | food from farming 3% (peak 4%) | people/occupied cell farmers 21 foragers 43 | by century farmer pop/pop food% [0/827 0%, 0/14798 0%, 0/43059 0%, 0/37964 1%, 63/58140 3%]
+seed 8: Y500 pop 52688 bands 3370 range 11495 cells | items now 66 (mean/band 30.0) | stage now: bronze, ever: iron | exp 1220009 inv 445 learned 868677 forgot 770457 | splits 13542 died 225 | lineage-found 3% of known, 0.1% of acquisitions | 39.4s (gen 0.1s)
+    Y  3.2 plant fibre cord                   inv   2 taught   18 bands now 3345 cells  6296 r  0.75 speed   0.2  [shape plant fibre with bare hands]
+    Y  3.2 fire                               inv   1 taught   60 bands now 3365 cells  6296 r  0.76 speed   0.2  [taken from a wildfire]
+    Y  5.5 cooked wild plants                 inv   2 taught   52 bands now 2633 cells  4938 r  0.41 speed   0.2  [heat wild plants over fire]
+    Y  7.8 stone hammerstone                  inv   3 taught   36 bands now 3361 cells  6296 r  0.76 speed   0.3  [shape stone with bare hands]
+    Y 11.0 cooked meat                        inv   4 taught 3816 bands now 1252 cells  6124 r  0.36 speed   0.2  [heat meat over fire]
+    Y 14.2 stone blade                        inv   1 taught  112 bands now 3361 cells  6296 r  0.76 speed   0.3  [shape stone with stone hammerstone]
+    Y 16.8 unfired clay pot                   inv   2 taught  486 bands now 3014 cells  6295 r  0.69 speed   0.3  [shape clay with bare hands]
+    Y 24.5 woven basket                       inv  25 taught 2420 bands now 3345 cells  6296 r  0.75 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 29.8 wood shaft                         inv   1 taught   41 bands now 3294 cells  6296 r  0.75 speed   0.3  [shape wood with bare hands]
+    Y 37.2 plant fibre snare                  inv   1 taught  675 bands now 3292 cells  6296 r  0.75 speed   0.3  [combine wood shaft + plant fibre cord]
+    Y 37.8 cooked fish                        inv   3 taught 17128 bands now  811 cells  3260 r  0.42 speed   0.3  [heat fish over fire]
+    Y 37.8 bone point                         inv   4 taught 18595 bands now  509 cells  6296 r  0.69 speed   0.3  [shape bone with stone blade]
+    Y 43.5 reed bundle boat                   inv   3 taught 15783 bands now 2963 cells  6296 r  0.73 speed   0.3  [combine plant fibre + plant fibre cord]
+    Y 44.8 plant fibre net                    inv   9 taught 1873 bands now 3281 cells  6296 r  0.74 speed   0.3  [shape plant fibre cord with bone point]
+    Y 48.8 stone axe                          inv   1 taught  227 bands now 3284 cells  6296 r  0.74 speed   0.3  [combine stone blade + wood shaft + plant fibre cord]
+    Y 53.0 fired pottery                      inv   2 taught 2832 bands now 2973 cells  6291 r  0.66 speed   0.3  [heat unfired clay pot over fire]
+    Y 58.0 bone beads                         inv  34 taught 25433 bands now  147 cells  6253 r  0.47 speed   0.3  [shape bone point with stone hammerstone]
+    Y 60.5 hide thong                         inv   5 taught 18211 bands now  213 cells  6280 r  0.67 speed   0.3  [shape hide with stone blade]
+    Y 60.5 sharpened-stick spear              inv  87 taught 14355 bands now 3052 cells  6296 r  0.74 speed   0.3  [shape wood shaft with stone blade]
+    Y 68.0 hide bag                           inv 105 taught 34764 bands now  184 cells  6260 r  0.66 speed   0.4  [shape hide thong with bare hands]
+    Y 79.8 clay-lined kiln                    inv   1 taught 2249 bands now 2971 cells  6291 r  0.65 speed   0.4  [combine clay + fire]
+    Y 80.2 sinew-strung bow                   inv   1 taught 18488 bands now  195 cells  6272 r  0.62 speed   0.4  [shape wood shaft with hide thong]
+    Y 85.2 bone-tipped spear                  inv   3 taught 28960 bands now  343 cells  6273 r  0.56 speed   0.4  [combine bone point + wood shaft + hide thong]
+    Y 97.2 hide net                           inv   8 taught 65181 bands now  193 cells  6266 r  0.62 speed   0.5  [shape hide thong with bone point]
+    Y101.0 charcoal                           inv   8 taught 4558 bands now 3262 cells  6296 r  0.74 speed   0.6  [heat wood over fire in a clay-lined kiln]
+    Y117.0 charcoal fire                      inv   1 taught  364 bands now 3262 cells  6296 r  0.75 speed   0.7  [combine charcoal + fire]
+    Y126.0 hide clothing                      inv   1 taught 20145 bands now  189 cells  6259 r  0.64 speed   0.7  [combine hide + bone point + hide thong]
+    Y138.0 rawhide snare                      inv   2 taught 19260 bands now  196 cells  6273 r  0.58 speed   0.7  [combine wood shaft + hide thong]
+    Y142.2 stone-lined kiln                   inv   8 taught 47627 bands now 2951 cells  6296 r  0.73 speed   0.8  [combine stone + charcoal fire]
+    Y181.2 tin (metal)                        inv   2 taught 25319 bands now  114 cells  1485 r  0.62 speed   0.4  [heat tin ore over charcoal fire in a clay-lined kiln]
+    Y188.2 outrigger canoe                    inv   1 taught 20687 bands now 2354 cells  6296 r  0.63 speed   1.6  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y188.5 flint blade                        inv   1 taught 21046 bands now  772 cells  3589 r  0.28 speed   0.8  [shape flint with stone hammerstone]
+    Y190.5 tin knife                          inv  10 taught 24479 bands now 1237 cells  5389 r  0.43 speed   0.8  [shape tin (metal) with stone hammerstone]
+    Y190.5 carrying frame (plant fibre)       inv   2 taught 1855 bands now 3293 cells  6296 r -0.06 speed   2.1  [combine wood shaft + plant fibre cord + woven basket]
+    Y190.8 hide shield                        inv   1 taught 20177 bands now  196 cells  6173 r  0.13 speed   1.6  [combine hide + wood shaft + hide thong]
+    Y192.2 flint point                        inv  10 taught 40054 bands now  650 cells  3525 r  0.29 speed   1.0  [shape flint blade with stone]
+    Y193.2 hide bellows                       inv   1 taught 16885 bands now   15 cells  5843 r  0.26 speed   1.0  [combine wood shaft + hide thong + hide bag]
+    Y196.5 tin point                          inv   8 taught 25261 bands now  947 cells  5248 r  0.69 speed   0.9  [shape tin knife with stone hammerstone]
+    Y230.8 flint axe                          inv   1 taught 27632 bands now  601 cells  3326 r  0.16 speed   1.5  [combine flint blade + wood shaft + plant fibre cord]
+    Y240.2 dugout canoe                       inv   2 taught 8195 bands now 3281 cells  6296 r  0.02 speed   1.5  [shape wood with flint axe]
+    Y247.0 tin ring                           inv   4 taught 23098 bands now  376 cells  4679 r  0.59 speed   1.0  [shape tin point with stone hammerstone]
+    Y248.2 obsidian blade                     inv   4 taught 10651 bands now   63 cells  1989 r -0.33 speed   0.2  [shape obsidian with stone hammerstone]
+    Y252.0 iron bloom                         inv   3 taught 2880 bands now    0 cells  1778 r  0.84 speed   0.7  [heat iron ore + hide bellows over charcoal fire in a clay-lined kiln]
+    Y252.2 fired-brick kiln                   inv   2 taught 3427 bands now 2972 cells  6284 r  0.32 speed   2.2  [combine fired pottery + fire]
+    Y253.5 copper (metal)                     inv   2 taught 20071 bands now  276 cells  2177 r  0.34 speed   0.7  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y260.0 salt                               inv   1 taught 16071 bands now  206 cells  1701 r  0.49 speed   0.7  [heat brine + fired pottery over fire in a clay-lined kiln]
+    Y263.8 flint-tipped spear                 inv   1 taught 15553 bands now  531 cells  3325 r  0.11 speed   1.8  [combine flint point + wood shaft + plant fibre cord]
+    Y267.8 copper knife                       inv   5 taught 18850 bands now 1406 cells  5349 r  0.40 speed   1.9  [shape copper (metal) with stone hammerstone]
+    Y271.8 copper point                       inv   4 taught 18971 bands now 1155 cells  5246 r  0.45 speed   2.2  [shape copper knife with stone hammerstone]
+    Y282.5 copper-tipped spear                inv   2 taught 17327 bands now  696 cells  4991 r  0.28 speed   1.9  [combine copper point + wood shaft + plant fibre cord]
+    Y290.5 wrought iron                       inv   4 taught  874 bands now    0 cells   267 r  0.63 speed   0.7  [heat stone hammerstone + iron bloom over charcoal fire in a stone-lined kiln]
+    Y293.2 wool cord                          inv   1 taught 5569 bands now  214 cells  2030 r  0.46 speed   0.2  [shape wool with bare hands]
+    Y294.0 tin-tipped spear                   inv   2 taught 19277 bands now  644 cells  4269 r  0.38 speed   2.9  [combine tin point + wood shaft + plant fibre cord]
+    Y309.8 bronze (metal)                     inv   1 taught 11729 bands now 1439 cells  3899 r  0.37 speed   0.9  [heat copper (metal) + tin (metal) over charcoal fire in a clay-lined kiln]
+    Y312.0 cooked grain                       inv   4 taught 4020 bands now  607 cells  1952 r -0.30 speed   0.3  [heat grain over charcoal fire in a stone-lined kiln]
+    Y324.2 copper ring                        inv   4 taught 13792 bands now  546 cells  4598 r  0.37 speed   3.4  [shape copper point with stone hammerstone]
+    Y325.8 obsidian point                     inv   3 taught 2927 bands now   29 cells   670 r  0.47 speed   0.6  [shape obsidian blade with copper knife]
+    Y334.8 bronze knife                       inv   4 taught 9044 bands now 2030 cells  5849 r  0.74 speed   1.4  [shape bronze (metal) with stone hammerstone]
+    Y340.2 bronze point                       inv   2 taught 9023 bands now 2021 cells  5841 r  0.64 speed   1.3  [shape bronze knife with stone hammerstone]
+    Y342.2 outrigger canoe                    inv   1 taught 4100 bands now 3275 cells  6296 r  0.40 speed   2.2  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y345.8 bronze ring                        inv   4 taught 16444 bands now 1410 cells  4916 r  0.59 speed   2.1  [shape bronze point with stone hammerstone]
+    Y359.0 bronze-tipped spear                inv   1 taught 8114 bands now 1981 cells  5571 r  0.68 speed   2.5  [combine bronze point + wood shaft + plant fibre cord]
+    Y381.2 bronze axe                         inv   1 taught 6694 bands now 1987 cells  5516 r  0.47 speed   1.3  [combine bronze knife + wood shaft + plant fibre cord]
+    Y409.5 copper axe                         inv   2 taught 8377 bands now 1163 cells  4049 r -0.09 speed   1.6  [combine copper knife + wood shaft + plant fibre cord]
+    Y412.0 flax cord                          inv   2 taught 1719 bands now  424 cells  1056 r  0.45 speed   0.5  [shape flax with bare hands]
+    Y417.2 woven basket                       inv  10 taught  368 bands now  136 cells   472 r  0.10 speed   0.4  [shape flax cord with bare hands]
+    Y439.8 flax net                           inv   2 taught 2065 bands now  418 cells  1016 r  0.39 speed   0.7  [shape flax cord with copper point]
+    Y480.8 flax snare                         inv   2 taught  629 bands now  321 cells   664 r -0.06 speed   1.7  [combine wood shaft + flax cord]
+    continents settled 2/6: #1 5635c gap 0 Y0 pop 45535, #2 3949c gap 59 never, #3 2941c gap 26 never, #4 730c gap 107 never, #5 563c gap 1 Y184 pop 5895 [sea, 1 from settled], #6 491c gap 17 never | islands reached 2/3
+    started in: Savanna 23C
+    sea: first boat Y44 | voyages 28696 | sightings 37998 | drifts 465 (ashore as new bands 22, got home 37) | scouting 1689 (found 169, lost 61) | landed on another landmass 7997 | disasters 561 lost 3819 people (0 per landing) | bands with boats now 3334 (seacraft 0.43)
+    seafaring (v9): seacraft p50 0.39 p90 0.72 max 0.91 | sail-usable bands 0 | coastal boat range p90 20.1 cells | far-shore word held by 36.5% of bands (20.0% within range)
+    lineages: alive 6 | largest 21% | effective 5.77 | by landmass: #1 45535 people: top L3 20%, eff 5.8; #5 5895 people: top L3 28%, eff 5.4
+    motives (v9): splits 13542 (5784 after dissent) | dissent mean 0.24 | curiosity 0.77 (overseas 0.79) | ambition -0.05 (overseas +0.01, 372 bands)
+    trade: 8747702 exchanges, volume 3705635, food shared 14414, mean dist 1.9 | last yr 30046 trades, 13007 partnerships, carried metal/obsidian 10.5 cells from source (max ever 83) | first: stone Y12, plant fibre Y15, clay Y16, iron ore Y24, bone Y43, hide Y65, tin ore Y152, flint Y156, tin Y182, copper ore Y186, obsidian Y206, grain Y248, copper Y254, salt Y266, wool Y286, iron Y291, bronze Y311, flax Y326
+    lost worldwide: wrought iron (Y316), obsidian point (Y340), iron bloom (Y383), obsidian point (Y429), woven basket (Y440)
+    conflict: 105956 confrontations (71317 avoided, 1349 paid off, 8578 fled) | 24712 fights (4942.4/century), 75453 killed = 0.400%/yr of people (lost at sea 3819) | 23519 displaced (763 by sea), 4825 absorbed, 11175 captives | by century fights [5, 932, 6489, 8939, 8347] | lineages 6 (largest 21% of people; by century [21, 21, 22, 21, 21]) | disease deaths 0.084%/yr | pop by century [2892, 39405, 65942, 56053, 52688]
+    farming: first fields Y224 | independent origins 29 [Y224 Savanna 21C; Y242 Savanna 26C; Y260 Savanna 26C; Y274 Savanna 18C; Y284 Savanna 20C; Y284 Savanna 22C; Y294 Savanna 22C; Y301 Savanna 25C; Y306 TropForest 23C; Y306 TempForest 13C; Y306 Savanna 19C; Y312 Savanna 20C; Y322 Savanna 20C; Y330 Savanna 23C; Y334 TempForest 17C; Y353 TempForest 12C; Y367 Savanna 21C; Y393 Savanna 24C; Y397 Grassland 17C; Y399 Savanna 19C; Y418 Savanna 18C; Y419 Savanna 17C; Y437 Savanna 19C; Y439 Savanna 23C; Y462 Savanna 24C; Y462 Savanna 24C; Y463 Savanna 21C; Y476 TropForest 23C; Y498 Savanna 26C] | domestic grain Y392 | herding Y255 | plough Y458 | first epidemic Y333 | took up 242 gave up 128 | epidemics 20 disease deaths 15838
+    farming now: 347 farming bands (7281 people) vs 3023 foraging bands (45407 people) | landmasses farming 4 foraging 4 | 151 herding | fields 1184 (554 domestic) soil 89% | food from farming 9% (peak 9%) | people/occupied cell farmers 42 foragers 38 | by century farmer pop/pop food% [0/2892 0%, 0/39405 0%, 20/65942 0%, 287/56053 0%, 7281/52688 9%]
+seed 9: Y500 pop 70453 bands 3702 range 11023 cells | items now 65 (mean/band 31.7) | stage now: iron, ever: iron | exp 1402440 inv 382 learned 924159 forgot 804668 | splits 15134 died 303 | lineage-found 2% of known, 0.0% of acquisitions | 44.6s (gen 0.1s)
+    Y  0.2 unfired clay pot                   inv   1 taught  276 bands now 3412 cells  8022 r  0.77 speed   0.3  [shape clay with bare hands]
+    Y  0.8 fire                               inv  13 taught   55 bands now 3682 cells  8047 r  0.82 speed   0.3  [taken from a wildfire]
+    Y 13.8 fired pottery                      inv   1 taught  276 bands now 3350 cells  8016 r  0.79 speed   0.3  [heat unfired clay pot over fire]
+    Y 15.8 stone hammerstone                  inv   2 taught   17 bands now 3693 cells  8047 r  0.83 speed   0.3  [shape stone with bare hands]
+    Y 16.2 wood shaft                         inv   2 taught   31 bands now 3608 cells  8044 r  0.84 speed   0.4  [shape wood with bare hands]
+    Y 19.8 cooked meat                        inv   1 taught 2708 bands now 1849 cells  7900 r  0.61 speed   0.3  [heat meat over fire]
+    Y 20.2 plant fibre cord                   inv   3 taught   28 bands now 3673 cells  8047 r  0.84 speed   0.4  [shape plant fibre with bare hands]
+    Y 23.2 cooked wild plants                 inv   2 taught  570 bands now 3374 cells  5158 r  0.54 speed   0.3  [heat wild plants over fire]
+    Y 25.0 woven basket                       inv   3 taught   66 bands now 3673 cells  8047 r  0.82 speed   0.4  [shape plant fibre cord with bare hands]
+    Y 26.8 cooked fish                        inv   2 taught 5371 bands now  890 cells  3516 r  0.49 speed   0.3  [heat fish over fire]
+    Y 44.2 stone blade                        inv   1 taught  161 bands now 3693 cells  8047 r  0.85 speed   0.4  [shape stone with stone hammerstone]
+    Y 49.2 stone axe                          inv   1 taught  555 bands now 3584 cells  8044 r  0.83 speed   0.5  [combine stone blade + wood shaft + plant fibre cord]
+    Y 54.2 hide thong                         inv   6 taught 18997 bands now 1034 cells  8044 r  0.81 speed   0.5  [shape hide with stone blade]
+    Y 59.8 plant fibre snare                  inv   3 taught 2214 bands now 3550 cells  8044 r  0.83 speed   0.5  [combine wood shaft + plant fibre cord]
+    Y 61.2 hide bag                           inv  45 taught 29545 bands now 1023 cells  8033 r  0.78 speed   0.4  [shape hide thong with bare hands]
+    Y 62.8 sharpened-stick spear              inv  49 taught 19108 bands now 3461 cells  8043 r  0.85 speed   0.5  [shape wood shaft with stone blade]
+    Y 70.0 bone point                         inv   2 taught 22028 bands now 1586 cells  8047 r  0.83 speed   0.5  [shape bone with stone blade]
+    Y 71.2 hide net                           inv  14 taught 62167 bands now  983 cells  8035 r  0.79 speed   0.5  [shape hide thong with bone point]
+    Y 71.2 plant fibre net                    inv  30 taught 2713 bands now 3581 cells  8044 r  0.84 speed   0.5  [shape plant fibre cord with wood shaft]
+    Y 73.5 bone beads                         inv  31 taught 34336 bands now  837 cells  8039 r  0.76 speed   0.5  [shape bone point with stone hammerstone]
+    Y 78.5 carrying frame (plant fibre)       inv   1 taught  132 bands now 3594 cells  8044 r  0.84 speed   0.5  [combine wood shaft + plant fibre cord + woven basket]
+    Y 89.2 rawhide snare                      inv   1 taught 19747 bands now  941 cells  8038 r  0.80 speed   0.5  [combine wood shaft + hide thong]
+    Y105.5 reed bundle boat                   inv   5 taught 27138 bands now 3258 cells  8046 r  0.85 speed   0.7  [combine plant fibre + plant fibre cord]
+    Y108.8 bone-tipped spear                  inv   4 taught 50847 bands now 1178 cells  8043 r  0.79 speed   0.8  [combine bone point + wood shaft + hide thong]
+    Y139.5 outrigger canoe                    inv   1 taught 34342 bands now 2542 cells  8038 r  0.83 speed   1.1  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y141.0 hide bellows                       inv   1 taught 31700 bands now  910 cells  7927 r  0.58 speed   1.0  [combine wood shaft + hide thong + hide bag]
+    Y151.5 flint blade                        inv   7 taught 29797 bands now 1016 cells  6480 r  0.40 speed   1.0  [shape flint with stone hammerstone]
+    Y158.5 salt                               inv   1 taught 23867 bands now  174 cells  1568 r  0.21 speed   1.2  [heat brine + fired pottery over fire]
+    Y160.2 clay-lined kiln                    inv   2 taught 2045 bands now 3350 cells  8016 r  0.76 speed   1.0  [combine clay + fire]
+    Y160.8 flint point                        inv  11 taught 84711 bands now  977 cells  6380 r  0.33 speed   1.1  [shape flint blade with bone point]
+    Y163.0 hide clothing                      inv   1 taught 21385 bands now  986 cells  7981 r  0.65 speed   1.0  [combine hide + bone point + hide thong]
+    Y169.8 charcoal                           inv  16 taught 9757 bands now 3578 cells  8043 r  0.75 speed   1.6  [heat wood over fire in a clay-lined kiln]
+    Y185.0 obsidian blade                     inv   4 taught 6816 bands now    0 cells   961 r  0.27 speed   0.1  [shape obsidian with stone hammerstone]
+    Y185.8 stone-lined kiln                   inv   2 taught 27660 bands now 3502 cells  8044 r  0.77 speed   1.3  [combine stone + fire]
+    Y186.0 charcoal fire                      inv   2 taught 2039 bands now 3578 cells  8043 r  0.33 speed   1.1  [combine charcoal + fire]
+    Y195.2 iron bloom                         inv   2 taught 28341 bands now  503 cells  7196 r  0.27 speed   0.7  [heat iron ore + hide bellows over charcoal fire in a clay-lined kiln]
+    Y198.2 dugout canoe                       inv   1 taught 4287 bands now 3577 cells  8044 r  0.63 speed   2.5  [shape wood with stone axe]
+    Y212.5 flint axe                          inv   7 taught 23871 bands now  577 cells  4449 r  0.12 speed   1.3  [combine flint blade + wood shaft + plant fibre cord]
+    Y214.0 fired-brick kiln                   inv   1 taught 2902 bands now 3350 cells  8016 r  0.56 speed   1.8  [combine fired pottery + fire]
+    Y215.8 flint-tipped spear                 inv   2 taught 30450 bands now  921 cells  6001 r  0.32 speed   1.2  [combine flint point + wood shaft + plant fibre cord]
+    Y216.8 wrought iron                       inv   2 taught 26806 bands now  499 cells  7163 r  0.23 speed   0.9  [heat stone hammerstone + iron bloom over charcoal fire in a stone-lined kiln]
+    Y229.2 iron knife                         inv   5 taught 6162 bands now 2744 cells  8045 r  0.44 speed   1.8  [shape wrought iron with stone hammerstone]
+    Y235.8 iron point                         inv   2 taught 6100 bands now 2744 cells  8045 r  0.55 speed   2.5  [shape iron knife with stone hammerstone]
+    Y236.8 sinew-strung bow                   inv   1 taught 18474 bands now  943 cells  7934 r  0.24 speed   1.8  [shape wood shaft with hide thong]
+    Y240.0 skin boat                          inv   4 taught 19576 bands now  480 cells  7715 r -0.13 speed   1.0  [combine hide + wood shaft + plant fibre cord]
+    Y246.8 hide shield                        inv   2 taught 6092 bands now  941 cells  7329 r -0.22 speed   0.3  [combine hide + wood shaft + plant fibre cord]
+    Y258.5 tin (metal)                        inv   2 taught 27000 bands now  256 cells  1976 r  0.38 speed   0.7  [heat tin ore over charcoal fire in a stone-lined kiln]
+    Y261.2 iron-tipped spear                  inv   1 taught 5967 bands now 2714 cells  8040 r  0.33 speed   2.8  [combine iron point + wood shaft + plant fibre cord]
+    Y268.8 outrigger canoe                    inv   2 taught 5305 bands now 3575 cells  8043 r  0.35 speed   4.0  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y276.2 tin knife                          inv   3 taught 17455 bands now 1310 cells  6095 r  0.54 speed   1.4  [shape tin (metal) with stone hammerstone]
+    Y277.8 wool cord                          inv  10 taught 20760 bands now  574 cells  6338 r  0.07 speed   0.8  [shape wool with stone blade]
+    Y282.0 iron axe                           inv   2 taught 10214 bands now 2715 cells  8038 r  0.12 speed   2.3  [combine iron knife + wood shaft + plant fibre cord]
+    Y282.8 tin point                          inv   1 taught 17538 bands now 1283 cells  5398 r  0.54 speed   1.3  [shape tin knife with stone hammerstone]
+    Y287.8 copper (metal)                     inv   6 taught  319 bands now    0 cells   745 r  0.63 speed   0.6  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y300.5 tin ring                           inv   2 taught 16910 bands now  874 cells  4237 r  0.62 speed   2.0  [shape tin point with stone hammerstone]
+    Y300.8 woollen bag                        inv  19 taught 4035 bands now  292 cells  4288 r -0.16 speed   0.7  [shape wool cord with bare hands]
+    Y309.5 cooked grain                       inv   2 taught 8476 bands now  430 cells  1807 r  0.75 speed   0.5  [heat grain over charcoal fire in a clay-lined kiln]
+    Y317.2 woollen clothing                   inv   1 taught 9497 bands now  261 cells  5551 r  0.75 speed   0.9  [combine wool + iron point + plant fibre cord]
+    Y337.2 obsidian point                     inv   1 taught 2140 bands now    0 cells   609 r  0.22 speed   0.3  [shape obsidian blade with bone point]
+    Y355.0 flax cord                          inv   3 taught 2920 bands now  219 cells   881 r  0.51 speed   0.8  [shape flax with bare hands]
+    Y361.2 wool net                           inv   2 taught 8444 bands now  244 cells  4981 r  0.61 speed   1.3  [shape wool cord with iron point]
+    Y362.0 copper knife                       inv   1 taught 2511 bands now    0 cells  1553 r  0.44 speed   2.2  [shape copper (metal) with stone hammerstone]
+    Y364.5 woven basket                       inv  14 taught 1126 bands now  141 cells   645 r  0.47 speed   1.1  [shape flax cord with bare hands]
+    Y371.8 tin-tipped spear                   inv   2 taught 10491 bands now  506 cells  3957 r  0.66 speed   1.5  [combine tin point + wood shaft + plant fibre cord]
+    Y372.5 copper point                       inv   1 taught  187 bands now    0 cells   313 r  0.53 speed   1.2  [shape copper knife with stone hammerstone]
+    Y389.8 flax snare                         inv   1 taught 2041 bands now  217 cells   739 r  0.23 speed   1.0  [combine wood shaft + flax cord]
+    Y432.2 flax net                           inv   1 taught  515 bands now    9 cells   320 r -0.06 speed   1.0  [shape flax cord with iron point]
+    Y455.8 bow (wool string)                  inv   1 taught 1349 bands now   81 cells  1446 r  0.78 speed   0.8  [shape wood shaft with wool cord]
+    Y460.8 wool snare                         inv   3 taught  598 bands now  201 cells  1076 r  0.59 speed   0.8  [combine wood shaft + wool cord]
+    Y465.8 bow (flax string)                  inv   1 taught  335 bands now  217 cells   514 r  0.55 speed   0.9  [shape wood shaft with flax cord]
+    continents settled 1/3: #1 8052c gap 0 Y0 pop 70453, #2 7046c gap 33 never, #3 936c gap 119 never | islands reached 0/1
+    started in: Savanna 21C
+    sea: first boat Y106 | voyages 14030 | sightings 0 | drifts 445 (ashore as new bands 2, got home 8) | scouting 902 (found 0, lost 29) | landed on another landmass 0 | disasters 481 lost 3207 people (3207 per landing) | bands with boats now 3643 (seacraft 0.34)
+    seafaring (v9): seacraft p50 0.33 p90 0.48 max 0.76 | sail-usable bands 0 | coastal boat range p90 17.4 cells | far-shore word held by 0.0% of bands (0.0% within range)
+    lineages: alive 6 | largest 22% | effective 5.64 | by landmass: #1 70453 people: top L4 22%, eff 5.6
+    motives (v9): splits 15134 (5222 after dissent) | dissent mean 0.18 | curiosity 0.80 (overseas 0.00) | ambition -0.12 (overseas +0.00, 0 bands)
+    trade: 10426175 exchanges, volume 4401464, food shared 20491, mean dist 1.9 | last yr 36889 trades, 14370 partnerships, carried metal/obsidian 8.8 cells from source (max ever 69) | first: stone Y13, clay Y13, iron ore Y14, plant fibre Y18, hide Y56, bone Y73, tin ore Y86, flint Y87, copper ore Y121, obsidian Y160, salt Y162, grain Y204, iron Y218, wool Y242, tin Y259, copper Y288, flax Y320
+    lost worldwide: flint point (Y164), obsidian blade (Y257), obsidian blade (Y296), copper (metal) (Y298), woollen bag (Y330), obsidian blade (Y376), copper (metal) (Y379), obsidian point (Y394), copper point (Y405), copper knife (Y409), obsidian blade (Y419), obsidian point (Y419), obsidian point (Y430), obsidian blade (Y432), copper knife (Y453), woven basket (Y456), obsidian blade (Y466), obsidian blade (Y492)
+    conflict: 114015 confrontations (78596 avoided, 1371 paid off, 8801 fled) | 25247 fights (5049.4/century), 84211 killed = 0.400%/yr of people (lost at sea 3207) | 23849 displaced (451 by sea), 5175 absorbed, 11711 captives | by century fights [18, 1677, 6491, 8757, 8304] | lineages 6 (largest 22% of people; by century [23, 22, 23, 22, 22]) | disease deaths 0.091%/yr | pop by century [4243, 47439, 64571, 65549, 70453]
+    farming: first fields Y150 | independent origins 16 [Y150 Savanna 21C; Y169 Savanna 21C; Y202 Savanna 21C; Y202 Savanna 20C; Y250 TropForest 24C; Y255 Savanna 18C; Y276 TempForest 12C; Y314 Savanna 21C; Y314 Savanna 21C; Y318 TropForest 26C; Y332 Savanna 21C; Y370 Savanna 21C; Y376 Savanna 21C; Y392 TropForest 22C; Y434 TropForest 25C; Y480 Savanna 19C] | domestic grain Y343 | herding Y193 | plough Y315 | first epidemic Y285 | took up 288 gave up 149 | epidemics 389 disease deaths 19043
+    farming now: 271 farming bands (4769 people) vs 3431 foraging bands (65684 people) | landmasses farming 1 foraging 1 | 1089 herding | fields 879 (413 domestic) soil 82% | food from farming 8% (peak 10%) | people/occupied cell farmers 30 foragers 36 | by century farmer pop/pop food% [0/4243 0%, 0/47439 0%, 70/64571 0%, 4046/65549 7%, 4769/70453 8%]
+seed 10: Y500 pop 54122 bands 3375 range 11115 cells | items now 62 (mean/band 27.5) | stage now: bronze, ever: bronze | exp 1338465 inv 403 learned 826087 forgot 742633 | splits 13038 died 158 | lineage-found 5% of known, 0.0% of acquisitions | 36.9s (gen 0.0s)
+    Y  0.5 stone hammerstone                  inv   4 taught   25 bands now 3374 cells  5898 r  0.53 speed   0.3  [shape stone with bare hands]
+    Y  1.5 wood shaft                         inv   3 taught   20 bands now 3292 cells  5895 r  0.41 speed   0.3  [shape wood with bare hands]
+    Y  2.8 plant fibre cord                   inv   5 taught   18 bands now 3361 cells  5898 r  0.49 speed   0.3  [shape plant fibre with bare hands]
+    Y  9.5 fire                               inv   3 taught 1239 bands now 3365 cells  5898 r  0.51 speed   0.3  [taken from a wildfire]
+    Y  9.8 woven basket                       inv   7 taught  771 bands now 3361 cells  5898 r  0.53 speed   0.3  [shape plant fibre cord with bare hands]
+    Y 13.8 stone blade                        inv   3 taught   54 bands now 3374 cells  5898 r  0.55 speed   0.4  [shape stone with stone hammerstone]
+    Y 16.2 sharpened-stick spear              inv  21 taught 10603 bands now 3245 cells  5895 r  0.42 speed   0.4  [shape wood shaft with stone blade]
+    Y 16.8 cooked wild plants                 inv   4 taught   81 bands now 2423 cells  4486 r  0.31 speed   0.3  [heat wild plants over fire]
+    Y 17.8 unfired clay pot                   inv   8 taught  376 bands now 3159 cells  5898 r  0.39 speed   0.4  [shape clay with bare hands]
+    Y 20.0 cooked meat                        inv   6 taught  813 bands now 1191 cells  5575 r  0.14 speed   0.3  [heat meat over fire]
+    Y 28.8 cooked fish                        inv   7 taught 4408 bands now  635 cells  2659 r  0.36 speed   0.3  [heat fish over fire]
+    Y 31.8 bone point                         inv   7 taught 12218 bands now  516 cells  5895 r  0.49 speed   0.4  [shape bone with stone blade]
+    Y 33.8 plant fibre snare                  inv   3 taught 1863 bands now 3286 cells  5892 r  0.36 speed   0.4  [combine wood shaft + plant fibre cord]
+    Y 52.8 plant fibre net                    inv  26 taught 3251 bands now 3288 cells  5892 r  0.38 speed   0.5  [shape plant fibre cord with wood shaft]
+    Y 55.5 fired pottery                      inv   3 taught  384 bands now 3110 cells  5844 r  0.28 speed   0.4  [heat unfired clay pot over fire]
+    Y 61.8 hide thong                         inv   3 taught 12215 bands now  323 cells  5896 r  0.46 speed   0.5  [shape hide with stone blade]
+    Y 62.5 bone-tipped spear                  inv   3 taught 64013 bands now  442 cells  5884 r  0.33 speed   0.5  [combine bone point + wood shaft + plant fibre cord]
+    Y 64.2 stone axe                          inv   2 taught  144 bands now 3288 cells  5892 r  0.33 speed   0.4  [combine stone blade + wood shaft + plant fibre cord]
+    Y 67.2 bone beads                         inv  34 taught 27991 bands now  159 cells  5880 r  0.33 speed   0.5  [shape bone point with stone hammerstone]
+    Y 67.5 hide bag                           inv  66 taught 34951 bands now  270 cells  5896 r  0.43 speed   0.5  [shape hide thong with bare hands]
+    Y 77.2 hide net                           inv   5 taught 30266 bands now  294 cells  5891 r  0.41 speed   0.5  [shape hide thong with bone point]
+    Y 84.2 hide clothing                      inv   1 taught 13672 bands now  287 cells  5890 r  0.37 speed   0.6  [combine hide + bone point + plant fibre cord]
+    Y110.8 reed bundle boat                   inv   6 taught 33068 bands now 3200 cells  5898 r  0.44 speed   0.8  [combine plant fibre + plant fibre cord]
+    Y111.0 dugout canoe                       inv   1 taught 1660 bands now 3288 cells  5892 r  0.30 speed   0.7  [shape wood with stone axe]
+    Y118.8 clay-lined kiln                    inv   2 taught 4718 bands now 3108 cells  5844 r  0.22 speed   0.9  [combine clay + fire]
+    Y119.8 wool cord                          inv   9 taught 42050 bands now  415 cells  4365 r  0.67 speed   0.3  [shape wool with bare hands]
+    Y136.5 charcoal                           inv  12 taught 4682 bands now 3276 cells  5885 r  0.17 speed   1.1  [heat wood over fire in a clay-lined kiln]
+    Y138.0 woollen bag                        inv  51 taught 10856 bands now  231 cells  3322 r  0.57 speed   0.3  [shape wool cord with bare hands]
+    Y144.0 rawhide snare                      inv   1 taught 13401 bands now  290 cells  5883 r  0.19 speed   1.3  [combine wood shaft + hide thong]
+    Y150.2 stone-lined kiln                   inv   6 taught 40752 bands now 3075 cells  5895 r  0.08 speed   1.3  [combine stone + fire]
+    Y150.5 charcoal fire                      inv   1 taught  988 bands now 3276 cells  5885 r  0.13 speed   1.6  [combine charcoal + fire]
+    Y152.0 wool net                           inv   2 taught 14701 bands now  370 cells  3750 r  0.64 speed   0.5  [shape wool cord with wood shaft]
+    Y154.0 carrying frame (plant fibre)       inv   1 taught 1034 bands now 3289 cells  5892 r  0.15 speed   1.6  [combine wood shaft + plant fibre cord + woven basket]
+    Y155.5 flint blade                        inv   2 taught 15669 bands now 1330 cells  4304 r  0.01 speed   0.9  [shape flint with stone hammerstone]
+    Y162.0 flint point                        inv   4 taught 57553 bands now 1330 cells  4259 r -0.02 speed   1.1  [shape flint blade with stone hammerstone]
+    Y166.2 tin (metal)                        inv   4 taught 14501 bands now  126 cells  2155 r  0.43 speed   0.4  [heat tin ore over charcoal fire in a stone-lined kiln]
+    Y168.8 outrigger canoe                    inv   1 taught 3375 bands now 3285 cells  5892 r  0.22 speed   2.2  [combine wood shaft + plant fibre cord + dugout canoe]
+    Y184.0 tin knife                          inv   4 taught 24527 bands now  935 cells  5729 r  0.54 speed   0.9  [shape tin (metal) with stone hammerstone]
+    Y185.8 outrigger canoe                    inv   2 taught 42078 bands now 2744 cells  5882 r  0.13 speed   1.1  [combine wood shaft + plant fibre cord + reed bundle boat]
+    Y185.8 copper (metal)                     inv   2 taught 16044 bands now  154 cells  2019 r -0.12 speed   0.3  [heat copper ore over charcoal fire in a clay-lined kiln]
+    Y195.2 wool shaft                         inv   3 taught 11276 bands now  254 cells  3357 r  0.76 speed   0.3  [shape wool with tin knife]
+    Y197.0 tin point                          inv   3 taught 24919 bands now  896 cells  5704 r  0.54 speed   0.9  [shape tin knife with stone hammerstone]
+    Y201.0 fired-brick kiln                   inv   1 taught 2555 bands now 3110 cells  5841 r  0.06 speed   2.7  [combine fired pottery + fire]
+    Y208.5 copper knife                       inv   4 taught 21635 bands now  728 cells  4740 r  0.33 speed   0.9  [shape copper (metal) with stone hammerstone]
+    Y210.8 obsidian blade                     inv   2 taught 13981 bands now   13 cells  1274 r  0.30 speed   0.3  [shape obsidian with stone hammerstone]
+    Y213.0 sinew-strung bow                   inv   1 taught 14714 bands now  290 cells  5864 r -0.01 speed   1.4  [shape wood shaft with hide thong]
+    Y214.5 bow (wool string)                  inv   1 taught 15445 bands now  378 cells  3952 r  0.55 speed   0.8  [shape wood shaft with wool cord]
+    Y215.0 flint-tipped spear                 inv   1 taught 16313 bands now 1329 cells  4100 r  0.05 speed   2.6  [combine flint point + wood shaft + plant fibre cord]
+    Y240.2 copper point                       inv   3 taught 20300 bands now  671 cells  4718 r  0.05 speed   1.4  [shape copper knife with stone hammerstone]
+    Y241.0 wool snare                         inv   1 taught 12884 bands now  380 cells  3951 r  0.17 speed   0.6  [combine wood shaft + wool cord]
+    Y248.2 flint axe                          inv   9 taught 21519 bands now 1072 cells  3680 r  0.35 speed   1.2  [combine flint blade + wood shaft + plant fibre cord]
+    Y253.2 wool-tipped spear                  inv  11 taught 9418 bands now  150 cells  2927 r  0.64 speed   0.7  [shape wool shaft with stone blade]
+    Y256.2 tin ring                           inv   8 taught 12788 bands now  632 cells  4989 r  0.41 speed   2.1  [shape tin point with stone hammerstone]
+    Y260.0 tin-tipped spear                   inv   2 taught 12152 bands now  555 cells  4454 r  0.32 speed   0.7  [combine tin point + wood shaft + plant fibre cord]
+    Y268.8 obsidian point                     inv   1 taught   11 bands now    0 cells     3 r     - speed     -  [shape obsidian blade with copper point]
+    Y297.5 copper ring                        inv   3 taught 9277 bands now  263 cells  3755 r  0.10 speed   2.5  [shape copper point with stone hammerstone]
+    Y328.8 copper-tipped spear                inv   4 taught 18212 bands now  558 cells  4113 r  0.21 speed   1.0  [combine copper point + wood shaft + plant fibre cord]
+    Y362.0 cooked grain                       inv   3 taught 6374 bands now  516 cells  1085 r -0.70 speed   0.2  [heat grain over fire in a stone-lined kiln]
+    Y365.8 bronze (metal)                     inv   2 taught  286 bands now  224 cells   507 r  0.32 speed   0.3  [heat copper (metal) + tin (metal) over charcoal fire in a stone-lined kiln]
+    Y384.2 copper axe                         inv   1 taught 8182 bands now  720 cells  3643 r  0.26 speed   1.2  [combine copper knife + wood shaft + plant fibre cord]
+    Y394.8 skin boat                          inv   2 taught 6021 bands now   72 cells  3629 r  0.02 speed   1.5  [combine hide + wood shaft + plant fibre cord]
+    Y414.0 woollen clothing                   inv   1 taught 3660 bands now  255 cells  2124 r  0.76 speed   2.2  [combine wool + copper point + plant fibre cord]
+    Y419.2 hide bellows                       inv   1 taught  760 bands now   11 cells  1099 r  0.54 speed   0.7  [combine wood shaft + plant fibre cord + hide bag]
+    continents settled 1/4: #1 5898c gap 0 Y0 pop 54122, #2 4356c gap 56 never, #3 1427c gap 21 never, #4 913c gap 84 never | islands reached 0/3
+    started in: Grassland 16C
+    sea: first boat Y111 | voyages 14887 | sightings 0 | drifts 474 (ashore as new bands 4, got home 9) | scouting 1329 (found 0, lost 54) | landed on another landmass 0 | disasters 481 lost 3106 people (3106 per landing) | bands with boats now 3344 (seacraft 0.35)
+    seafaring (v9): seacraft p50 0.35 p90 0.46 max 0.63 | sail-usable bands 0 | coastal boat range p90 16.7 cells | far-shore word held by 0.0% of bands (0.0% within range)
+    lineages: alive 6 | largest 22% | effective 5.76 | by landmass: #1 54122 people: top L5 22%, eff 5.8
+    motives (v9): splits 13038 (4851 after dissent) | dissent mean 0.24 | curiosity 0.95 (overseas 0.00) | ambition -0.10 (overseas +0.00, 0 bands)
+    trade: 7726676 exchanges, volume 3330350, food shared 11507, mean dist 2.0 | last yr 28876 trades, 13094 partnerships, carried metal/obsidian 8.7 cells from source (max ever 72) | first: stone Y6, clay Y6, plant fibre Y8, tin ore Y18, copper ore Y37, bone Y50, iron ore Y52, hide Y70, wool Y84, flint Y142, tin Y166, obsidian Y178, copper Y186, grain Y188, bronze Y366
+    lost worldwide: tin (metal) (Y199), wool shaft (Y210), tin point (Y214), tin knife (Y215), wool snare (Y248), obsidian blade (Y277), obsidian blade (Y314), obsidian blade (Y343), obsidian blade (Y378), obsidian blade (Y411), obsidian blade (Y448)
+    conflict: 96965 confrontations (64164 avoided, 1324 paid off, 8695 fled) | 22782 fights (4556.4/century), 67373 killed = 0.371%/yr of people (lost at sea 3106) | 22501 displaced (558 by sea), 4482 absorbed, 10092 captives | by century fights [2, 1137, 6851, 6690, 8102] | lineages 6 (largest 22% of people; by century [19, 20, 20, 21, 22]) | disease deaths 0.082%/yr | pop by century [4081, 38405, 60447, 61472, 54122]
+    farming: first fields Y141 | independent origins 21 [Y141 Grassland 17C; Y185 TempForest 17C; Y192 Savanna 17C; Y240 TempForest 16C; Y241 Savanna 24C; Y246 Savanna 29C; Y252 Savanna 24C; Y253 Grassland 17C; Y256 Savanna 29C; Y320 Savanna 27C; Y348 Savanna 27C; Y348 Grassland 17C; Y356 TempForest 16C; Y358 Savanna 29C; Y376 Savanna 27C; Y382 Savanna 18C; Y386 Savanna 18C; Y410 Savanna 28C; Y424 Savanna 20C; Y450 Savanna 18C; Y485 Savanna 18C] | domestic grain Y461 | herding Y52 | plough Y205 | first epidemic Y137 | took up 165 gave up 32 | epidemics 466 disease deaths 14915
+    farming now: 207 farming bands (4332 people) vs 3168 foraging bands (49790 people) | landmasses farming 1 foraging 1 | 1392 herding | fields 835 (386 domestic) soil 97% | food from farming 14% (peak 14%) | people/occupied cell farmers 68 foragers 39 | by century farmer pop/pop food% [0/4081 0%, 32/38405 1%, 13/60447 3%, 90/61472 6%, 4332/54122 14%]
+
+== 5 seeds, 500 years
+discovery-order distance between seeds (Kendall tau, 0 same .. 1 reversed): mean 0.15 over 10 pairs
+  same, over item pairs with no prerequisite link in either seed (diagnostic): mean 0.16
+  settled a second continent: 2/5 seeds (5 have more than one) | s6 1/2, s7 2/3 (2nd Y327), s8 2/6 (2nd Y184), s9 1/3, s10 1/4
+  boat-borne crossings to another continent: 2/5 seeds, 2 continents in all | first per seed: s7 Y327 (gap 14), s8 Y184 (gap 1) | before Y100: none | reached on foot: none
+  sea (all seeds): voyages 85618 | landed on another landmass 10069 | lost at sea 14564 (1 per landing) | scouting 5680 (found 186) | second continent before Y100: none
+  recipes found by experiment: 0.1% of acquisitions (mean); known recipes found in-lineage at end: 4% (mean)
+  stage copper         reached (highest ever)   0   holding now   1
+  stage bronze         reached (highest ever)   1   holding now   2
+  stage iron           reached (highest ever)   4   holding now   2
+  farming: fields in 5/5 seeds (first-field years [141, 150, 204, 224, 276]), 94 independent origins in all | farming at end 5/5, with foragers alongside 5/5 | domestic grain 3/5 | herding 5/5 | epidemics 5/5 (70133 disease deaths) | farmers 6% of all people at end
+  people per occupied cell at end, farmers/foragers: s6 24/40, s7 21/43, s8 42/38, s9 30/36, s10 68/39
+  total population at end (sum over seeds): 284686
+  alive at end: 5/5
+  conflict (mean per seed): 4187.5 fights/century, 65507 killed = 0.375%/yr of people, 20136 displaced (523.0 by sea), 4193.8 absorbed, 1195 paid off, 62444 avoided | largest lineage 25% of people (max 40%), lineages alive 6.0
+  lineages (v9): effective number 5.27 (mean; min 3.77) | top lineage on the most populous landmass 27% (mean; max 48%) | effective by century (mean): [5.3, 5.2, 5.3, 5.2, 5.3]
+  fights per century (mean): [6, 974, 5665, 7211, 7083] | population at end of each century (mean): [3076, 36446, 57561, 52536, 56937] | largest lineage % by century (mean): [27, 27, 27, 27, 26] | disease deaths 0.080%/yr
+  distance-vs-arrival correlation over 310 item spreads: mean 0.50
+  items found (in how many seeds; median year of first discovery):
+    outrigger canoe                       10 seeds  median Y 238.5
+    woven basket                           7 seeds  median Y  25.0
+    bone beads                             5 seeds  median Y  73.5
+    bone point                             5 seeds  median Y  70.0
+    bone-tipped spear                      5 seeds  median Y  87.8
+    carrying frame (plant fibre)           5 seeds  median Y 158.0
+    charcoal                               5 seeds  median Y 136.5
+    charcoal fire                          5 seeds  median Y 150.5
+    clay-lined kiln                        5 seeds  median Y 118.8
+    cooked fish                            5 seeds  median Y  28.8
+    cooked meat                            5 seeds  median Y  20.0
+    cooked wild plants                     5 seeds  median Y  23.2
+    copper (metal)                         5 seeds  median Y 253.5
+    dugout canoe                           5 seeds  median Y 198.2
+    fire                                   5 seeds  median Y   3.2
+    fired pottery                          5 seeds  median Y  53.0
+    fired-brick kiln                       5 seeds  median Y 214.0
+    flint axe                              5 seeds  median Y 230.8
+    flint blade                            5 seeds  median Y 173.8
+    flint point                            5 seeds  median Y 178.0
+    flint-tipped spear                     5 seeds  median Y 215.8
+    hide bag                               5 seeds  median Y  67.8
+    hide bellows                           5 seeds  median Y 193.2
+    hide clothing                          5 seeds  median Y 163.0
+    hide net                               5 seeds  median Y  79.5
+    hide thong                             5 seeds  median Y  60.5
+    obsidian blade                         5 seeds  median Y 210.8
+    plant fibre cord                       5 seeds  median Y   3.2
+    plant fibre net                        5 seeds  median Y  71.2
+    plant fibre snare                      5 seeds  median Y  49.2
+    rawhide snare                          5 seeds  median Y 128.0
+    reed bundle boat                       5 seeds  median Y 105.5
+    sharpened-stick spear                  5 seeds  median Y  62.8
+    sinew-strung bow                       5 seeds  median Y 198.8
+    stone axe                              5 seeds  median Y  64.2
+    stone blade                            5 seeds  median Y  36.5
+    stone hammerstone                      5 seeds  median Y   7.8
+    stone-lined kiln                       5 seeds  median Y 149.8
+    tin (metal)                            5 seeds  median Y 258.5
+    tin knife                              5 seeds  median Y 276.2
+    unfired clay pot                       5 seeds  median Y  17.8
+    wood shaft                             5 seeds  median Y  16.2
+    wool                                   5 seeds  median Y 241.8
+    wool cord                              5 seeds  median Y 277.8
+    cooked grain                           4 seeds  median Y 362.0
+    copper knife                           4 seeds  median Y 267.8
+    copper point                           4 seeds  median Y 271.8
+    iron bloom                             4 seeds  median Y 252.0
+    salt                                   4 seeds  median Y 256.5
+    tin point                              4 seeds  median Y 282.8
+    tin ring                               4 seeds  median Y 300.5
+    woollen bag                            4 seeds  median Y 300.8
+    wrought iron                           4 seeds  median Y 290.5
+    bow (wool string)                      3 seeds  median Y 423.0
+    copper axe                             3 seeds  median Y 384.2
+    copper ring                            3 seeds  median Y 297.5
+    copper-tipped spear                    3 seeds  median Y 282.5
+    grain                                  3 seeds  median Y 392.2
+    hide shield                            3 seeds  median Y 246.8
+    obsidian point                         3 seeds  median Y 325.8
+    skin boat                              3 seeds  median Y 240.0
+    tin-tipped spear                       3 seeds  median Y 294.0
+    wool net                               3 seeds  median Y 323.0
+    wool snare                             3 seeds  median Y 301.5
+    bronze (metal)                         2 seeds  median Y 365.8
+    flax                                   2 seeds  median Y 325.5
+    flax cord                              2 seeds  median Y 412.0
+    flax net                               2 seeds  median Y 439.8
+    flax snare                             2 seeds  median Y 480.8
+    wool shaft                             2 seeds  median Y 475.5
+    woollen clothing                       2 seeds  median Y 414.0
+    bow (flax string)                      1 seeds  median Y 465.8
+    bronze axe                             1 seeds  median Y 381.2
+    bronze knife                           1 seeds  median Y 334.8
+    bronze point                           1 seeds  median Y 340.2
+    bronze ring                            1 seeds  median Y 345.8
+    bronze-tipped spear                    1 seeds  median Y 359.0
+    iron axe                               1 seeds  median Y 282.0
+    iron knife                             1 seeds  median Y 229.2
+    iron point                             1 seeds  median Y 235.8
+    iron-tipped spear                      1 seeds  median Y 261.2
+    plank boat                             1 seeds  median Y 256.8
+    wool-tipped spear                      1 seeds  median Y 253.2
