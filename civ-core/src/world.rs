@@ -367,7 +367,7 @@ fn raw(m: Mat) -> Item {
 }
 
 /// Goods bands carry and can pass on (food is shared separately; wood is everywhere).
-pub const TRADE_MATS: [Mat; 17] = [
+pub const TRADE_MATS: [Mat; 18] = [
     Mat::Stone,
     Mat::Flint,
     Mat::Obsidian,
@@ -385,6 +385,7 @@ pub const TRADE_MATS: [Mat; 17] = [
     Mat::Wool,
     Mat::IronOre,
     Mat::Iron,
+    Mat::Salt,
 ];
 
 /// What material `mi` is worth to band `b` right now, as (reason to want it, marginal worth).
@@ -402,6 +403,8 @@ pub fn want(b: &Band, mi: usize) -> (f32, f32) {
     };
     let st = b.stock.get(mi).copied().unwrap_or(0.0);
     let nov = if st < 0.05 { 0.12 * b.curiosity } else { 0.0 };
+    // (v8) people who put meat and fish by in pots or over smoke want salt, once they know it
+    let need = if mi == Mat::Salt as usize && st > 0.0 && (b.d.kit.vessel != NONE || b.d.kit.smoke) { need.max(0.6) } else { need };
     let base = need.max(b.d.demand[mi]).max(nov);
     (base, base * (1.3 - st).clamp(0.0, 1.3))
 }
@@ -907,10 +910,14 @@ impl World {
             }
         }
         // hides, bones, and metal carried as blanks / ingots (made here or traded in)
-        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Grain, Mat::Flax, Mat::Wool] {
+        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Grain, Mat::Flax, Mat::Wool, Mat::Salt] {
             if st(mm) {
                 s.add(raw(mm));
             }
+        }
+        // (v8) sea water on the shore, or brine in a dry salt pan
+        if self.brine_at(i) {
+            s.add(raw(Mat::Brine));
         }
         if self.seen(1, i, b) > 5.0 {
             s.add(raw(Mat::Meat));
@@ -973,6 +980,17 @@ impl World {
             }
             b.d.uses = uses;
         }
+    }
+
+    /// (v8) Brine to hand: a sea shore, or a hot, dry lowland where salt pans form.
+    pub fn brine_at(&self, c: usize) -> bool {
+        let m = &self.map;
+        if !m.is_land(c) {
+            return false;
+        }
+        let (x, y) = (c % m.w, c / m.w);
+        let pan = m.rain[c] < 0.15 && m.temp[c] > 12.0 && m.height[c] < 500.0 && !m.river.get(c).copied().unwrap_or(false);
+        pan || nbrs8(x, y, m.w, m.h).any(|(a, bb)| !m.is_land(bb * m.w + a))
     }
 
     /// Is there open water (sea or a river) at or next to this cell?
@@ -1122,8 +1140,18 @@ impl World {
         // stored food rots faster in the warm; sealed containers and smoking slow it
         let base = 0.12 + 0.28 * (t / 25.0).clamp(0.0, 1.0);
         // dry grain keeps far better than fresh food (and better still in pits and jars)
-        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share);
-        let store_cap = pop * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled));
+        // (v8) salted meat and fish keep 30% longer; grain in pits or granaries (dug by settled
+        // people with a digging stick, on ground dry enough not to rot it) 40% longer
+        let salt = b.stock.get(Mat::Salt as usize).copied().unwrap_or(0.0) > 0.1;
+        let pits = b.settled > 0.5 && kit.dig != NONE && self.map.rain[ci] < 0.6;
+        let fresh = 1.0 - crop_share;
+        let keep = (1.0 - if salt { 0.3 * fresh } else { 0.0 }) * (1.0 - if pits { 0.4 * crop_share } else { 0.0 });
+        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep;
+        // (v8) cheese: milk from a tame herd, kept in fired pots, lasts the winter
+        let cheese = b.tame > 0.8 && b.herd > 0.1 && kit.vessel != NONE && mat(kit.vessel) == Mat::Ceramic;
+        let store_cap = pop
+            * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled) * if pits { 1.3 } else { 1.0 }
+                + if cheese { 0.3 * b.herd.min(1.0) } else { 0.0 });
         let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
         let mut ec = Econ {
             cells,
@@ -1188,7 +1216,7 @@ impl World {
         }
         // metal the band can smelt or alloy itself is kept as blanks / ingots; it remembers
         // where its ore came from
-        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre), (Mat::Iron, Mat::IronOre)] {
+        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre), (Mat::Iron, Mat::IronOre), (Mat::Salt, Mat::Brine)] {
             let mi = metal as usize;
             if b.d.tk.producible.has(raw(metal)) && b.stock[mi] < 0.8 {
                 let o = b.origin[ore as usize];
@@ -1206,7 +1234,8 @@ impl World {
             let present = match mm {
                 Mat::Wood => self.map.k_wood[ci] > 2.0,
                 Mat::Fibre => self.map.k_fibre[ci] > 2.0,
-                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => b.d.tk.producible.has(raw(mm)),
+                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Salt => b.d.tk.producible.has(raw(mm)),
+                Mat::Brine => false,
                 Mat::Flax | Mat::Wool => false, // grown / shorn: topped up in `farm_season`
                 mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
             };

@@ -209,6 +209,10 @@ impl World {
         if b.herd > 0.0 && !self.graze_pot.is_empty() {
             let gp = self.graze_pot[b.cell(self.map.w)].max(0.3);
             ft.herd_food = b.pop as f32 * b.herd * 0.22 * (0.4 + 0.6 * b.tame) * gp * self.params.forage_eff;
+            // (v8) dairying: a herd tame enough to milk, and pots to hold the milk
+            if b.tame > 0.8 && b.d.kit.vessel != NONE {
+                ft.herd_food *= 1.4;
+            }
             ft.labour += 0.08 * b.herd.min(1.0);
         }
         ft
@@ -422,7 +426,10 @@ impl World {
             }
             b.tame = (b.tame + 0.004 * (1.0 - b.tame)).min(1.0);
             // dung on the fields
-            fx.toward(Layer::Fert, ci, 0.01 * b.herd.min(1.0), 1.0, false);
+            // (v8) manuring: a band that keeps its herd on its own fields spreads the dung on
+            // purpose, and the soil comes back twice as fast
+            let manure = if b.sow > 0.3 && b.settled > 0.5 { 0.02 } else { 0.01 };
+            fx.toward(Layer::Fert, ci, manure * b.herd.min(1.0), 1.0, false);
             let hb = 0.01 * b.herd.min(1.0);
             for mm in [Mat::Hide, Mat::Bone] {
                 b.stock[mm as usize] = (b.stock[mm as usize] + hb).min(1.5);

@@ -311,6 +311,14 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
     // forging: a hot iron bloom hammered on a stone to squeeze out the slag and weld the sponge
     // into solid, workable wrought iron (needs a hearth that holds the heat, and many tries)
     if t2 != NONE {
+        // (v8) brine boiled down in a fired pot until the salt is left
+        let (br, pot) = if t1 == item(Form::Raw, Mat::Brine) { (t1, t2) } else { (t2, t1) };
+        if br == item(Form::Raw, Mat::Brine) {
+            if form(pot) == Form::Vessel && mat(pot) == Mat::Ceramic {
+                return o(item(Form::Raw, Mat::Salt), 0.3);
+            }
+            return None;
+        }
         let (bl, hm) = if form(t1) == Form::Bloom { (t1, t2) } else { (t2, t1) };
         if form(bl) == Form::Bloom && form(hm) == Form::Hammer {
             if mat(hm).props().hard >= 5.0 && temp >= FORGE_T {
