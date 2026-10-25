@@ -109,6 +109,10 @@ pub fn run(a: &Args) {
                 q.voyages, q.sightings, q.drifts, q.drift_landings, q.drift_returns, q.scouting, q.scout_finds, q.scouts_lost, q.crossings, q.sea_disasters, q.lost_at_sea,
                 q.lost_at_sea as f32 / q.crossings.max(1) as f32, q.bands_with_boats, q.seacraft_mean
             );
+            println!(
+                "    seafaring (v9): seacraft p50 {:.2} p90 {:.2} max {:.2} | sail-usable bands {} | coastal boat range p90 {:.1} cells | far-shore word held by {:.1}% of bands ({:.1}% within range)",
+                q.seacraft_p50, q.seacraft_p90, q.seacraft_max, q.sail_bands, q.range_p90, 100.0 * q.rumour_share, 100.0 * q.rumour_in_reach_share
+            );
             let l = &s.lineages;
             let bl: Vec<String> = l
                 .by_landmass

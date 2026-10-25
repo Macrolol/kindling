@@ -42,6 +42,10 @@ def parse(path):
             cur['lost'] = int(re.search(r'lost (\d+) people', line).group(1))
             cur['voy'] = int(re.search(r'voyages (\d+)', line).group(1))
             cur['land'] = int(re.search(r'landed on another landmass (\d+)', line).group(1))
+        elif re.match(r'\s+seafaring \(v9\):', line):
+            cur['xp90'] = float(re.search(r'p90 ([\d.]+)', line).group(1))
+            cur['sail'] = int(re.search(r'sail-usable bands (\d+)', line).group(1))
+            cur['rng90'] = float(re.search(r'range p90 ([\d.]+)', line).group(1))
         elif re.match(r'\s+trade:', line):
             f = re.search(r'first: (.*)', line)
             f = f.group(1) if f else ''
@@ -105,6 +109,8 @@ def agg(rows, tau_v=None):
         'discovery-order tau': tau_v if tau_v is not None else '-',
         'voyages / landings': f"{sum(r['voy'] for r in rows)} / {sum(r['land'] for r in rows)}",
         'lost at sea': sum(r['lost'] for r in rows),
+        'seacraft p90 / coastal range p90 (mean, v9)': (f"{sum(have('xp90'))/len(have('xp90')):.2f} / {sum(have('rng90'))/len(have('rng90')):.1f}" if have('xp90') else '-'),
+        'sail-usable bands (sum, v9)': (sum(have('sail')) if have('sail') else '-'),
         'iron seeds': sum(1 for r in rows if r.get('iron')),
         'bronze seeds': sum(1 for r in rows if r.get('bronze')),
         'sim seconds (sum)': round(sum(r['t'] for r in rows), 1),

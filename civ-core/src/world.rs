@@ -28,6 +28,17 @@ pub use farming::{crop_potential, graze_potential};
 pub const EVENT_CAP: usize = 40_000;
 /// (v9) Years a rumour of a far shore lasts without anyone seeing that land again.
 pub const RUMOUR_YEARS: u32 = 50;
+/// (v9) Seamanship: a completed voyage moves seacraft this share of the way to 1, plus this
+/// much per cell of open water crossed (up to 10 cells).
+pub const VOYAGE_LESSON: f32 = 0.03;
+pub const VOYAGE_LESSON_PER_CELL: f32 = 0.01;
+/// (v9) ... a scouting party that comes home, and a visit to partners across the water.
+pub const SCOUT_LESSON: f32 = 0.03;
+pub const SEA_VISIT_LESSON: f32 = 0.02;
+/// (v9) Chance per meeting that a better seafarer teaches a coastal band with boats (doubled
+/// between kin), and the share of the gap closed.
+pub const SEA_TEACH_P: f32 = 0.1;
+pub const SEA_TEACH_SHARE: f32 = 0.25;
 
 /// Straight-line distance between two cells, in cells.
 pub fn dist_cells(a: usize, b: usize, w: usize) -> f32 {
@@ -1824,14 +1835,19 @@ impl World {
         None
     }
 
+    /// (v9) Band `b` learns something of the sea: seacraft moves `gain` of the way to 1.
+    fn learn_sea(b: &mut Band, gain: f32) {
+        b.seacraft = (b.seacraft + gain * (1.0 - b.seacraft)).min(1.0);
+    }
+
     /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
     /// Returns the number lost.
     fn sea_toll(&self, b: &mut Band, sea: f32, rng: &mut Rng, fx: &mut Fx) -> u32 {
         // (v8) a plank boat has room for water and food for the whole trip
         let prepared = b.store >= 0.5 * b.pop as f32 || b.d.kit.plank != NONE;
         if rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, prepared, sea)) {
-            // a crossing made is a lesson learned
-            b.seacraft = (b.seacraft + 0.05 * (1.0 - b.seacraft)).min(1.0);
+            // a crossing made is a lesson learned, (v9) the more so the longer it was
+            Self::learn_sea(b, VOYAGE_LESSON + VOYAGE_LESSON_PER_CELL * sea.min(10.0));
             return 0;
         }
         // swamped within sight of land, many struggle ashore; far out, few do
@@ -1948,6 +1964,7 @@ impl World {
                 fx.counters.lost_at_sea += party as u64;
                 fx.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
             } else if let Some((c, sea)) = found {
+                Self::learn_sea(b, SCOUT_LESSON); // (v9) the party comes home wiser
                 if sea >= 1.4 && self.map.landmass_of(c) != own_lm {
                     self.sight_shore(b, c);
                     fx.counters.scout_finds += 1;
@@ -2392,9 +2409,19 @@ impl World {
             self.exchange(bands, c, a, rng, fx);
             self.share_farming(bands, a, c, rng, fx);
             self.share_farming(bands, c, a, rng, fx);
-        } else if rng.chance(0.5) {
-            self.exchange(bands, a, c, rng, fx);
-            self.exchange(bands, c, a, rng, fx);
+        } else {
+            // (v9) a visit across open water teaches whoever paddled it
+            if self.map.landmass_of(bands[a].cell(self.map.w)) != self.map.landmass_of(bands[c].cell(self.map.w)) {
+                for x in [a, c] {
+                    if bands[x].d.kit.boat_q > 0.0 {
+                        Self::learn_sea(&mut bands[x], SEA_VISIT_LESSON);
+                    }
+                }
+            }
+            if rng.chance(0.5) {
+                self.exchange(bands, a, c, rng, fx);
+                self.exchange(bands, c, a, rng, fx);
+            }
         }
         self.trade(bands, a, c, d, rng, fx);
     }
@@ -2537,6 +2564,15 @@ impl World {
         // (v8) herders on open land can learn to ride from riders, if they keep animals to ride
         if bands[src].ride > bands[dst].ride + 0.1 && bands[dst].herd > 0.1 && bands[dst].tame > 0.6 && self.open_land(bands[dst].cell(self.map.w)) && rng.chance(0.2) {
             bands[dst].ride += 0.5 * (bands[src].ride - bands[dst].ride);
+        }
+        // (v9) and seamanship, to people who have boats and live by the sea; kin teach more
+        // readily. Nobody learns past their teacher.
+        let gap = bands[src].seacraft - bands[dst].seacraft;
+        if gap > 0.1 && bands[dst].d.kit.boat_q > 0.0 && self.coastal(bands[dst].cell(self.map.w)) {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            if rng.chance(if kin { 2.0 * SEA_TEACH_P } else { SEA_TEACH_P }) {
+                bands[dst].seacraft += SEA_TEACH_SHARE * gap;
+            }
         }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range)

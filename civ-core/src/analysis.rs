@@ -174,6 +174,26 @@ pub struct SeaSummary {
     pub bands_with_boats: u32,
     /// year the first boat was made (None = never)
     pub first_boat: Option<f32>,
+    /// (v9) seafaring experience of bands with boats at the end: median, 90th percentile, max
+    pub seacraft_p50: f32,
+    pub seacraft_p90: f32,
+    pub seacraft_max: f32,
+    /// (v9) bands that have a sail and know the sea well enough to use it
+    pub sail_bands: u32,
+    /// (v9) share of bands holding word of a far shore, and of those within their boats' range
+    pub rumour_share: f32,
+    pub rumour_in_reach_share: f32,
+    /// (v9) 90th percentile of boat range (cells) among coastal bands with boats
+    pub range_p90: f32,
+}
+
+/// The `q` quantile (0..1) of `v` (sorted in place); 0 when empty.
+fn quantile(v: &mut [f32], q: f32) -> f32 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.total_cmp(b));
+    v[((v.len() - 1) as f32 * q).round() as usize]
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -527,6 +547,7 @@ pub fn summarize(w: &World) -> Summary {
             },
             bands_with_boats: w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).count() as u32,
             first_boat: w.firsts.iter().filter(|f| form(f.item) == Form::Boat).map(|f| f.tick as f32 / 4.0).reduce(f32::min),
+            ..sea_extras(w)
         },
         range_cells: range,
         continents,
@@ -589,5 +610,32 @@ pub fn order_distance_free(
         None
     } else {
         Some(disc as f32 / tot as f32)
+    }
+}
+
+/// (v9) The seafaring distribution and rumour figures of `SeaSummary`.
+fn sea_extras(w: &World) -> SeaSummary {
+    let boats: Vec<&crate::band::Band> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).collect();
+    let mut xp: Vec<f32> = boats.iter().map(|b| b.seacraft).collect();
+    let mut range: Vec<f32> = boats
+        .iter()
+        .filter(|b| w.coastal(b.cell(w.map.w)))
+        .map(|b| World::boat_range(&b.d.kit, b.seacraft))
+        .collect();
+    let n = w.bands.len().max(1) as f32;
+    let held: Vec<&crate::band::Band> = w.bands.iter().filter(|b| b.far_shore.is_some()).collect();
+    let reach = held
+        .iter()
+        .filter(|b| crate::world::dist_cells(b.cell(w.map.w), b.far_shore.unwrap() as usize, w.map.w) <= World::boat_range(&b.d.kit, b.seacraft))
+        .count();
+    SeaSummary {
+        seacraft_p50: quantile(&mut xp, 0.5),
+        seacraft_p90: quantile(&mut xp, 0.9),
+        seacraft_max: xp.last().copied().unwrap_or(0.0),
+        sail_bands: boats.iter().filter(|b| b.d.kit.sail != NONE && b.seacraft > 0.4).count() as u32,
+        rumour_share: held.len() as f32 / n,
+        rumour_in_reach_share: reach as f32 / n,
+        range_p90: quantile(&mut range, 0.9),
+        ..Default::default()
     }
 }

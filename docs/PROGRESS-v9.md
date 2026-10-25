@@ -69,3 +69,23 @@ in the same 4/10 worlds, at different dates: s1 Y157 (gap 3), s2 Y222 (gap 10), 
 s8 Y158 (gap 1). Landings on another landmass rose 60 % (23005 -> 36727) but no world with a gap
 of 26+ was crossed: rumours alone do not make long crossings; boats and skill limit them (as the
 proposal expected). Effective lineages 5.29, largest 26.8 % (top on the main landmass 26.9 -> 24.2 %).
+
+## Step 3 (P2): seamanship from all sea life, and taught
+
+- `World::learn_sea(b, gain)` moves seacraft `gain` of the way to 1. Sources: boat fishing (as
+  before); a completed voyage, `VOYAGE_LESSON` 0.03 + 0.01 per cell of open water (up to 10; was a
+  flat 0.05); a scouting party that comes home (0.03); a visit to partners on another landmass
+  (0.02 for each side with boats). Decay (x0.998 a season) and sea risk are unchanged.
+- Seacraft is taught at meetings like recipes: a band better at sea by more than 0.1 teaches a
+  coastal band with boats (chance 0.1, 0.2 between kin) a quarter of the gap. Inland peoples and
+  bands without boats learn nothing.
+- Sea-mammal hunting is not modelled (no such harvest), so it gives nothing yet.
+- Measurement: a new headless line `seafaring (v9)`: seacraft p50 / p90 / max of bands with
+  boats, sail-usable bands, the 90th percentile of coastal boat range, and the share of bands
+  holding word of a far shore (and within range). `agg_results.py` reports seacraft and range p90
+  and sail-usable bands.
+- Local seed 1 x 500y: seacraft mean 0.31 -> 0.51 (p90 0.69, max 0.88), coastal range p90 20.4
+  cells, no sail invented in that world; crossings #2 Y157, #3 Y188 (by sea); pop 109085, war
+  0.347 %/yr, effective lineages 5.61 (largest 22 %).
+
+CI: _pending_
