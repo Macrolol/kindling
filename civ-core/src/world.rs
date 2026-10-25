@@ -355,7 +355,7 @@ pub struct World {
 }
 
 /// attention every material gets regardless of place and need (see `attention`)
-const ATT_FLOOR: f32 = 0.5;
+const ATT_FLOOR: f32 = 1.0;
 fn raw(m: Mat) -> Item {
     item(Form::Raw, m)
 }
@@ -1384,7 +1384,7 @@ impl World {
                 *v *= carried;
             }
             // attention is focused: what is on people's minds crowds out the rest
-            *v = (*v * b.craft.get(mi).copied().unwrap_or(1.0)).powf(1.0);
+            *v = (*v * b.craft.get(mi).copied().unwrap_or(1.0)).powf(1.5);
         }
         a
     }
