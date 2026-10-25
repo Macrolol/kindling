@@ -403,6 +403,13 @@ pub fn want(b: &Band, mi: usize) -> (f32, f32) {
     };
     let st = b.stock.get(mi).copied().unwrap_or(0.0);
     let nov = if st < 0.05 { 0.12 * b.curiosity } else { 0.0 };
+    // (v8) a small, lasting want for what the band makes ornaments of, more for rare stuff
+    let need = if b.d.orn & bit != 0 {
+        let rare = matches!(ALL_MATS[mi], Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Obsidian);
+        need.max(if rare { 0.4 } else { 0.15 })
+    } else {
+        need
+    };
     // (v8) people who put meat and fish by in pots or over smoke want salt, once they know it
     let need = if mi == Mat::Salt as usize && st > 0.0 && (b.d.kit.vessel != NONE || b.d.kit.smoke) { need.max(0.6) } else { need };
     let base = need.max(b.d.demand[mi]).max(nov);
@@ -979,6 +986,14 @@ impl World {
                 }
             }
             b.d.uses = uses;
+            let mut orn = 0u32;
+            for k in &b.known {
+                let out = self.reg.recipes[k.recipe as usize].output;
+                if form(out) == Form::Ornament {
+                    orn |= 1 << (mat(out) as u32);
+                }
+            }
+            b.d.orn = orn;
         }
     }
 
@@ -1076,7 +1091,8 @@ impl World {
                 continue;
             }
             let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank;
-            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) {
+            // ornaments are kept for show, not worn out at work
+            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
@@ -1259,7 +1275,7 @@ impl World {
         let farm_share = (ec.farm_food / ec.food.max(1e-3)).clamp(0.0, 1.0);
         let sed = 1.0 + 0.6 * b.settled * farm_share;
         let births = rng.poisson(pop * p.birth_rate * fed * (0.8 + 0.4 * spare) * sed);
-        let deaths = rng.poisson(pop * p.death_rate + pop * p.starve_rate * (1.0 - food_ratio).powf(1.5));
+        let deaths = rng.poisson(pop * p.death_rate * (1.0 - 0.05 * b.herbal) + pop * p.starve_rate * (1.0 - food_ratio).powf(1.5));
         b.pop = (b.pop + births).saturating_sub(deaths);
         self.disease_season(b, rng, fx);
         // ---------------- fire keeping
@@ -2170,7 +2186,8 @@ impl World {
                     continue;
                 }
                 let boat = b.d.kit.boat_q.max(o.d.kit.boat_q);
-                let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat;
+                let frame = b.d.kit.frame != NONE || o.d.kit.frame != NONE;
+                let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat + if frame { 1.0 } else { 0.0 };
                 let (ca, cc) = (b.cell(w as usize), o.cell(w as usize));
                 let lm_a = self.map.landmass_of(ca);
                 let lm_c = self.map.landmass_of(cc);
@@ -2302,7 +2319,9 @@ impl World {
                 if sf < 0.3 {
                     continue;
                 }
-                let q = (sf - 0.2).min(0.3);
+                // (v8) a carrying frame takes a bigger load, more for a better basket
+                let fr = if from.d.kit.frame != NONE { 1.0 + vessel_q(mat(from.d.kit.frame)) } else { 1.0 };
+                let q = (sf - 0.2).min(0.3 * fr);
                 let g = want(to, mi).1 - want(from, mi).1;
                 if bst.map_or(true, |b| g > b.1) {
                     bst = Some((mi, g, q));
@@ -2392,6 +2411,10 @@ impl World {
         // fire can be shared
         if bands[src].flame && !bands[dst].flame && rng.chance(0.5) {
             bands[dst].flame = true;
+        }
+        // (v8) and what plants ease the sick
+        if bands[src].herbal > bands[dst].herbal + 0.1 && rng.chance(0.3) {
+            bands[dst].herbal += 0.5 * (bands[src].herbal - bands[dst].herbal);
         }
         // so can word of a land across the water
         if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
@@ -2534,6 +2557,7 @@ impl World {
                 immune: b.immune,
                 sick: b.sick,
                 seacraft: b.seacraft,
+                herbal: 0.9 * b.herbal,
                 ..Default::default()
             };
             if let Some(sea) = sailed {

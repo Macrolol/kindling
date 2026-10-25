@@ -464,17 +464,23 @@ impl World {
         let hz = 1.0 + 1.5 * b.herd.min(1.0);
         let hs = 1.2 * (b.settled - 0.15).max(0.0) + 0.3 * b.herd.min(1.0);
         let endemic = p.disease * 0.001 * (dens / 100.0).powf(1.5) * (0.1 + b.settled) * hz * (1.0 - 0.5 * b.immune);
+        // (v8) medicine: herbal lore eases endemic sickness; settled people who boil their water
+        // in fired pots catch less of it
+        let boiled = b.settled > 0.5 && b.d.kit.fire != NONE && b.d.kit.vessel != NONE && mat(b.d.kit.vessel) == Mat::Ceramic;
+        let care = if boiled { 0.85 } else { 1.0 };
+        let endemic = endemic * (1.0 - 0.15 * b.herbal) * care;
         let mut dead = rng.poisson(pop * endemic);
         if b.sick < 0.05 {
             // outbreaks need crowds that stay put (or live with animals)
             let ch = p.disease * 0.003 * (dens / 80.0 - 0.5).max(0.0) * hs * (1.0 - b.immune);
             if rng.chance(ch) {
                 b.sick = rng.range(0.6, 1.0);
+                b.wary = 1.0;
                 fx.ops.push(Op::Epidemic { band: b.id, from: 0, cell: ci as u32 });
             }
         }
         if b.sick >= 0.05 {
-            dead += rng.poisson(pop * 0.06 * b.sick * (1.0 - 0.7 * b.immune));
+            dead += rng.poisson(pop * 0.06 * b.sick * (1.0 - 0.7 * b.immune) * care);
             b.immune = (b.immune + 0.4 * b.sick * (1.0 - b.immune)).min(1.0);
             b.sick *= 0.5;
             if b.sick < 0.05 {
@@ -482,6 +488,19 @@ impl World {
             }
         }
         b.immune *= 0.997;
+        b.wary *= 0.8;
+        // (v8) herbal lore: people under sickness in plant-rich land try what grows about them,
+        // heated or crushed; what is not practised is forgotten
+        let plants = self.plants.get(ci).copied().unwrap_or(0.0);
+        if (b.sick >= 0.05 || endemic > 0.0005) && plants > 20.0 && b.d.kit.fire != NONE {
+            if b.herbal > 0.0 {
+                b.herbal = (b.herbal + 0.03 * (1.0 - b.herbal)).min(1.0);
+            } else if rng.chance(0.02) {
+                b.herbal = 0.2;
+            }
+        } else {
+            b.herbal *= 0.995;
+        }
         let dead = dead.min(b.pop);
         b.pop -= dead;
         fx.counters.disease_deaths += dead as u64;
@@ -492,8 +511,11 @@ impl World {
     pub(super) fn spread_disease(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
         for (x, y) in [(a, c), (c, a)] {
             let s = bands[y].settled;
-            if bands[x].sick > 0.15 && bands[y].sick < 0.05 && rng.chance(0.5 * (1.0 - bands[y].immune) * (0.3 + 0.7 * s)) {
+            // (v8) a band that has been through an outbreak keeps away from the sick for a while
+            let wary = 1.0 - 0.4 * bands[y].wary;
+            if bands[x].sick > 0.15 && bands[y].sick < 0.05 && rng.chance(0.5 * (1.0 - bands[y].immune) * (0.3 + 0.7 * s) * wary) {
                 bands[y].sick = 0.8 * bands[x].sick;
+                bands[y].wary = 1.0;
                 let from = bands[x].id;
                 let (yid, yc) = (bands[y].id, bands[y].cell(self.map.w));
                 fx.ops.push(Op::Epidemic { band: yid, from, cell: yc as u32 });

@@ -641,3 +641,20 @@ fn outriggers_sails_and_plank_boats() {
     assert!(World::boat_range(&k1, 0.5) > 1.5 * World::boat_range(&k0, 0.5));
     assert_eq!(World::boat_range(&k1, 0.2), World::boat_range(&k0, 0.2));
 }
+
+#[test]
+fn frames_ornaments_and_medicine() {
+    let dry = Ctx { dryness: 0.5, water: false };
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let cord = item(Form::Cord, Mat::Fibre);
+    let comb = |inp| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &dry).map(|o| o.out);
+    // a basket on a frame carries goods; a hide bag on a stick is still a bellows
+    assert_eq!(comb([item(Form::Vessel, Mat::Fibre), shaft, cord, NONE]), Some(item(Form::Frame, Mat::Fibre)));
+    assert_eq!(comb([item(Form::Vessel, Mat::Hide), shaft, cord, NONE]), Some(item(Form::Bellows, Mat::Hide)));
+    let shape = |t| physics::apply(Action::Shape, &physics::canonical(Action::Shape, [t, item(Form::Hammer, Mat::Stone), NONE, NONE]), &dry).map(|o| o.out);
+    assert_eq!(shape(item(Form::Point, Mat::Tin)), Some(item(Form::Ornament, Mat::Tin)));
+    assert_eq!(shape(item(Form::Point, Mat::Flint)), None);
+    // herbal lore and wariness load as zero from older saves
+    let b = crate::band::Band::default();
+    assert_eq!((b.herbal, b.wary), (0.0, 0.0));
+}

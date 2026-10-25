@@ -87,6 +87,10 @@ pub struct Band {
     pub wall: f32,
     /// the cell the wall stands in (it stays behind when the band moves)
     pub wall_cell: u32,
+    /// (v8) herbal lore, 0..1: what plants ease the sick, learned under disease and taught on
+    pub herbal: f32,
+    /// (v8) wariness of sick neighbours after an outbreak, 0..1, fading
+    pub wary: f32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -240,6 +244,7 @@ struct Carry {
     experiments: u32,
     needed: u32,
     uses: u32,
+    orn: u32,
     demand: Vec<f32>,
 }
 
@@ -258,6 +263,7 @@ fn ser_carry<S: serde::Serializer>(d: &Derived, s: S) -> Result<S::Ok, S::Error>
         experiments: d.experiments,
         needed: d.needed,
         uses: d.uses,
+        orn: d.orn,
         demand: d.demand.to_vec(),
     }
     .serialize(s)
@@ -279,6 +285,7 @@ fn de_carry<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Derived, D::Error
         experiments: c.experiments,
         needed: c.needed,
         uses: c.uses,
+        orn: c.orn,
         ..Default::default()
     };
     for (i, v) in c.demand.into_iter().take(NMAT).enumerate() {
@@ -314,6 +321,8 @@ pub struct Derived {
     pub needed: u32,
     /// raw materials (bitmask) that appear in any recipe the band knows
     pub uses: u32,
+    /// (v8) materials (bitmask) the band knows how to make ornaments of
+    pub orn: u32,
     /// demand for each material heard from trade partners (lets goods pass down a chain)
     pub demand: [f32; NMAT],
     /// (cell, available items) when the knowledge map was last updated for this band: while

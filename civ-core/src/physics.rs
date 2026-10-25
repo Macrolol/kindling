@@ -159,6 +159,13 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             }
             None
         }
+        Form::Point => {
+            // (v8) a bone or soft metal point hammered and ground into a bead or pin, kept for show
+            if of == Form::Hammer && matches!(tm, Mat::Bone | Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Obsidian) {
+                return o(item(Form::Ornament, tm), 0.2);
+            }
+            None
+        }
         Form::Cord => {
             // knot cord into an open mesh over a gauge stick / with a netting needle
             if !hands && (of == Form::Shaft || of == Form::Point) && tp.fibrous >= 5.0 {
@@ -240,6 +247,12 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if ctx.water && n == 2 && count(Form::Cord) == 1 {
         if let Some(r) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().float >= 5.0 && mat(i).props().fibrous >= 8.0) {
             return o(item(Form::Boat, mat(r)), 0.03);
+        }
+    }
+    // (v8) a basket or bag lashed to a pole frame, carried on the back: a carrying frame
+    if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        if let Some(bag) = items.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i).props().seal < 5.0 && mat(i).props().fibrous >= 5.0) {
+            return o(item(Form::Frame, mat(bag)), 0.08);
         }
     }
     // bellows: a tough, airtight bag lashed to a stick, pumped to blow air into a fire
