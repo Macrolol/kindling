@@ -2222,16 +2222,24 @@ impl World {
         if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
             bands[dst].far_shore = bands[src].far_shore;
         }
-        // the recipes dst already knows, sorted once (a linear `knows` per candidate was ~5% of a run)
-        let mut dk: Vec<u32> = bands[dst].known.iter().map(|k| k.recipe).collect();
-        dk.sort_unstable();
+        // a 1024-bit filter of the recipes dst knows: a clear bit means "not known" without the
+        // linear `knows` scan (which was ~5% of a run); a set bit falls back to the exact scan
+        let mut dk = [0u64; 16];
+        for k in &bands[dst].known {
+            let h = (k.recipe & 1023) as usize;
+            dk[h >> 6] |= 1 << (h & 63);
+        }
+        let maybe_known = |r: u32| {
+            let h = (r & 1023) as usize;
+            dk[h >> 6] & (1 << (h & 63)) != 0
+        };
         let cands: Vec<(u32, f32)> = bands[src]
             .known
             .iter()
             .filter(|k| k.skill >= 0.25)
             .filter(|k| {
                 let out = self.reg.recipes[k.recipe as usize].output;
-                !bands[dst].d.tk.producible.has(out) && dk.binary_search(&k.recipe).is_err()
+                !bands[dst].d.tk.producible.has(out) && !(maybe_known(k.recipe) && bands[dst].knows(k.recipe))
             })
             .map(|k| (k.recipe, k.skill))
             .collect();

@@ -337,8 +337,19 @@ impl ItemSet {
     pub fn count(&self) -> u32 {
         self.0.iter().map(|w| w.count_ones()).sum()
     }
+    /// Members in ascending order (word by word, skipping empty words and zero bits).
     pub fn iter(&self) -> impl Iterator<Item = Item> + '_ {
-        (0..(NITEMS as u16)).filter(move |&i| self.has(i))
+        self.0.iter().enumerate().flat_map(|(w, &word)| {
+            let mut x = word;
+            std::iter::from_fn(move || {
+                if x == 0 {
+                    return None;
+                }
+                let t = x.trailing_zeros();
+                x &= x - 1;
+                Some((w as u32 * 64 + t) as Item)
+            })
+        })
     }
 }
 

@@ -180,6 +180,7 @@ pub struct Toolkit {
 /// keeps a captured fire (gives `fire` while wood is at hand).
 pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> Toolkit {
     let mut tk = Toolkit { avail: *raws, ..Default::default() };
+    tk.via.reserve(raws.count() as usize + known.len() + 1);
     for i in raws.iter() {
         tk.via.insert(i, (u16::MAX, 1u32 << (i % 32), 0));
     }
