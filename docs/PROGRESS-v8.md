@@ -230,8 +230,8 @@ as it is.
 Riding appeared in 8 of 10 seeds, first between Y232 and Y499 (seeds 1-10: Y335, Y325, Y292,
 none, Y232, Y444, Y365, none, Y248, Y499). Where it starts early it spreads widely: in seed 5
 (first rider Y232) 95% of people belong to riding bands by Y500, in seeds 2 and 3 about half do.
-Over all ten worlds 49.5% of people ride at Y500. Seeds 4 and 8 have no wild herds on steppe
-near herders, so nobody rides. War rises only slightly (0.348 to 0.356%/yr) because riding
+Over all ten worlds 49.5% of people ride at Y500. In seeds 4 and 8 no herding band met the
+conditions to start (tamed wild herd, cord, open steppe) within 500 years. War rises only slightly (0.348 to 0.356%/yr) because riding
 strengthens attacks but does not make bands more willing to fight.
 
 ## Final balance (v0.8.0, sim code 323f194, run 40212892437)
