@@ -638,7 +638,7 @@ impl World {
             fx::par_map(bands, |b| me.band_prep(b))
         };
         if let Some(p) = self.prof.as_mut() {
-            p.t[5] += dts.iter().sum::<f64>();
+            p.t[13] += dts.iter().sum::<f64>();
         }
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         let ecs = self.take_harvest(bands, s);
@@ -650,6 +650,7 @@ impl World {
         }
         // phase 3 reads the wild stocks as each band would have found them in v5, right after
         // its own harvest (before the later bands took theirs): see `seen`
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         // regroup the log by cell so each lookup reads one short contiguous run;
         // hhead becomes (start, len) into hcell
         const DONE: u32 = u32::MAX - 1;
@@ -674,6 +675,9 @@ impl World {
             self.hhead[c] = (start, self.hcell.len() as u32 - start);
         }
         self.hlog_on = true;
+        if let (Some(t), Some(p)) = (tk.as_mut(), self.prof.as_mut()) {
+            p.t[14] += t.lap();
+        }
         let key = rng.next_u64();
         let tick = self.tick as u64;
         let fxs: Vec<Fx> = {
@@ -690,8 +694,12 @@ impl World {
             })
         };
         self.hlog_on = false;
+        let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         for (b, f) in bands.iter_mut().zip(fxs) {
             self.apply_fx(f, Some(b));
+        }
+        if let (Some(t), Some(p)) = (tk.as_mut(), self.prof.as_mut()) {
+            p.t[15] += t.lap();
         }
     }
 
@@ -2760,12 +2768,12 @@ pub(crate) struct HarvestMark {
 
 #[derive(Clone, Debug, Default)]
 pub struct Prof {
-    pub t: [f64; 13],
+    pub t: [f64; 16],
 }
 impl Prof {
-    pub const NAMES: [&'static str; 13] = [
+    pub const NAMES: [&'static str; 16] = [
         "regrow+occ", "band seasons", "contacts", "demography", "stats", "  economy", "  farming", "  experiments", "  movement", "  other",
-        "  finding neighbours", "  meetings", "  partner visits",
+        "  finding neighbours", "  meetings", "  partner visits", "  prep (toolkits)", "  harvest log", "  merge",
     ];
 }
 
