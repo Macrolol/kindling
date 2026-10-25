@@ -15,6 +15,8 @@ pub struct Band {
     pub lineage: u32,
     pub parent: u32,
     pub gen: u32,
+    /// earlier ancestors: grandparent, great-grandparent, great-great-grandparent (0 = unknown)
+    pub anc: [u32; 3],
     pub x: u16,
     pub y: u16,
     pub pop: u32,
@@ -90,11 +92,16 @@ pub struct Partner {
 #[serde(default)]
 pub struct Grudge {
     pub id: u32,
+    /// founding lineage of the wrongdoer (kept for old saves; no longer used)
     pub lineage: u32,
     pub w: f32,
+    /// the wrongdoer's parent band: the grudge spills onto its close family
+    pub par: u32,
 }
 
 pub const MAX_GRUDGES: usize = 6;
+/// years over which remembered kinship between split bands fades (e-folding)
+pub const KIN_FADE_YEARS: f32 = 150.0;
 
 /// The best item a band uses for each task, and the resulting multipliers.
 #[derive(Clone, Copy, Debug)]
@@ -323,7 +330,8 @@ impl Band {
         for x in &self.grudges {
             if x.id == o.id {
                 g = g.max(x.w);
-            } else if x.lineage == o.lineage {
+            } else if o.parent == x.id || o.id == x.par || (x.par != 0 && o.parent == x.par) {
+                // the wrongdoer's parent, daughters and sisters share some of the blame
                 g = g.max(0.3 * x.w);
             }
         }
@@ -341,11 +349,41 @@ impl Band {
             }
             self.grudges.swap_remove(wi);
         }
-        self.grudges.push(Grudge { id: o.id, lineage: o.lineage, w: by.min(2.0) });
+        self.grudges.push(Grudge { id: o.id, lineage: o.lineage, w: by.min(2.0), par: o.parent });
     }
     /// Close kin: parent and daughter, or sisters split from the same band.
     pub fn close_kin(&self, o: &Band) -> bool {
         self.parent == o.id || o.parent == self.id || (self.parent != 0 && self.parent == o.parent)
+    }
+    /// How related two bands are, 0..1: shared descent through the last few splits (1 = parent
+    /// and daughter, halving each step further apart), fading with the years since the younger
+    /// band split off, as people marry out and memory of the tie thins. Bands that merely share a
+    /// distant founder are strangers.
+    pub fn kinship(&self, o: &Band, tick: u32) -> f32 {
+        if self.lineage != o.lineage {
+            return 0.0;
+        }
+        let ca = [self.id, self.parent, self.anc[0], self.anc[1], self.anc[2]];
+        let cb = [o.id, o.parent, o.anc[0], o.anc[1], o.anc[2]];
+        let mut deg = usize::MAX;
+        for (i, &x) in ca.iter().enumerate() {
+            if x == 0 {
+                break;
+            }
+            for (j, &y) in cb.iter().enumerate() {
+                if y == 0 {
+                    break;
+                }
+                if x == y {
+                    deg = deg.min(i + j);
+                }
+            }
+        }
+        if deg == usize::MAX || deg == 0 {
+            return 0.0;
+        }
+        let yrs = tick.saturating_sub(self.born.max(o.born)) as f32 / 4.0;
+        0.5f32.powi(deg as i32 - 1) * (-yrs / KIN_FADE_YEARS).exp()
     }
     pub fn cell(&self, w: usize) -> usize {
         self.y as usize * w + self.x as usize

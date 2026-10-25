@@ -33,10 +33,9 @@ impl World {
         let ties = a.partner(c.id).map(|p| p.strength).unwrap_or(0.0);
         let kin = if a.close_kin(c) {
             0.2
-        } else if a.lineage == c.lineage {
-            0.7
         } else {
-            1.0
+            // more distant relatives quarrel a little less; a shared founder long ago counts for nothing
+            1.0 - 0.3 * (2.0 * a.kinship(c, self.tick)).min(1.0)
         };
         // crowding alone breeds friction only when food is short; a grudge needs no reason
         let base = overlap * (hunger * (1.0 + 0.5 * crowd) + 0.5 * lure + 0.5 * goods) + 0.6 * g;

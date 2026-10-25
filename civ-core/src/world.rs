@@ -1813,6 +1813,7 @@ impl World {
             lineage: b.lineage,
             parent: b.id,
             gen: b.gen + 1,
+            anc: [b.parent, b.anc[0], b.anc[1]],
             x: (c % self.map.w) as u16,
             y: (c / self.map.w) as u16,
             pop: party,
@@ -1949,6 +1950,7 @@ impl World {
         // so the neighbourhoods can be searched in parallel), then in random order: a band only
         // has time for a few meetings a season, so in crowded country most neighbours go unvisited
         let key0 = rng.next_u64();
+        let tick = self.tick;
         let per: Vec<(u64, Vec<(usize, usize, i32)>)> = {
             let occ = &self.occ;
             let bs = &*bands;
@@ -1969,7 +1971,7 @@ impl World {
                             if k > a {
                                 seen += 1;
                                 let d = dx.abs().max(dy.abs());
-                                let kin = if b.lineage == bs[k].lineage { 1.3 } else { 1.0 };
+                                let kin = 1.0 + 0.3 * (2.0 * b.kinship(&bs[k], tick)).min(1.0);
                                 let pc = p.teach_rate * kin / (1.0 + d as f32);
                                 if r2.chance(pc) {
                                     out.push((a, k, d));
@@ -2125,7 +2127,7 @@ impl World {
                 }
             }
         }
-        let kin = bands[a].lineage == bands[c].lineage;
+        let kin = bands[a].kinship(&bands[c], tick) >= 0.2;
         let pstr = bands[a].partner(bands[c].id).map(|p| p.strength).unwrap_or(0.0);
         let close = kin || pstr >= 0.3;
         // best good each side could pass the other, and what it is worth to both
@@ -2340,6 +2342,7 @@ impl World {
                 lineage: b.lineage,
                 parent: b.id,
                 gen: b.gen + 1,
+                anc: [b.parent, b.anc[0], b.anc[1]],
                 x: (best.0 % w) as u16,
                 y: (best.0 / w) as u16,
                 pop: dpop,
