@@ -216,6 +216,14 @@ between the bands they join.
   0.348 %/yr; disease 0.068; items 68; mean recipe quality 0.36 (landmasses 0.33-0.36); boat
   seaworthiness 0.99; 4.36 M refinements; effective lineages 4.55 (largest 36 %); 50.7 s.
 
+- CI (run 40243149618, 10 seeds x 500y, vs step 6): pop 1115662 (1056021); war 0.361 %/yr
+  (0.373); disease 0.126 (0.110); items 69.8 (66.0); tau 0.14; boat-borne crossings 4/10 in the
+  same worlds (s1 Y127, s2 Y233, s7 Y248, s8 Y168; none before Y100); effective lineages 5.07
+  (4.90), largest 29.7% (31.4); ancestry 5.27 founders / 26.8%; foragers mean 58% (69%), so the
+  single-seed farming slowdown did not generalise; iron 6 worlds, bronze 6; mean recipe quality
+  0.35, boat seaworthiness 0.99 (near its cap); sail-usable bands 0 (50 at step 6); sim time
+  668 s (561 s). Results: `results-v9-step7-seeds1-10-500y.txt`.
+
 ## Step 8 (P7): prestige
 
 - `Band::prestige` (0 for new bands and older saves). Each season x`PRESTIGE_FADE` 0.99 (a

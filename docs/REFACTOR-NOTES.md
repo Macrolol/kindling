@@ -11,7 +11,44 @@ their commit; skipped ones with the reason and a rough effort, so they can be pi
   (step 1a).
 - `analysis::effective_number` is shared by the summary and the per-year stats (step 1a).
 - Fixed the misleading "marry out" wording in `Band::kinship` (step 1a).
+- Every new tunable is a named, documented `pub const` next to its siblings (`SEA_TEACH_*`,
+  `DISSENT_*`, `MARRIAGE_P`, `REFINE_*`/`QUALITY_*`, `PRESTIGE_*`) instead of an inline literal
+  (steps 2-8).
+- `Counters` and `fx::add_counters` documented: a new counter field must be added to the
+  `add_fields!` list or it silently stays zero in parallel phases (step 4).
+- Moved the displaced doc comment of `Band::bond` back onto its field (step 6).
+- `tools/agg_results.py` labels its columns "baseline" / "new" from the last two path parts, and
+  parses each v9 summary line, so step-to-step comparisons need no hand editing (steps 1-8).
+- `Derived::fin_dirty`: a quality-only change rebuilds just the kit (`make_kit` +
+  `refine_kit`), not the toolkit closure, so refinement costs almost nothing per season (step 7).
+- `note_crossing` is the single place a crossing is counted (and now rewarded, step 8);
+  `analysis::gini` is a reusable helper for any inequality measure (step 8).
 
 ## Skipped
 
-_(filled in as steps go)_
+- **Split `sea_season`** (~250 lines: lure, destination choice, toll, landing, word of shores).
+  Splitting into `choose_voyage` / `make_voyage` / `come_ashore` would make sea changes easier.
+  Medium effort; skipped because each step was being balanced against CI and a big move would
+  have mixed refactor noise into the balance diffs.
+- **Derived `Default` for `Band` / `Kit`.** Several literals spell out every field; the P6
+  invention literal now uses `..Default::default()`, but the band constructors (founding,
+  splitting, drift landings) still list fields by hand. Small effort; a `Band::founder(..)`
+  constructor would remove most of it.
+- **Meeting / exchange structure.** `meeting` -> `exchange` (teaching, seacraft, far-shore word,
+  quality, trade, food gifts) is one long function. A table of "meeting effects" each taking
+  `(bands, src, dst, rng, fx)` would let new social effects (P7-style) plug in. Medium effort.
+- **Hunting sea mammals** (needed for a richer P2 coastal economy) - content, not refactor;
+  needs new resources and recipes.
+- **Raids ignore ambition.** P4's ambition shapes splitting and wandering but not raiding; wiring
+  it into `confront` touches war balance, so left for a dedicated balance pass.
+- **P3 expectation-valuing** (bands valuing a destination by remembered return rather than the
+  current estimate) - skipped as a model change with unclear balance effects.
+- **`add_fields!` manual list.** A derive macro (or `serde`-based field walk) would make counter
+  summing automatic. Small-medium effort; for now documented (above).
+- **P6 per-century improvement series** - only the total refinement count is kept; adding a
+  `YearStats` field is easy but enlarges every save.
+- **Quality does not touch weapons** - deliberate (war balance), but the hook would sit in
+  `refine_kit` next to `protect`.
+- **P7 ornament-seeking** - status-hungry bands do not aim their experiments at ornaments, and
+  prestige goods have no trade value of their own. Would need an experiment-attention hook and
+  a trade-good value table.
