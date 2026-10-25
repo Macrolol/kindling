@@ -144,6 +144,7 @@ sees the stocks after every band has harvested; meeting order by rounds).
 | 3 | 6057dbb | 2m54s | tests off |
 | 4 | 5532fac | 4m22s | ran beside a bench run on a slow runner batch (seed 5 alone took 148 s) |
 | 5 | f06d614 | 2m50s | tests on, bench running too |
+| 6 | 5f7eca7 (final) | 3m27s | tests on (passed, 68 s), bench running too; seed 5 job waited 26 s for a runner, then ran 113 s; table identical to run 5 |
 
 On this box, one seed (seed 1, 500 y) took 63.8 s wall at load 6 to 8 and **253.9 s** at load 9 to 13
 (user 107.7 s; the same seed takes 60.7 s on a runner). Ten sequential seeds come to 10 to 25+ min,
@@ -213,6 +214,7 @@ dispersal effect.
 | 5532fac v5 view, sorted log | 31.77 s | 66.67 s | 41.11 s | 32.93 s |
 | f06d614 per-cell chains | 30.94 s | 49.67 s | 31.46 s | 26.23 s |
 | d994b2b regrouped by cell | 32.13 s | 44.25 s | 29.33 s | 24.78 s |
+| 5f7eca7 final (run 40191926979, slower runner) | 33.15 s | 49.33 s | 32.00 s | 26.54 s |
 
 Caveat: before the balance fix, the v6 world at Y300 was ~20% smaller (fewer bands), so the
 +12 to 18% single-thread overhead of the first two rows understates the per-band cost. At an
@@ -224,15 +226,33 @@ merge 0.4, ~5 s per-band phase-3 overhead: Fx buffers, Econ hand-over, mark_used
 The toolkit cache removed the duplicated toolkit closure work. The rest is the price of the
 three-phase split and is not recovered yet (see open items).
 
+Final bench (5f7eca7, run 40191926979): v6 1t is +49% over v5 on that runner (+38% at d994b2b,
+same code apart from profiling; runner noise). 2 threads: 1.54x over v6 1t, 1.04x faster than v5.
+4 threads: 1.86x over v6 1t, 1.25x faster than v5. 1t profile v5 -> v6 (s): band seasons
+19.0 -> 30.4 (economy 3.7 -> 6.0, movement 2.9 -> 6.0, experiments 5.6 -> 6.2, farming 0.4 -> 1.4,
+prep 1.6, log 0.5, merge 0.4), contacts 11.0 -> 14.0, regrow+occ 0.5 -> 1.6.
+
+**Single-thread overhead: settled, not recovered in v6.** The remaining cost is spread across the
+phase split (economy hand-over, the v5-view lookups in movement, the Fx buffers, farm-layer ops) with
+no single hot spot left. Each remaining fix touches the balance-critical path and would need another
+balance re-check, so it is deferred to v6.1. Use `--threads 2` or more to run faster than v5.
+
 ### 8. Release v0.6.0
 - Version 0.6.0 (native, civ-core, Cargo.lock). `build-web.sh` now looks in every
   `~/.cargo/registry/src/*/` dir for each JS file, takes the newest version, and fails clearly
   if one is missing.
 - Start picker screenshot: docs/images/screenshot-start-picker.png
   (`kindling --screenshot out.png --ui picker --seed 8`).
+- Final check on 5f7eca7: headless-sims run 40191925053 (10 x 500 y), aggregate identical to run 5;
+  its cargo test job passed. Local `cargo test --release -p civ-core --features parallel`: 11 passed,
+  1 ignored (farm_diag); without `parallel`: 10 passed, 1 ignored.
+- Builds (box, -j4): Linux `cargo build --release -p kindling`, Windows `--target
+  x86_64-pc-windows-gnu`, web `./build-web.sh` -> web-dist.zip.
+- Release: https://github.com/Macrolol/kindling/releases/tag/v0.6.0 (assets kindling-linux-x86_64,
+  kindling-windows-x86_64.exe, kindling-web.zip, SHA256SUMS.txt).
 
 ### Open items
-- Single-thread cost is +38% over v5 at an equal world. Candidates: the per-band phase-3
+- Single-thread cost is +38 to 49% over v5 at an equal world (settled for v6, see section 7). Candidates: the per-band phase-3
   hand-over (Fx/Econ allocation, ~5 s on the bench), the harvest-view lookups in movement (2 s),
   and farm-layer Toward ops (0.6 s). Multi-thread runs are faster than v5 from 2 threads up.
 - Hosted runners vary by ~40% between batches (base v5 took 23 s to 32 s on the same bench), so

@@ -1,5 +1,6 @@
 # Kindling v6 final balance: seeds 1-10, 500 years, default map, --threads 4
 # GitHub Actions headless-sims run 40190878208 (commit f06d614; d994b2b and later change speed/profiling only and give the identical world - verified run 40190370732 at 5532fac gave the same table).
+# Re-confirmed on the release commit 5f7eca7: run 40191925053 gave the identical table.
 # Compared with docs/results-v5-seeds1-10-500y.txt by tools/agg_results.py
 
 | metric | results-v5-seeds1-10-500y.txt | results-all.txt |
