@@ -14,12 +14,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 7;
+pub const FORMAT_VERSION: u32 = 8;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -172,6 +172,35 @@ fn v6_to_v7(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
             if heat && to_iron && ore {
                 r["output"] = serde_json::json!(566);
                 r["p"] = serde_json::json!(0.05);
+            }
+        }
+    }
+    Ok(v)
+}
+/// v7 -> v8 (technologies for activities: brine and salt, seven new forms). Frozen: do not edit.
+/// - `bands[].stock` and `bands[].origin` grow from 23 to 25 entries (0.0 / u32::MAX);
+/// - `bands[].craft` is [23 material leanings, 3 action leanings]; the 2 new material leanings
+///   (1.0 = neutral) go in at index 23, before the action leanings.
+/// Item ids are unchanged (new forms are appended); everything else new is additive.
+fn v7_to_v8(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            for (key, fill) in [("stock", json!(0.0)), ("origin", json!(u32::MAX))] {
+                if let Some(a) = b.get_mut(key).and_then(|x| x.as_array_mut()) {
+                    while a.len() < 25 {
+                        a.push(fill.clone());
+                    }
+                }
+            }
+            if let Some(a) = b.get_mut("craft").and_then(|x| x.as_array_mut()) {
+                if a.len() == 26 {
+                    for _ in 0..2 {
+                        a.insert(23, json!(1.0));
+                    }
+                }
             }
         }
     }
@@ -335,8 +364,9 @@ impl World {
         // v5 -> v6 only moved the first-reach table, which the v6 schema still reads in its old
         // form; decoding v5 binaries directly keeps big-map saves out of a JSON value tree
         // v6 -> v7 only re-points a few recipes, done in place below for binaries, too
-        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6) && matches!(enc, Enc::Mp(_)));
-        if matches!(h.format_version, 5 | 6) {
+        // v7 -> v8 only lengthens per-material vectors, which `Band::fit_vectors` does on load
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6 | 7) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5 | 6 | 7) {
             info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {

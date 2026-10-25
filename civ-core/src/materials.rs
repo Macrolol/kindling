@@ -5,7 +5,7 @@
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
 
-pub const NMAT: usize = 23;
+pub const NMAT: usize = 25;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
 /// products of physics (charcoal, ceramic, metals).
 pub const NRAW: usize = 13;
@@ -42,6 +42,11 @@ pub enum Mat {
     IronOre,
     /// bloomery iron
     Iron,
+    // v8 (technologies for activities): appended so every older index is unchanged
+    /// sea water or the brine of a dry salt pan: only where it lies, never carried
+    Brine,
+    /// salt boiled out of brine: keeps meat and fish
+    Salt,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wood,
@@ -67,6 +72,8 @@ pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wool,
     Mat::IronOre,
     Mat::Iron,
+    Mat::Brine,
+    Mat::Salt,
 ];
 
 /// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
@@ -158,6 +165,8 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 0.3, tough: 4.0, workable: 6.0, fibrous: 8.0, seal: 2.0, ..p("wool") },
     Props { hard: 5.0, tough: 4.0, fracture: 1.0, reduce_t: 1400.0, reduces_to: Some(Mat::Iron), refractory: 2.0, ..p("iron ore") },
     Props { hard: 5.5, tough: 9.0, sharp: 7.0, malleable: 6.0, melt: 1538.0, ..p("iron") },
+    Props { hard: 0.0, tough: 0.0, ..p("brine") },
+    Props { hard: 2.5, tough: 1.0, ..p("salt") },
 ];
 
 impl Mat {
@@ -179,7 +188,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 18;
+pub const NFORM: usize = 25;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -219,6 +228,21 @@ pub enum Form {
     Bellows,
     /// a spongy, slag-filled lump of metal straight from the furnace, useless until forged
     Bloom,
+    // v8: appended so every older item id is unchanged
+    /// a sprung stave with a cord that throws a small point (material = the string)
+    Bow,
+    /// hide stretched on a frame of sticks, held up against blows (material = the cover)
+    Shield,
+    /// a float on booms lashed beside a hull, so it does not capsize (material = the hull)
+    Outrigger,
+    /// cloth on a mast (material = the cloth)
+    Sail,
+    /// a large hull of split planks, sewn or pegged (material = the timber)
+    Plank,
+    /// a pack frame or carrying basket on a stick (material = the container)
+    Frame,
+    /// a bead, pendant or ring, kept for show and given away
+    Ornament,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -239,6 +263,13 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Trap,
     Form::Bellows,
     Form::Bloom,
+    Form::Bow,
+    Form::Shield,
+    Form::Outrigger,
+    Form::Sail,
+    Form::Plank,
+    Form::Frame,
+    Form::Ornament,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -325,12 +356,32 @@ pub fn item_name(i: Item) -> String {
         },
         Form::Bellows => format!("{n} bellows"),
         Form::Bloom => format!("{n} bloom"),
+        Form::Bow => match m {
+            Mat::Hide => "sinew-strung bow".into(),
+            _ => format!("bow ({n} string)"),
+        },
+        Form::Shield => format!("{n} shield"),
+        Form::Outrigger => "outrigger canoe".into(),
+        Form::Sail => match m {
+            Mat::Flax => "linen sail".into(),
+            Mat::Wool => "woollen sail".into(),
+            _ => "woven mat sail".into(),
+        },
+        Form::Plank => "plank boat".into(),
+        Form::Frame => format!("carrying frame ({n})"),
+        Form::Ornament => match m {
+            Mat::Bone => "bone beads".into(),
+            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => format!("{n} ring"),
+            _ => format!("{n} pendant"),
+        },
     }
 }
 
-/// Fixed-size bitset over all item ids.
+/// Fixed-size bitset over all item ids (room for 32 forms; never saved, so it can grow freely).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ItemSet(pub [u64; 9]);
+pub struct ItemSet(pub [u64; ITEMSET_WORDS]);
+pub const ITEMSET_WORDS: usize = 16;
+const _: () = assert!(NITEMS <= ITEMSET_WORDS * 64);
 impl ItemSet {
     #[inline]
     pub fn has(&self, i: Item) -> bool {

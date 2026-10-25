@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 6` (Kindling 0.6.1). v0.5.x and v0.6.0 write format 5.
+Current: `FORMAT_VERSION = 8` (Kindling 0.8 development). v0.7.0 writes format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -85,11 +85,22 @@ Current: `FORMAT_VERSION = 6` (Kindling 0.6.1). v0.5.x and v0.6.0 write format 5
   - Smelting iron ore now gives an iron bloom (item 566), which has to be forged into wrought
     iron (raw iron, item 22). Every heat recipe in `world.reg.recipes` that has raw iron ore
     (item 21) among its inputs and raw iron as its output is re-pointed at the bloom, with
-    `p = 0.03`. Iron already made, carried or worked is left alone.
+    `p = 0.05`. Iron already made, carried or worked is left alone.
   - Band fields `anc` (earlier ancestors) and grudge field `par` are additive and load as 0.
   - Binary format-5 and format-6 saves are decoded directly and get the same re-pointing in
     place (`iron_to_bloom`); JSON saves run the migration. `migrated_from` reports 5 or 6.
   - Fixture `v6_1_seed4_y125.civsave` (written by the v0.6.1 code, with iron already smelted)
     is loaded by `v6_1_fixture_iron_recipes_become_bloom`, which checks both routes.
+- **v8** (Kindling 0.8, technologies for activities). Migration `v7_to_v8`:
+  - Two materials are appended (`Brine` = 23, only where it lies and never carried, and `Salt` =
+    24), so `bands[].stock` and `bands[].origin` grow from 23 to 25 entries (0.0 / u32::MAX).
+  - `bands[].craft` is [material leanings, 3 action leanings]: the 2 new neutral (1.0) material
+    leanings are inserted at index 23, before the action leanings.
+  - Seven forms are appended (`Bow` 18, `Shield` 19, `Outrigger` 20, `Sail` 21, `Plank` 22,
+    `Frame` 23, `Ornament` 24), so every older item id is unchanged.
+  - Binary format-5/6/7 saves are decoded directly; `Band::fit_vectors` (via `band::fit_craft`)
+    makes the same insertion on load. JSON saves run the migration. `migrated_from` reports 7.
+  - Fixture `v7_0_seed4_y150_96x60.civsave` (written by the v0.7.0 release binary) is loaded by
+    `v7_0_fixture_gains_new_materials_in_place`, which checks both routes agree leaning by leaning.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

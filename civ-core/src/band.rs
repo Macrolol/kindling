@@ -7,6 +7,22 @@ use serde::{Deserialize, Serialize};
 pub const CRAFT_ACTS: usize = 3;
 pub const CRAFT_LEN: usize = NMAT + CRAFT_ACTS;
 
+/// Bring a craft vector ([material leanings.., action leanings x CRAFT_ACTS]) up to the current
+/// length: leanings for materials added since it was made go in neutral (1.0) before the action
+/// leanings, so every leaning keeps its meaning.
+pub fn fit_craft(c: &mut Vec<f32>) {
+    if c.len() >= CRAFT_LEN {
+        return;
+    }
+    if c.len() < CRAFT_ACTS {
+        c.resize(CRAFT_LEN, 1.0);
+        return;
+    }
+    let at = c.len() - CRAFT_ACTS;
+    let n = CRAFT_LEN - c.len();
+    c.splice(at..at, std::iter::repeat(1.0).take(n));
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Band {
@@ -120,6 +136,14 @@ pub struct Kit {
     pub boat: Item,
     pub net: Item,
     pub trap: Item,
+    // v8 slots (technologies for activities); their effects are wired in step by step
+    pub bow: Item,
+    pub shield: Item,
+    pub outrigger: Item,
+    pub sail: Item,
+    pub plank: Item,
+    pub frame: Item,
+    pub ornament: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
     /// cooking known for grain (v5)
@@ -157,6 +181,13 @@ impl Default for Kit {
             boat: NONE,
             net: NONE,
             trap: NONE,
+            bow: NONE,
+            shield: NONE,
+            outrigger: NONE,
+            sail: NONE,
+            plank: NONE,
+            frame: NONE,
+            ornament: NONE,
             cooked: [NONE; 3],
             cooked_grain: NONE,
             plants_m: 1.0,
@@ -172,11 +203,12 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 18] {
+    pub fn used_items(&self) -> [Item; 25] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
-            self.boat, self.net, self.trap, self.cooked_grain,
+            self.boat, self.net, self.trap, self.cooked_grain, self.bow, self.shield, self.outrigger,
+            self.sail, self.plank, self.frame, self.ornament,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -295,9 +327,7 @@ impl Band {
         if self.origin.len() < NMAT {
             self.origin.resize(NMAT, u32::MAX);
         }
-        if self.craft.len() < CRAFT_LEN {
-            self.craft.resize(CRAFT_LEN, 1.0);
-        }
+        fit_craft(&mut self.craft);
     }
     pub fn partner(&self, id: u32) -> Option<&Partner> {
         self.partners.iter().find(|p| p.id == id)
@@ -417,7 +447,7 @@ pub fn weapon_q(k: &Kit) -> f32 {
 pub fn make_kit(avail: &ItemSet) -> Kit {
     let mut k = Kit::default();
     let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
-    let mut best = [0f32; 14];
+    let mut best = [0f32; 21];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -447,6 +477,14 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Boat => upd(11, score(boat_q(m), m), &mut k.boat),
             Form::Net => upd(12, score(mesh_q(m), m), &mut k.net),
             Form::Trap => upd(13, score(mesh_q(m), m), &mut k.trap),
+            // v8 forms: no recipe makes them yet; the slots are ready for the steps that do
+            Form::Bow => upd(14, score(m.props().tough + 1.0, m), &mut k.bow),
+            Form::Shield => upd(15, score(m.props().tough + 1.0, m), &mut k.shield),
+            Form::Outrigger => upd(16, score(boat_q(m), m), &mut k.outrigger),
+            Form::Sail => upd(17, m.props().tough + 1.0, &mut k.sail),
+            Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
+            Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
+            Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,
                 Mat::Meat => k.cooked[1] = it,

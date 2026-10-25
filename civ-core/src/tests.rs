@@ -501,3 +501,46 @@ fn v6_1_fixture_iron_recipes_become_bloom() {
     let (wb, _, _) = World::load_bytes(bytes).unwrap();
     assert_eq!(smelt(&wj), smelt(&wb));
 }
+
+/// A v0.7.0 save (format 7): brine and salt join the material list, so every band's stock,
+/// origin and craft vectors grow; the craft leanings must keep their meaning (the new neutral
+/// material leanings go in before the action leanings), by both the binary and the JSON route.
+#[test]
+fn v7_0_fixture_gains_new_materials_in_place() {
+    use crate::band::CRAFT_LEN;
+    use crate::materials::NMAT;
+    use std::io::Read;
+    let bytes = include_bytes!("../tests/fixtures/v7_0_seed4_y150_96x60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v7.0 save loads");
+    assert_eq!(info.format_version, 7);
+    assert_eq!(info.migrated_from, Some(7));
+    let mut raw = Vec::new();
+    flate2::read::DeflateDecoder::new(&bytes[8..]).read_to_end(&mut raw).unwrap();
+    let env: serde_json::Value = rmp_serde::from_slice(&raw).unwrap();
+    let old = env["payload"]["world"]["bands"].as_array().unwrap();
+    assert_eq!(old.len(), w.bands.len());
+    for (b, o) in w.bands.iter().zip(old) {
+        assert_eq!(b.stock.len(), NMAT);
+        assert_eq!(b.origin.len(), NMAT);
+        assert_eq!(b.craft.len(), CRAFT_LEN);
+        let oc: Vec<f32> = o["craft"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect();
+        assert_eq!(oc.len(), 26);
+        assert_eq!(&b.craft[..23], &oc[..23]);
+        assert_eq!(&b.craft[23..25], &[1.0, 1.0]);
+        assert_eq!(&b.craft[25..], &oc[23..]);
+        assert_eq!(&b.stock[23..], &[0.0, 0.0]);
+    }
+    let json = serde_json::to_string(&env).unwrap();
+    let (wj, _, ij) = World::load_bytes(json.as_bytes()).expect("v7.0 save as JSON loads");
+    assert_eq!(ij.migrated_from, Some(7));
+    for (a, b) in wj.bands.iter().zip(&w.bands) {
+        assert_eq!(a.craft, b.craft);
+        assert_eq!(a.stock, b.stock);
+        assert_eq!(a.origin, b.origin);
+    }
+    let pop = w.total_pop();
+    for _ in 0..20 {
+        w.step();
+    }
+    assert!(w.total_pop() > pop / 2);
+}

@@ -452,10 +452,14 @@ impl World {
         // (drawn in the v4 order - 18 materials, 3 ways of working - then the v5 materials, so a
         // seed's founders lean the same way they did before farming existed)
         let mut culture: Vec<f32> = (0..21).map(|_| (0.5 * rng.gauss()).exp()).collect();
-        let extra: Vec<f32> = (21..CRAFT_LEN).map(|_| (0.5 * rng.gauss()).exp()).collect();
+        // (the v8 materials, brine and salt, start neutral: nobody has a habit with them yet, and
+        // drawing nothing for them keeps every seed's founders as they were)
+        let extra: Vec<f32> = (21..26).map(|_| (0.5 * rng.gauss()).exp()).collect();
         let acts = culture.split_off(18);
         culture.extend(extra);
+        culture.resize(NMAT, 1.0);
         culture.extend(acts);
+        debug_assert_eq!(culture.len(), CRAFT_LEN);
         for k in 0..w.cfg.founders {
             // the start: the random homeland, the shared chosen area, or this lineage's own cell
             let origin = if chosen { starts[k % starts.len()] } else { origin };
@@ -1399,9 +1403,7 @@ impl World {
     /// Doing (inventing or being shown) a recipe deepens a band's habit of working its materials
     /// that way. Tradition is relative: leanings are renormalised to a mean of 1.
     fn reinforce_craft(b: &mut Band, r: &Recipe, by: f32) {
-        if b.craft.len() < CRAFT_LEN {
-            b.craft.resize(CRAFT_LEN, 1.0);
-        }
+        crate::band::fit_craft(&mut b.craft);
         for &i in r.inputs.iter() {
             if i != NONE && !matches!(form(i), Form::Fire | Form::Kiln) {
                 let c = &mut b.craft[mat(i) as usize];
