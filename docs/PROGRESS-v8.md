@@ -133,3 +133,36 @@ than a real effect.
 Salt is invented in 9 of 10 seeds (first between Y113 and Y314). Population rose 17% as
 expected, and with it disease (0.108 to 0.131%/yr). It stays inside the target band. Farming holds
 more people: in seeds 1 and 3 foragers fell from 95% and 82% of people to 21% and 27%.
+
+## D5. Seafaring (done, commit 6afafca, run 40212234218)
+- Outrigger: a boat, a wooden shaft and a cord put together at the water. A float on outriggers
+  is safer at sea (+0.15 to boat safety).
+- Sail: a boat, a mast (shaft) and woven cloth (flax or wool garment) at the water. With a sail,
+  people who already know the sea (seacraft above 0.4) can go 1.6 times as far.
+- Plank boat: wood shaped with a metal axe at the water. A bigger, safer boat (+0.25 quality)
+  that carries a larger daughter party (45-60% of the band instead of 35-50%) and counts as
+  being prepared for a crossing.
+- Wayfinding: people with seacraft above 0.6 steer half as far off their aim.
+- Boats, outriggers, sails and planks need no upkeep away from the water.
+- Test `outriggers_sails_and_plank_boats`.
+
+The run used the D3 baseline; the table compares it with D4.
+
+| metric | D4 | D5 |
+|---|---|---|
+| pop | 995,992 | 919,336 (-1.0% vs target) |
+| war %/yr | 0.323 | 0.331 |
+| disease %/yr | 0.131 | 0.108 |
+| farming seeds | 8 | 9 |
+| crossings | 4/10 (Y134, Y190, Y257, Y280) | 4/10 (Y134, Y186, Y195, Y276), none before Y100 |
+| lost at sea | - | 34,105 (D3 38,309) |
+| iron seeds (median) | 7 (Y251) | 6 (Y264) |
+| bronze seeds (median) | 5 (Y255) | 4 (Y313) |
+| tau | 0.146 | 0.144 |
+| lineage max share, mean / worst | 26.8% / 32% | 28.2% / 34% |
+
+Outriggers are invented in every seed (the first between Y132 and Y361), and plank boats in most
+(between Y197 and Y398, with copper, bronze or iron axes). No seed invented a sail in 500 years.
+Woven flax or wool cloth is rare on the coast this early, and nothing was added to make sails
+appear. Crossings stay at 4 of 10 seeds and come slightly earlier, and fewer people are lost at
+sea. The safer boats mainly cut drownings rather than open new crossings.
