@@ -22,6 +22,7 @@ use fx::{Fx, Layer, Op, Pair};
 /// Most meetings a band has time for in one season (v5).
 const MAX_MEETINGS: u8 = 4;
 pub mod farming;
+pub mod terrain;
 pub use farming::{crop_potential, graze_potential};
 
 pub const EVENT_CAP: usize = 40_000;
@@ -325,6 +326,9 @@ pub struct World {
     /// where wild crop / herd ancestors live (`farming::WILD_*` bits; derived, not saved)
     #[serde(skip)]
     pub wild: Vec<u8>,
+    /// river system of each cell (`u32::MAX` = no river; derived, not saved)
+    #[serde(skip)]
+    pub river_sys: Vec<u32>,
     #[serde(skip)]
     pub occ: Vec<Vec<u32>>,
     /// people per cell (snapshot used for crowding)
@@ -422,6 +426,7 @@ impl World {
         w.trade_flow = vec![0.0; n];
         w.conflict_flow = vec![0.0; n];
         w.ensure_farm_layers();
+        w.ensure_terrain_layers();
         let mut rng = Rng::new(w.cfg.seed);
         // founders: one region anywhere people can live off the land - forest, grassland, coast,
         // cool or hot - more likely the richer it is. Where people start (what grows, what
@@ -572,6 +577,7 @@ impl World {
             self.trade_flow = vec![0.0; n];
         }
         self.ensure_farm_layers();
+        self.ensure_terrain_layers();
         // saves from before v3 did not keep the overlay: sketch it from the standing trade
         // partnerships (who trades with whom is saved), so it is not blank after loading
         if self.trade_flow.iter().all(|&f| f == 0.0) {
@@ -1914,14 +1920,25 @@ impl World {
         let inertia = inertia * (1.0 + 1.5 * b.settled * b.d.farm_share);
         b.pressed *= 0.8;
         let mut best_s = self.cell_score(b, cur) * inertia;
-        let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| (c * m.w + a, 1.0)).collect();
+        // the effort of getting there: rough and high country costs more than flat, a boat on a
+        // river makes the river a road (see `terrain`)
+        let boat = b.d.kit.boat_q > 0.0;
+        let effort = |c: usize| 1.0 + terrain::MOVE_EFFORT * (self.travel_cost(cur, c, boat) - 1.0).max(0.0);
+        let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| c * m.w + a).map(|c| (c, effort(c))).collect();
         // occasionally scout further
         let dx = rng.below(7) as i32 - 3;
         let dy = rng.below(7) as i32 - 3;
         let (sx, sy) = (x as i32 + dx, y as i32 + dy);
         if sx >= 0 && sy >= 0 && (sx as usize) < m.w && (sy as usize) < m.h {
-            let dist = dx.abs().max(dy.abs()) as f32;
-            cands.push((sy as usize * m.w + sx as usize, 1.0 + 0.08 * (dist - 1.0).max(0.0)));
+            let c = sy as usize * m.w + sx as usize;
+            cands.push((c, effort(c)));
+        }
+        // and people who paddle sometimes go a day or two up or down their river
+        if boat {
+            if let Some((c, n)) = self.river_scout(cur, rng) {
+                let pen = 1.0 + terrain::MOVE_EFFORT * (n as f32 * terrain::RIVER_STEP - 1.0).max(0.0);
+                cands.push((c, pen));
+            }
         }
         // people with boats sometimes go and look across the water: more often when home is
         // hungry or crowded, or when they know of land out there; hard times make a poorer
@@ -2024,6 +2041,7 @@ impl World {
         let key0 = rng.next_u64();
         let tick = self.tick;
         let per: Vec<(u64, Vec<(usize, usize, i32)>)> = {
+            let world = &*self;
             let occ = &self.occ;
             let bs = &*bands;
             fx::par_collect(bands.len(), |a| {
@@ -2032,19 +2050,37 @@ impl World {
                 let (x, y) = (b.x as i32, b.y as i32);
                 let mut seen = 0u64;
                 let mut out = Vec::new();
-                for dy in -r..=r {
-                    for dx in -r..=r {
+                let ca = b.cell(w as usize);
+                let boat_a = b.d.kit.boat_q > 0.0;
+                // with a boat on a river, neighbours further along the same river are within reach
+                let rr = if boat_a && world.river_sys.get(ca).copied().unwrap_or(u32::MAX) != u32::MAX {
+                    r.max(terrain::RIVER_SCOUT as i32)
+                } else {
+                    r
+                };
+                for dy in -rr..=rr {
+                    for dx in -rr..=rr {
                         let (nx, ny) = (x + dx, y + dy);
                         if nx < 0 || ny < 0 || nx >= w || ny >= h {
                             continue;
                         }
-                        for &k in &occ[(ny * w + nx) as usize] {
+                        let d = dx.abs().max(dy.abs());
+                        let cn = (ny * w + nx) as usize;
+                        let ring = d > r;
+                        if ring && !world.same_river(ca, cn) {
+                            continue;
+                        }
+                        for &k in &occ[cn] {
                             let k = k as usize;
-                            if k > a {
+                            let boat_k = bs[k].d.kit.boat_q > 0.0;
+                            // each pair is looked at once: from the lower index, or beyond the
+                            // land radius from the side with the boat when only one has one
+                            let mine = if ring && !boat_k { k != a } else { k > a };
+                            if mine {
                                 seen += 1;
-                                let d = dx.abs().max(dy.abs());
                                 let kin = 1.0 + 0.3 * (2.0 * b.kinship(&bs[k], tick)).min(1.0);
-                                let pc = p.teach_rate * kin / (1.0 + d as f32);
+                                let cost = if d == 0 { 0.0 } else { world.travel_cost(ca, cn, boat_a || boat_k) };
+                                let pc = p.teach_rate * kin / (1.0 + cost);
                                 if r2.chance(pc) {
                                     out.push((a, k, d));
                                 }
@@ -2092,12 +2128,24 @@ impl World {
                 }
                 let boat = b.d.kit.boat_q.max(o.d.kit.boat_q);
                 let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat;
-                let lm_a = self.map.landmass_of(b.cell(w as usize));
-                let lm_c = self.map.landmass_of(o.cell(w as usize));
-                if (d as f32) > reach || (lm_a != lm_c && boat <= 0.0) {
+                let (ca, cc) = (b.cell(w as usize), o.cell(w as usize));
+                let lm_a = self.map.landmass_of(ca);
+                let lm_c = self.map.landmass_of(cc);
+                // the effort of the trip: overland over the hills, along a shared river by
+                // boat (twice as far for the effort), or by sea between coasts
+                let mut eff = self.land_cost(ca, cc);
+                if boat > 0.0 {
+                    if self.same_river(ca, cc) {
+                        eff = eff.min(terrain::RIVER_VISIT * d as f32);
+                    }
+                    if lm_a != lm_c || (self.coastal(ca) && self.coastal(cc)) {
+                        eff = eff.min(d as f32);
+                    }
+                }
+                if eff > reach || (lm_a != lm_c && boat <= 0.0) {
                     continue;
                 }
-                if rng.chance(0.5 * pt.strength / (1.0 + 0.15 * d as f32)) {
+                if rng.chance(0.5 * pt.strength / (1.0 + 0.15 * eff)) {
                     far.push((a, c, d));
                 }
             }

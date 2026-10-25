@@ -544,3 +544,34 @@ fn v7_0_fixture_gains_new_materials_in_place() {
     }
     assert!(w.total_pop() > pop / 2);
 }
+
+/// Terrain effort (v8 step 2): never below the cell distance, equal to it on flat ground, more
+/// over mountains; a boat makes a shared river cheaper but never cheaper than one step.
+#[test]
+fn terrain_cost_and_rivers() {
+    let w = World::new(Config { seed: 4, map_w: 160, map_h: 100, ..Default::default() }, Params::default());
+    let m = &w.map;
+    let n = m.w * m.h;
+    let mut steep = 0;
+    for a in (0..n).step_by(37) {
+        let b = (a + 3 * m.w + 2) % n;
+        let d = crate::world::terrain::cheb(a, b, m.w) as f32;
+        let c = w.land_cost(a, b);
+        assert!(c >= d - 1e-4, "cost {c} below distance {d}");
+        steep += (c > 1.5 * d) as u32;
+        assert!(w.travel_cost(a, b, true) >= 1.0f32.min(d));
+    }
+    assert!(steep > 0, "some lines cross rough country");
+    // flat: a sea-level line costs exactly its length
+    let sea: Vec<usize> = (0..m.w).map(|x| 5 * m.w + x).collect();
+    if sea.iter().all(|&c| !m.is_land(c)) {
+        assert!((w.land_cost(sea[0], sea[10]) - 10.0).abs() < 1e-4);
+    }
+    let rc: Vec<usize> = (0..n).filter(|&c| m.river[c]).collect();
+    assert!(!rc.is_empty());
+    assert!(rc.iter().all(|&c| w.river_sys[c] != u32::MAX));
+    let far = rc.iter().copied().find(|&c| rc.iter().any(|&o| w.same_river(c, o) && crate::world::terrain::cheb(c, o, m.w) >= 5));
+    let a = far.expect("a river at least 5 cells long");
+    let b = rc.iter().copied().find(|&o| w.same_river(a, o) && crate::world::terrain::cheb(a, o, m.w) >= 5).unwrap();
+    assert!(w.travel_cost(a, b, true) < w.travel_cost(a, b, false));
+}
