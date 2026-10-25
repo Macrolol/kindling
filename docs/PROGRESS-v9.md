@@ -63,4 +63,9 @@ CI (run 40239259556, [results-v9-step1b-seeds1-10-500y.txt](results-v9-step1b-se
 - Local seed 1 x 500y: pop 148301, #2 by sea Y157 (gap 3), #3 by sea Y198 (gap 5), war 0.351
   %/yr, disease 0.136 %/yr, effective lineages 5.58 (largest 25 %), items 67.
 
-CI: _pending_
+CI (run 40239687085, [results-v9-step2-seeds1-10-500y.txt](results-v9-step2-seeds1-10-500y.txt)):
+pop 1120438 (step 1b 993655), war 0.362 %/yr, disease 0.127 %/yr, items 67.9, tau 0.14. Crossings
+in the same 4/10 worlds, at different dates: s1 Y157 (gap 3), s2 Y222 (gap 10), s7 Y246 (gap 14),
+s8 Y158 (gap 1). Landings on another landmass rose 60 % (23005 -> 36727) but no world with a gap
+of 26+ was crossed: rumours alone do not make long crossings; boats and skill limit them (as the
+proposal expected). Effective lineages 5.29, largest 26.8 % (top on the main landmass 26.9 -> 24.2 %).
