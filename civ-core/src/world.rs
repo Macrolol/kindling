@@ -332,6 +332,10 @@ pub struct World {
     hlog: Vec<HarvestMark>,
     #[serde(skip)]
     hlog_on: bool,
+    /// per cell: first entry of its chain in `hlog` (u32::MAX = no harvest there this season)
+    /// and the last one; reset only on the cells touched, so it costs nothing on big maps
+    #[serde(skip)]
+    hhead: Vec<(u32, u32)>,
     #[serde(skip)]
     rng: Option<Rng>,
     /// optional per-phase wall-clock timing (seconds), for perf work; native only, never saved
@@ -643,7 +647,6 @@ impl World {
         }
         // phase 3 reads the wild stocks as each band would have found them in v5, right after
         // its own harvest (before the later bands took theirs): see `seen`
-        self.hlog.sort_by_key(|m| m.cell); // stable: band order kept within a cell
         self.hlog_on = true;
         let key = rng.next_u64();
         let tick = self.tick as u64;
@@ -674,11 +677,13 @@ impl World {
     #[inline]
     pub(crate) fn seen(&self, r: usize, c: usize, b: &Band) -> f32 {
         if self.hlog_on {
-            let (c32, k) = (c as u32, b.d.hk);
-            let i = self.hlog.partition_point(|m| m.cell < c32 || (m.cell == c32 && m.k <= k));
-            if let Some(m) = self.hlog.get(i) {
-                if m.cell == c32 {
-                    return m.v[r];
+            if let Some(&(mut i, _)) = self.hhead.get(c) {
+                while i != u32::MAX {
+                    let m = &self.hlog[i as usize];
+                    if m.k > b.d.hk {
+                        return m.v[r];
+                    }
+                    i = m.next;
                 }
             }
         }
@@ -699,6 +704,14 @@ impl World {
     /// speculative parallel plan is almost never still valid.)
     fn take_harvest(&mut self, bands: &mut [Band], s: u32) -> Vec<Econ> {
         let mut ecs = Vec::with_capacity(bands.len());
+        let n = self.map.w * self.map.h;
+        if self.hhead.len() != n {
+            self.hhead = vec![(u32::MAX, u32::MAX); n];
+        } else {
+            for m in &self.hlog {
+                self.hhead[m.cell as usize] = (u32::MAX, u32::MAX);
+            }
+        }
         self.hlog.clear();
         for b in bands.iter_mut() {
             // as in v5, the toolkit reflects the cell as the earlier bands left it (usually
@@ -710,7 +723,16 @@ impl World {
             if ec.ys.iter().any(|&y| y > 0.01) {
                 for &(c, _) in &ec.cells {
                     let g = |v: &Vec<f32>| v.get(c).copied().unwrap_or(0.0);
-                    self.hlog.push(HarvestMark { cell: c as u32, k, v: [g(&self.plants), g(&self.game), g(&self.fish), g(&self.small)] });
+                    let i = self.hlog.len() as u32;
+                    self.hlog.push(HarvestMark { cell: c as u32, k, next: u32::MAX, v: [g(&self.plants), g(&self.game), g(&self.fish), g(&self.small)] });
+                    let h = &mut self.hhead[c];
+                    if h.0 == u32::MAX {
+                        *h = (i, i);
+                    } else {
+                        let t = h.1;
+                        h.1 = i;
+                        self.hlog[t as usize].next = i;
+                    }
                 }
             }
             let stocks: [&mut Vec<f32>; 5] = [&mut self.plants, &mut self.game, &mut self.fish, &mut self.small, &mut self.crop];
@@ -2689,6 +2711,8 @@ impl Econ {
 pub(crate) struct HarvestMark {
     cell: u32,
     k: u32,
+    /// next entry for the same cell (u32::MAX = last)
+    next: u32,
     v: [f32; 4],
 }
 
