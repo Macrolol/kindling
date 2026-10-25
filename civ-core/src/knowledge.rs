@@ -173,7 +173,37 @@ pub struct Toolkit {
     pub producible: ItemSet,
     /// for each produced item: the known-list index of the recipe used, and the raw materials
     /// (bitmask over Mat) its whole production chain needs, and chain length
-    pub via: FastMap<Item, (u16, u32, u8)>,
+    /// (one entry per member of `avail`, in item order: dense and hash-free)
+    via: Vec<(u16, u32, u8)>,
+}
+impl Toolkit {
+    /// Position of `i` among the members of `avail`.
+    #[inline]
+    fn rank(&self, i: Item) -> usize {
+        let (w, b) = (i as usize >> 6, i as u32 & 63);
+        let below: u32 = self.avail.0[..w].iter().map(|x| x.count_ones()).sum();
+        (below + (self.avail.0[w] & ((1u64 << b) - 1)).count_ones()) as usize
+    }
+    /// The recipe (known-list index, `u16::MAX` for a raw or kept fire), raw-material mask and
+    /// chain length behind an available item.
+    #[inline]
+    pub fn via(&self, i: Item) -> Option<(u16, u32, u8)> {
+        if i == NONE || !self.avail.has(i) {
+            return None;
+        }
+        self.via.get(self.rank(i)).copied()
+    }
+    /// Make `i` available through `v` (replacing how it was available before).
+    fn set_via(&mut self, i: Item, v: (u16, u32, u8)) {
+        if self.avail.has(i) {
+            let r = self.rank(i);
+            self.via[r] = v;
+        } else {
+            self.avail.add(i);
+            let r = self.rank(i);
+            self.via.insert(r, v);
+        }
+    }
 }
 
 /// Compute the closure of producible items. `raws` = raw items directly at hand; `flame` = the band
@@ -182,13 +212,12 @@ pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> 
     let mut tk = Toolkit { avail: *raws, ..Default::default() };
     tk.via.reserve(raws.count() as usize + known.len() + 1);
     for i in raws.iter() {
-        tk.via.insert(i, (u16::MAX, 1u32 << (i % 32), 0));
+        tk.via.push((u16::MAX, 1u32 << (i % 32), 0));
     }
     let fire = item(Form::Fire, Mat::Wood);
     let wood = item(Form::Raw, Mat::Wood);
     if flame && raws.has(wood) {
-        tk.avail.add(fire);
-        tk.via.insert(fire, (u16::MAX, 1 << Mat::Wood as u32, 0));
+        tk.set_via(fire, (u16::MAX, 1 << Mat::Wood as u32, 0));
     }
     let mut changed = true;
     let mut guard = 0;
@@ -208,14 +237,13 @@ pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> 
             let mut mask = 0u32;
             let mut depth = 0u8;
             for &i in r.inputs.iter().filter(|&&i| i != NONE) {
-                if let Some(&(_, m, d)) = tk.via.get(&i) {
+                if let Some((_, m, d)) = tk.via(i) {
                     mask |= m;
                     depth = depth.max(d);
                 }
             }
-            tk.avail.add(r.output);
+            tk.set_via(r.output, (k as u16, mask, depth + 1));
             tk.producible.add(r.output);
-            tk.via.insert(r.output, (k as u16, mask, depth + 1));
             changed = true;
         }
     }
@@ -237,7 +265,7 @@ pub fn mark_used(reg: &Registry, known: &mut [Known], tk: &Toolkit, it: Item) {
         if guard > 64 {
             break;
         }
-        if let Some(&(k, _, _)) = tk.via.get(&i) {
+        if let Some((k, _, _)) = tk.via(i) {
             if k == u16::MAX {
                 continue;
             }

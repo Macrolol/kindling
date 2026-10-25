@@ -1036,7 +1036,7 @@ impl World {
             if (it == kit.boat && !wet) || (it == kit.net && ys[2] < 1.0) {
                 continue;
             }
-            let (_, mask, depth) = b.d.tk.via.get(&it).copied().unwrap_or((0, 0, 0));
+            let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
             needed |= mask;
             if !matches!(form(it), Form::Fire | Form::Cooked) {
                 upkeep += p.upkeep * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
