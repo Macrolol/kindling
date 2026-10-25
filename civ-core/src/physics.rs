@@ -168,6 +168,10 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             None
         }
         Form::Shaft => {
+            // (v8) bend a springy stave and string it with a strong cord: a bow
+            if of == Form::Cord && tm == Mat::Wood && tp.tough >= 5.0 && op.tough >= 4.0 && op.fibrous >= 5.0 {
+                return o(item(Form::Bow, om), 0.03 + 0.01 * op.tough);
+            }
             // sharpen the end of a shaft with an edge: a simple spear
             if of == Form::Edge && op.hard > tp.hard + 1.0 && tp.workable >= 4.0 {
                 return o(item(Form::Spear, tm), 0.3 + 0.5 * cut_q(om));
@@ -204,6 +208,12 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if ctx.water && n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
         if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
             return o(item(Form::Boat, mat(sk)), 0.06);
+        }
+    }
+    // (v8) away from the water, the same hide, frame and lashing make a shield, not a boat
+    if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
+        if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
+            return o(item(Form::Shield, mat(sk)), 0.06);
         }
     }
     // a springy stick with a cord noose: a snare

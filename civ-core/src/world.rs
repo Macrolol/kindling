@@ -2663,6 +2663,7 @@ impl World {
             }
         }
         self.fade_grudges();
+        self.build_walls();
         // farming
         let (mut farmers, mut farmer_pop, mut herders) = (0u32, 0u32, 0u32);
         let (mut ff, mut fall) = (0.0f32, 0.0f32);

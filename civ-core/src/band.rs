@@ -82,6 +82,11 @@ pub struct Band {
     /// seafaring experience, 0..1: built up by fishing from boats and by crossings, inherited by
     /// daughter bands, fades ashore. Longer range, fewer losses, scouting trips (v5)
     pub seacraft: f32,
+    /// (v8) palisade or earthwork round the camp, 0..1: raised by a settled band that has been
+    /// attacked, with an axe and a digging stick; needs work each year and rots when neglected
+    pub wall: f32,
+    /// the cell the wall stands in (it stays behind when the band moves)
+    pub wall_cell: u32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,
@@ -429,18 +434,32 @@ impl Band {
 /// How dangerous a band's best weapons are, 0..~1.3: the same spears, points and axes it hunts
 /// and works with. Nothing is made "for war"; reach and a hard, sharp edge decide.
 pub fn weapon_q(k: &Kit) -> f32 {
+    // (v8) in a fight that lasts, an edge that chips or breaks is soon useless: weapon quality
+    // weighs durability as well as sharpness, so bronze and iron finally beat flint
+    let edge = |m: Mat| 0.55 * cut_q(m) + 0.45 * durability(m);
     let hunt = if k.hunt == NONE {
         0.0
     } else {
         let m = mat(k.hunt);
         match form(k.hunt) {
-            Form::Spear => 0.35 + 0.65 * cut_q(m),
-            Form::Point => 0.35 * cut_q(m),
-            _ => 0.2 * cut_q(m),
+            Form::Spear => 0.35 + 0.65 * edge(m),
+            Form::Point => 0.35 * edge(m),
+            _ => 0.2 * edge(m),
         }
     };
     let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe)) };
     hunt + 0.3 * axe
+}
+
+/// (v8) a bow needs arrows: points to tip them
+pub fn has_bow(k: &Kit) -> bool {
+    k.bow != NONE && k.point != NONE
+}
+
+/// (v8) share of a side's losses that still fall when it has bows (fights at a distance, a
+/// covered retreat) and shields
+pub fn loss_guard(k: &Kit) -> f32 {
+    (if has_bow(k) { 0.7 } else { 1.0 }) * (if k.shield != NONE { 0.75 } else { 1.0 })
 }
 
 /// Choose the best item for each task from what a band can produce; compute multipliers.
@@ -524,6 +543,11 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;
     // small game (hares, birds, rodents): hard to catch by hand, easy with snares and nets
     k.small_m = 0.35 + 0.4 * hunt_q + 1.6 * trapq + 0.4 * netq;
+    // (v8) a bow reaches fast game and birds a spear cannot
+    if has_bow(&k) {
+        k.game_m *= 1.2;
+        k.small_m *= 1.15;
+    }
     // cooking makes more of each food digestible (boiling in pots helps plants most)
     let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
     // grain: boiled into porridge (pots help) or ground on a quern stone and baked

@@ -7,7 +7,7 @@
 //! or a broken remnant absorbed. Strength is people times the spears, points and axes each band
 //! already makes from its own materials.
 use super::*;
-use crate::band::weapon_q;
+use crate::band::{loss_guard, weapon_q};
 
 impl World {
     /// How strongly `a` is moved to press `c` when they meet `d` cells apart.
@@ -62,7 +62,7 @@ impl World {
         fx.acc.confrontations += 1;
         fx.counters.confrontations += 1;
         let pa = Self::power(&bands[a]);
-        let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled); // on their own ground, ready (behind house walls and field banks, more so)
+        let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled) * (1.0 + 0.28 * Self::wall_at(&bands[c], self.map.w)); // on their own ground, ready (behind house walls and field banks, more so)
         let r = pa / pc.max(1.0);
         // the pressing side weighs the odds against how badly it wants this
         let resolve = r * (0.6 + 0.5 * t) * rng.range(0.7, 1.3);
@@ -128,7 +128,11 @@ impl World {
         let fl = (p.lethality * rng.range(0.05, 0.16) * (0.6 + qw)).min(0.45);
         let fw = (p.lethality * rng.range(0.01, 0.05) * (0.6 + ql)).min(0.2);
         // defenders in a settled village have walls, banks and houses to fall back behind
-        let shelter = |k: usize| if k == c { 1.0 - 0.4 * bands[k].settled } else { 1.0 };
+        // (v8) and behind a palisade more so; bows and shields cut a side's losses
+        let shelter = |k: usize| {
+            let home = if k == c { (1.0 - 0.4 * bands[k].settled) * (1.0 - 0.25 * Self::wall_at(&bands[k], w)) } else { 1.0 };
+            home * loss_guard(&bands[k].d.kit)
+        };
         let (fl, fw) = (fl * shelter(lose), fw * shelter(win));
         let dl = ((bands[lose].pop as f32 * fl).round() as u32).max(1).min(bands[lose].pop);
         let dw = ((bands[win].pop as f32 * fw).round() as u32).min(bands[win].pop.saturating_sub(1));
@@ -196,7 +200,9 @@ impl World {
             fx.push_event(EventKind::Absorbed, lid, wid, cell as u32, NONE, left);
             return;
         }
-        if rng.chance(0.35) {
+        // (v8) archers cover a retreat: fewer are caught
+        let catch = if crate::band::has_bow(&bands[lose].d.kit) { 0.15 } else { 0.35 };
+        if rng.chance(catch) {
             // captives taken home
             let n = ((left as f32 * rng.range(0.08, 0.2)) as u32).max(1);
             self.absorb(bands, win, lose, n, rng, fx);
@@ -311,6 +317,37 @@ impl World {
         let by_sea = 0;
         let bid = b.id;
         fx.push_event(EventKind::Fled, bid, oid, best.0 as u32, NONE, by_sea);
+    }
+
+    /// The palisade a band has at the cell it is in now (0 when it has moved away from it).
+    pub(super) fn wall_at(b: &Band, w: usize) -> f32 {
+        if b.wall_cell as usize == b.cell(w) { b.wall } else { 0.0 }
+    }
+
+    /// Yearly (v8): a settled band that has been attacked, and has an axe to cut stakes and a
+    /// digging stick for the ditch, raises a palisade. It costs food (labour) every year and rots
+    /// when no longer kept up. A wall left behind is no use to the band that left it.
+    pub(super) fn build_walls(&mut self) {
+        let w = self.map.w;
+        for b in &mut self.bands {
+            let c = b.cell(w) as u32;
+            if b.wall_cell != c {
+                b.wall_cell = c;
+                b.wall = 0.0;
+            }
+            let attacked: f32 = b.grudges.iter().map(|g| g.w).sum();
+            let k = &b.d.kit;
+            if b.settled > 0.5 && attacked >= 0.3 && k.axe != NONE && k.dig != NONE {
+                b.wall += 0.15 * (1.0 - b.wall);
+            } else {
+                b.wall *= 0.85;
+            }
+            if b.wall < 0.01 {
+                b.wall = 0.0;
+            }
+            let upkeep = 0.05 * b.wall * b.d.need.max(0.0);
+            b.store = (b.store - upkeep).max(0.0);
+        }
     }
 
     /// Yearly: grudges fade (half gone in about 8 years at the default memory), pressure eases.
