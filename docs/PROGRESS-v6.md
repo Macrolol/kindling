@@ -131,3 +131,109 @@ target by k" and apply it to the live value in band order, the exact v5 result.
 
 Next: balance check 3 with the farm-layer fix; then look at war deaths (candidates: movement now
 sees the stocks after every band has harvested; meeting order by rounds).
+
+## v6 finish (25 Oct 2026, EDT). Balance tests moved to GitHub Actions
+
+### 5. Turnaround: GitHub Actions vs this box
+`headless-sims.yml`: 10 seeds x 500 years, one seed per job, `--threads 4`.
+
+| run | commit | dispatch -> summary | notes |
+|---|---|---|---|
+| 1 | c353bd1 | 3m36s | cold cargo cache (44 s compile) |
+| 2 | dab0519 | 3m18s | warm cache (19 s compile); 3 seed jobs waited ~40 s for a runner while the test and bench jobs held slots |
+| 3 | 6057dbb | 2m54s | tests off |
+| 4 | 5532fac | 4m22s | ran beside a bench run on a slow runner batch (seed 5 alone took 148 s) |
+| 5 | f06d614 | 2m50s | tests on, bench running too |
+
+On this box, one seed (seed 1, 500 y) took 63.8 s wall at load 6 to 8 and **253.9 s** at load 9 to 13
+(user 107.7 s; the same seed takes 60.7 s on a runner). Ten sequential seeds come to 10 to 25+ min,
+plus a 3 to 4 min build. **Actions takes about 3 min for the whole check, 3 to 8x faster, and puts
+no load on the box.**
+
+Workflow fixes (dab0519, 5532fac):
+- `ref` can be a short SHA, branch or tag. The plan job resolves it to a full SHA once, and every
+  job checks out that SHA. A short SHA used to break `actions/checkout`, and later jobs could also
+  pick up a moved branch.
+- `run_tests` (default on) runs `cargo test` on its own runner. Set it off for pure balance runs
+  to free a runner slot. `threads` (default 4) sets the sim threads.
+- The summary job runs `tools/agg_results.py` against `baseline` (default the v5 results) and
+  writes the table into the run summary and `aggregate.md`, so a balance verdict needs no download.
+- The concurrency group is now keyed by ref + seeds + years. It used to be one group per branch,
+  which serialised experiments on different commits, and a newer pending run silently cancelled an
+  older pending one.
+- `bench.yml` builds the ref and a baseline (default v0.5.0) on **one** runner and times both,
+  so timings are comparable. It now also captures the `KINDLING_PROF` per-phase profile.
+
+### 6. Balance: fixed (5532fac)
+The cause of the remaining gap (war -18%, disease -16%, farming origins half of v5) was
+**movement**. In phase 3, `cell_score` and `push_out` read the wild stocks after *every* band
+had harvested, so all cells looked emptier than in v5, where band k saw only its own harvest and
+the earlier bands'. Bands therefore left shared ground sooner and spread thinner. That meant less
+crowding, and so less tension, less disease and fewer farming starts (push = stress + crowd).
+v6 bench seed 5 had 6.2k bands at Y300 against 7.6k in v5.
+
+Fix: phase 2 now logs, for each cell a band harvests, the stocks just before it takes its share.
+In phase 3, `World::seen(r, c, band)` returns the value logged by the first *later* band to
+harvest that cell, or the live value if none did. That is exactly what that band saw in v5. It is
+used in movement (`cell_score`, sea fish), raw materials for the toolkit (`raws_at`), the
+experiments' "at hand" test and the herding check in farming. It is not a tuning knob: v6 now
+reproduces v5's view. After the harvest the log is regrouped by cell, with a per-cell
+(start, len) index that is reset only on the cells touched, so it is O(bands) per season on any
+map size. On the bench, seed 5 at Y300 now has 148.7k people and 7689 bands (v5: 149.4k, 7635).
+
+Final, 10 seeds x 500 y (docs/results-v6-final-seeds1-10-500y.txt):
+
+| metric | v5 | v6 final | diff |
+|---|---|---|---|
+| total pop Y500 | 909196 | 928522 | +2.1% |
+| killed in war %/yr | 0.332 | 0.347 | +4.5% |
+| disease %/yr | 0.113 | 0.122 | +8% |
+| fights/century | 4480 | 4583 | +2.3% |
+| domestic-grain seeds | 9 (Y241-400) | 9 (Y252-476) | |
+| farming origins (mean) | 16.5 | 15.0 | -9% |
+| foragers, mean % of people | 46% | 51% | farming does not take over |
+| second continent | 4/10: Y152, 226, 307, 162 | 4/10: s1 Y156, s2 Y208, s7 Y258, s8 Y176 | none before Y100 |
+| voyages / landings | 188052 / 19688 | 190900 / 19709 | |
+| lost at sea | 38547 | 39305 | +2% |
+| iron / bronze seeds | 8 / 6 | 8 / 4 | |
+
+There are no artificial interventions. The only remaining differences from v5 are deliberate
+consequences of parallel phases: farm layers are read as at the start of the season, an invention
+is first usable the next season, and meetings run in band-disjoint rounds. Bronze shows up in 4
+seeds instead of 6, which is within seed noise (the iron seeds are unchanged).
+`v5beta_fixture_loads_and_runs` passes again: the population collapse it caught was the same
+dispersal effect.
+
+### 7. Speed (bench.yml, seed 5, 300 y, same runner for every row)
+
+| build | base v5 1t | v6 1t | v6 2t | v6 4t |
+|---|---|---|---|---|
+| dab0519 (before) | 31.49 s | 37.23 s | 24.23 s | 20.18 s |
+| 6057dbb toolkit cache | 32.29 s | 36.34 s | 23.73 s | 20.58 s |
+| 5532fac v5 view, sorted log | 31.77 s | 66.67 s | 41.11 s | 32.93 s |
+| f06d614 per-cell chains | 30.94 s | 49.67 s | 31.46 s | 26.23 s |
+| d994b2b regrouped by cell | 32.13 s | 44.25 s | 29.33 s | 24.78 s |
+
+Caveat: before the balance fix, the v6 world at Y300 was ~20% smaller (fewer bands), so the
++12 to 18% single-thread overhead of the first two rows understates the per-band cost. At an
+equal world (last row), v6 1t is +38% over v5 and 4 threads give 1.79x over v6 1t, i.e. 1.30x
+faster than v5. Per-phase profile, 1t (v5 -> v6, s): band seasons 13.1 -> 21.5 (economy
+2.8 -> 4.1, experiments 3.8 -> 4.3, movement 1.8 -> 3.8, farming 0.3 -> 0.9, prep 1.2, log 0.3,
+merge 0.4, ~5 s per-band phase-3 overhead: Fx buffers, Econ hand-over, mark_used), contacts
+7.9 -> 9.8 (27.1M vs 22.3M pairs in range: more clustered world, not code), regrow 0.3 -> 0.6.
+The toolkit cache removed the duplicated toolkit closure work. The rest is the price of the
+three-phase split and is not recovered yet (see open items).
+
+### 8. Release v0.6.0
+- Version 0.6.0 (native, civ-core, Cargo.lock). `build-web.sh` now looks in every
+  `~/.cargo/registry/src/*/` dir for each JS file, takes the newest version, and fails clearly
+  if one is missing.
+- Start picker screenshot: docs/images/screenshot-start-picker.png
+  (`kindling --screenshot out.png --ui picker --seed 8`).
+
+### Open items
+- Single-thread cost is +38% over v5 at an equal world. Candidates: the per-band phase-3
+  hand-over (Fx/Econ allocation, ~5 s on the bench), the harvest-view lookups in movement (2 s),
+  and farm-layer Toward ops (0.6 s). Multi-thread runs are faster than v5 from 2 threads up.
+- Hosted runners vary by ~40% between batches (base v5 took 23 s to 32 s on the same bench), so
+  compare speed only within one bench run.

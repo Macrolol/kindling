@@ -210,8 +210,8 @@ jobs:
 
   test:
     name: cargo test (informational)
-    # main currently has a known failing test (v5beta_fixture_loads_and_runs, paused v6
-    # work), so this job never blocks the sims or the summary.
+    # informational: runs beside the sims and never blocks them or the summary
+    # (the whole suite passes on main as of v0.6.0)
     needs: plan
     if: inputs.run_tests
     runs-on: ${{ inputs.runner }}
