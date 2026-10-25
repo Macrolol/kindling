@@ -179,3 +179,12 @@ Land ever camped 44-100 %. Concern: lineage dominance rose (effective 4.95 vs 5.
   0.333 %/yr (0.362); disease 0.093; items 70; lineages effective 5.43 (largest 24 %, was 30 %);
   ancestry effective 5.49 (largest founder 24 %); 526031 wedding exchanges, 246 in-law fights.
   Run time 50 s (77 s).
+
+CI (run 40242540575, [results-v9-step6-seeds1-10-500y.txt](results-v9-step6-seeds1-10-500y.txt)):
+pop 1056021 (step 5 1137257), war 0.373 %/yr, disease 0.110 %/yr, fights/century 6235 (6709),
+items 66.0 (67.3), tau 0.15. Crossings in the same 4/10 worlds: s1 Y186, s2 Y196, s7 Y260,
+s8 Y186. First sail-usable bands (50 in all). Ancestry is a little more even than lineage
+names (effective founders 5.08 vs 4.90 lineages; largest founder 28.3 % vs 31.4 %), but with
+weddings at ~3 % of the smaller band they do not undo the step-5 rise in lineage dominance.
+In-law fights are rare (1900 against ~62000 fights), so marriage alliances do keep the peace
+between the bands they join.
