@@ -88,9 +88,13 @@ pub struct Band {
     /// the cell the wall stands in (it stays behind when the band moves)
     pub wall_cell: u32,
     /// (v8) herbal lore, 0..1: what plants ease the sick, learned under disease and taught on
+    /// meeting
     pub herbal: f32,
     /// (v8) wariness of sick neighbours after an outbreak, 0..1, fading
     pub wary: f32,
+    /// (v8) riding, 0..1: horse-like herd animals broken to carry people, on open land; lost
+    /// with the herd
+    pub ride: f32,
     /// running counters
     pub inventions: u32,
     pub learned: u32,

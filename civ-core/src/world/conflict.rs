@@ -61,7 +61,8 @@ impl World {
         }
         fx.acc.confrontations += 1;
         fx.counters.confrontations += 1;
-        let pa = Self::power(&bands[a]);
+        // (v8) riders on open land strike harder
+        let pa = Self::power(&bands[a]) * (1.0 + 0.3 * self.mounted(&bands[a]));
         let pc = Self::power(&bands[c]) * 1.25 * (1.0 + 0.4 * bands[c].settled) * (1.0 + 0.28 * Self::wall_at(&bands[c], self.map.w)); // on their own ground, ready (behind house walls and field banks, more so)
         let r = pa / pc.max(1.0);
         // the pressing side weighs the odds against how badly it wants this

@@ -658,3 +658,23 @@ fn frames_ornaments_and_medicine() {
     let b = crate::band::Band::default();
     assert_eq!((b.herbal, b.wary), (0.0, 0.0));
 }
+
+#[test]
+fn riding_counts_only_with_a_herd_on_open_land() {
+    let w = small();
+    let open = (0..w.map.w * w.map.h).find(|&c| w.open_land(c)).expect("some open land");
+    let wood = (0..w.map.w * w.map.h).find(|&c| w.map.is_land(c) && !w.open_land(c)).expect("some closed land");
+    let at = |c: usize, ride: f32, herd: f32| {
+        let mut b = crate::band::Band::default();
+        b.x = (c % w.map.w) as u16;
+        b.y = (c / w.map.w) as u16;
+        b.ride = ride;
+        b.herd = herd;
+        w.mounted(&b)
+    };
+    assert_eq!(at(open, 0.8, 0.5), 0.8);
+    assert_eq!(at(wood, 0.8, 0.5), 0.0);
+    assert_eq!(at(open, 0.8, 0.0), 0.0);
+    assert_eq!(at(open, 0.0, 0.5), 0.0);
+}
+

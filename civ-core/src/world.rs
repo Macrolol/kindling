@@ -89,6 +89,8 @@ pub enum EventKind {
     Epidemic,
     /// first band to till with an animal-drawn ard (major)
     FirstPlough,
+    /// (v8) first band to ride its herd animals (major)
+    FirstRiding,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -97,8 +99,8 @@ impl EventKind {
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
-            FirstHerding, FirstEpidemic, Epidemic, FirstPlough,
-        ][(x as usize).min(32)]
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding,
+        ][(x as usize).min(33)]
     }
     pub fn major(self) -> bool {
         matches!(
@@ -117,6 +119,7 @@ impl EventKind {
                 | EventKind::FirstHerding
                 | EventKind::FirstEpidemic
                 | EventKind::FirstPlough
+                | EventKind::FirstRiding
         )
     }
 }
@@ -1984,9 +1987,10 @@ impl World {
         let boat = b.d.kit.boat_q > 0.0;
         let effort = |c: usize| 1.0 + terrain::MOVE_EFFORT * (self.travel_cost(cur, c, boat) - 1.0).max(0.0);
         let mut cands: Vec<(usize, f32)> = nbrs8(x, y, m.w, m.h).map(|(a, c)| c * m.w + a).map(|c| (c, effort(c))).collect();
-        // occasionally scout further
-        let dx = rng.below(7) as i32 - 3;
-        let dy = rng.below(7) as i32 - 3;
+        // occasionally scout further (v8: riders on open land twice as far)
+        let sr = if self.mounted(b) > 0.5 { 6 } else { 3 };
+        let dx = rng.below(2 * sr + 1) as i32 - sr as i32;
+        let dy = rng.below(2 * sr + 1) as i32 - sr as i32;
         let (sx, sy) = (x as i32 + dx, y as i32 + dy);
         if sx >= 0 && sy >= 0 && (sx as usize) < m.w && (sy as usize) < m.h {
             let c = sy as usize * m.w + sx as usize;
@@ -2112,11 +2116,11 @@ impl World {
                 let ca = b.cell(w as usize);
                 let boat_a = b.d.kit.boat_q > 0.0;
                 // with a boat on a river, neighbours further along the same river are within reach
-                let rr = if boat_a && world.river_sys.get(ca).copied().unwrap_or(u32::MAX) != u32::MAX {
-                    r.max(terrain::RIVER_SCOUT as i32)
-                } else {
-                    r
-                };
+                let river_a = boat_a && world.river_sys.get(ca).copied().unwrap_or(u32::MAX) != u32::MAX;
+                let rr = if river_a { r.max(terrain::RIVER_SCOUT as i32) } else { r };
+                // (v8) riders on open land meet people twice as far off, across open land
+                let ride_a = world.mounted(b) > 0.5;
+                let rr = if ride_a { rr.max(2 * r) } else { rr };
                 for dy in -rr..=rr {
                     for dx in -rr..=rr {
                         let (nx, ny) = (x + dx, y + dy);
@@ -2126,15 +2130,19 @@ impl World {
                         let d = dx.abs().max(dy.abs());
                         let cn = (ny * w + nx) as usize;
                         let ring = d > r;
-                        if ring && !world.same_river(ca, cn) {
+                        let by_river = boat_a && world.same_river(ca, cn) && d <= r.max(terrain::RIVER_SCOUT as i32);
+                        let by_horse = ride_a && d <= 2 * r && world.open_land(cn);
+                        if ring && !by_river && !by_horse {
                             continue;
                         }
                         for &k in &occ[cn] {
                             let k = k as usize;
                             let boat_k = bs[k].d.kit.boat_q > 0.0;
                             // each pair is looked at once: from the lower index, or beyond the
-                            // land radius from the side with the boat when only one has one
-                            let mine = if ring && !boat_k { k != a } else { k > a };
+                            // land radius from the side that can reach when only one can
+                            let reach_k = (boat_k && world.same_river(cn, ca) && d <= r.max(terrain::RIVER_SCOUT as i32))
+                                || (world.mounted(&bs[k]) > 0.5 && d <= 2 * r && world.open_land(ca));
+                            let mine = if ring && !reach_k { k != a } else { k > a };
                             if mine {
                                 seen += 1;
                                 let kin = 1.0 + 0.3 * (2.0 * b.kinship(&bs[k], tick)).min(1.0);
@@ -2406,6 +2414,16 @@ impl World {
         q
     }
 
+    /// (v8) Open country a rider can cross at a gallop: steppe, grassland, savanna.
+    pub fn open_land(&self, c: usize) -> bool {
+        self.graze_pot.get(c).copied().unwrap_or(0.0) >= 0.8
+    }
+
+    /// (v8) How much riding counts for a band where it stands (0 off open land).
+    pub fn mounted(&self, b: &Band) -> f32 {
+        if b.ride > 0.0 && b.herd > 0.05 && self.open_land(b.cell(self.map.w)) { b.ride } else { 0.0 }
+    }
+
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
     fn exchange(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         // fire can be shared
@@ -2415,6 +2433,10 @@ impl World {
         // (v8) and what plants ease the sick
         if bands[src].herbal > bands[dst].herbal + 0.1 && rng.chance(0.3) {
             bands[dst].herbal += 0.5 * (bands[src].herbal - bands[dst].herbal);
+        }
+        // (v8) herders on open land can learn to ride from riders, if they keep animals to ride
+        if bands[src].ride > bands[dst].ride + 0.1 && bands[dst].herd > 0.1 && bands[dst].tame > 0.6 && self.open_land(bands[dst].cell(self.map.w)) && rng.chance(0.2) {
+            bands[dst].ride += 0.5 * (bands[src].ride - bands[dst].ride);
         }
         // so can word of a land across the water
         if bands[dst].far_shore.is_none() && bands[src].far_shore.is_some() && rng.chance(0.3) {
@@ -2558,6 +2580,7 @@ impl World {
                 sick: b.sick,
                 seacraft: b.seacraft,
                 herbal: 0.9 * b.herbal,
+                ride: b.ride,
                 ..Default::default()
             };
             if let Some(sea) = sailed {
@@ -2896,6 +2919,7 @@ impl World {
                 }
             }
             EventKind::FirstPlough => format!("Y{yr}: band {} at ({cx},{cy}) is the first to till with an ard drawn by oxen", e.band),
+            EventKind::FirstRiding => format!("Y{yr}: band {} at ({cx},{cy}) is the first to ride its herd animals", e.band),
         }
     }
 }

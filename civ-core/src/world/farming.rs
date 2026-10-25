@@ -18,6 +18,7 @@ use super::*;
 
 const FLAG_PLOUGH: u32 = 1;
 const FLAG_HERD: u32 = 2;
+const FLAG_RIDE: u32 = 4;
 
 /// Standing crop of a full, fertile, fully domestic field of potential 1 (food units per cell).
 pub const CROP_K: f32 = 300.0;
@@ -425,6 +426,21 @@ impl World {
                 b.herd *= 0.85; // breeding stock eaten
             }
             b.tame = (b.tame + 0.004 * (1.0 - b.tame)).min(1.0);
+            // (v8) riding: on open steppe, where the wild herds were horse-like, a well-tamed herd
+            // and a cord halter let someone get up on an animal; once known it is practised and
+            // grows, and it fades with the herd or off open land
+            if b.ride > 0.0 {
+                if b.herd > 0.1 && gp >= 0.8 {
+                    b.ride = (b.ride + 0.01 * (1.0 - b.ride)).min(1.0);
+                } else {
+                    b.ride *= 0.97;
+                }
+            } else if b.tame > 0.8 && b.herd > 0.2 && kit.cord != NONE && self.wild[ci] & WILD_HERD != 0 && self.map.biome_at(ci) == crate::map::Biome::Steppe && rng.chance(0.002 * b.curiosity) {
+                b.ride = 0.1;
+                if self.farm_flags & FLAG_RIDE == 0 {
+                    fx.ops.push(Op::Flag { flag: FLAG_RIDE, kind: EventKind::FirstRiding, band: b.id, cell: ci as u32 });
+                }
+            }
             // dung on the fields
             // (v8) manuring: a band that keeps its herd on its own fields spreads the dung on
             // purpose, and the soil comes back twice as fast
@@ -446,6 +462,7 @@ impl World {
             if b.herd < 0.01 {
                 b.herd = 0.0;
                 b.tame = 0.0;
+                b.ride = 0.0;
                 fx.counters.herds_lost += 1;
             }
         }
@@ -551,6 +568,10 @@ impl World {
         if sh > 0.3 && bands[dst].herd <= 0.0 && bands[dst].d.kit.cord != NONE && self.graze_pot.get(dc).copied().unwrap_or(0.0) > 0.6 && rng.chance(0.004) {
             bands[dst].herd = 0.05;
             bands[dst].tame = 0.9 * st;
+            // (v8) horses bring their riders' know-how with them
+            if bands[src].ride > 0.3 {
+                bands[dst].ride = 0.5 * bands[src].ride;
+            }
             fx.counters.herds_started += 1;
         }
     }
