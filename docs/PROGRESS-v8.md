@@ -201,3 +201,61 @@ appear in most seeds (between Y56 and Y125). Copper, tin and bronze rings follow
 Y221 and Y382). Disease stays near the D5 level: medicine roughly offsets the extra people.
 Trading tin did not shift the metals toward bronze; if anything bronze came later. That is left
 as it is.
+
+## D7. Riding (done, commit 323f194, run 40212892437; saves from run 40213696876)
+- A band that has tamed a wild herd (taming above 0.8, herd above 0.2), has a cord, and lives on
+  open steppe sometimes starts riding (chance 0.002 x curiosity per year). Riding starts at 0.1
+  and grows while the band keeps a herd on open grazing land (grazing potential 0.8 or more);
+  elsewhere it fades, and it is lost with the herd. It is taught on meeting, passes to daughters
+  and travels with herd animals.
+- Riding counts only with a herd on open land. A mounted band scouts twice as far (6 cells
+  instead of 3), can meet bands twice as far away across open land, and attacks with up to 1.3x
+  strength. Defence is unchanged.
+- New major event: the first band in a world to ride (`FirstRiding`).
+- Test `riding_counts_only_with_a_herd_on_open_land`.
+- Results: `docs/results-v8-D7-seeds1-10-500y.txt`.
+
+| metric | D6 | D7 |
+|---|---|---|
+| pop | 931,174 | 891,377 (-4.0% vs target) |
+| war %/yr | 0.348 | 0.356 |
+| disease %/yr | 0.113 | 0.111 |
+| farming seeds | 8 | 9 |
+| crossings | 4/10 | 4/10 (Y143, Y188, Y195, Y302), none before Y100 |
+| iron seeds (median) | 5 (Y290) | 4 (Y290) |
+| bronze seeds (median) | 3 (Y369) | 3 (Y334) |
+| tau | 0.134 | 0.134 |
+| lineage max share, mean / worst | 27.0% / 35% | 27.4% / 34% |
+
+Riding appeared in 8 of 10 seeds, first between Y232 and Y499 (seeds 1-10: Y335, Y325, Y292,
+none, Y232, Y444, Y365, none, Y248, Y499). Where it starts early it spreads widely: in seed 5
+(first rider Y232) 95% of people belong to riding bands by Y500, in seeds 2 and 3 about half do.
+Over all ten worlds 49.5% of people ride at Y500. Seeds 4 and 8 have no wild herds on steppe
+near herders, so nobody rides. War rises only slightly (0.348 to 0.356%/yr) because riding
+strengthens attacks but does not make bands more willing to fight.
+
+## Final balance (v0.8.0, sim code 323f194, run 40212892437)
+
+| metric | v6.1 | v7 (v0.7.0) | v8 (v0.8.0) | target |
+|---|---|---|---|---|
+| pop (10 seeds, Y500) | 928,522 | 918,614 | 891,377 (-4.0%) | within ~15% of 928,522 |
+| war %/yr | 0.347 | 0.363 | 0.356 | 0.25-0.45 |
+| disease %/yr | - | 0.116 | 0.111 | - |
+| farming seeds | 9 | 9 | 9 | ~9 |
+| crossings | 4/10 | 4/10 | 4/10, none before Y100 | 4-6, none before Y100 |
+| iron seeds (median) | 8 (Y218) | 10 (Y253) | 4 (Y290) | not targeted |
+| bronze seeds (median) | - | 4 (Y339) | 3 (Y334) | not targeted |
+| tau | - | 0.137 | 0.134 | - |
+| lineage max share, mean / worst | - | 27.7% / 42% | 27.4% / 34% | - |
+
+Per step: war after D3 (bows, shields) fell to 0.328%/yr and came back to 0.356 by D7. Crossings
+stayed at 4 of 10 after D5 (seafaring); boats came a little earlier and drowned fewer people,
+but they did not open new crossings. Tau was 0.138 after D2 and is 0.134 at the end, so the
+order of discovery is as consistent as in v7. Iron vs bronze: bronze came closest to iron at D4
+(median Y255 vs Y251), then drifted back. At the end iron is still first, in fewer seeds than in
+v7 (4 vs 10), and the gap to bronze is smaller (Y290 vs Y334 against v7's Y253 vs Y339). The
+metal seed counts move a lot between steps, which looks like seed-level noise. Nothing was
+tuned to push either metal.
+
+Not built: palisade wood depletion, a walls statistic, rafts and fish weirs, ornament prestige
+or tribute, wary bands meeting less often. Sails exist as a form but none emerged in 500 years.

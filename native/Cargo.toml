@@ -1,6 +1,6 @@
 [package]
 name = "kindling"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Kindling (working name): a living-civilisation simulator where technology emerges from material physics (desktop + web front end)"
 license = "MIT"
