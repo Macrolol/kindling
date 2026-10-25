@@ -67,3 +67,39 @@ farming seeds are met. I'm tracking farming seeds over the next steps rather tha
 Farming seeds are back to 9, which supports reading D1's dip as seed-level noise. The tau of
 discovery order is unchanged: terrain slows contact but every world still finds things in a
 similar order.
+
+## D3. Fighting (done, commits 0f9510a and 1e51930, run 40210394552)
+- Bows: a strong wooden shaft shaped with a cord (sinew, hide thong, flax or wool string). A bow
+  counts only with points to shoot. It helps hunting (game x1.2, small game x1.15), cuts a band's
+  losses in a fight (x0.7) and lowers the chance its people are taken captive (0.35 to 0.15).
+- Shields: hide lashed to a wooden frame with a cord, made away from water (by the water the same
+  parts make a skin boat). They cut losses x0.75.
+- Palisades: a settled band with an axe and a digging tool and grudges against its neighbours
+  builds a wall where it lives (+0.15 of the gap a year, decaying when there's no threat, with
+  upkeep from stores). The wall adds to the defender's strength (up to +28%) and cuts its losses.
+  It is lost if the band moves.
+- Weapon quality now counts how long a head lasts, not just how sharp it is
+  (`0.55 cut + 0.45 durability`), so metal beats flint in a fight even though flint cuts better.
+  Forged iron and cast bronze come out about equal on this measure.
+- Not built: palisades using up local wood, and a walls count in the summary.
+- Test `bows_shields_and_metal_weapons`.
+
+| metric | D2 | D3 |
+|---|---|---|
+| pop | 840,996 | 848,732 (-8.6% vs target) |
+| war %/yr | 0.353 | 0.328 |
+| disease %/yr | 0.109 | 0.108 |
+| farming seeds | 9 | 8 |
+| crossings | 4/10 | 4/10 (Y124, Y171, Y243, Y347) |
+| iron seeds (median) | 8 (Y230) | 5 (Y247) |
+| bronze seeds (median) | 6 (Y360) | 6 (Y328) |
+| tau | 0.138 | 0.133 |
+| lineage max share, mean / worst | 28.5% / 42% | 30.0% / 43% |
+
+War deaths fell slightly (0.353 to 0.328%/yr) and stay inside the 0.25-0.45 target. Bows and
+shields make fights less deadly per fight, while the number of fights barely moved (4596 to
+4525 a century). All 10 seeds invent a bow (the first between Y84 and Y250) and a shield.
+Iron is now usable in 5 seeds instead of 8, and 4 seeds reach bronze with no usable iron. That
+moves the balance toward bronze, but nothing in D3 targets it directly: tin and bloom dates are
+much the same, so this looks like seed-level variation in who gets to bloomery iron first rather
+than a real effect.
