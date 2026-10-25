@@ -76,6 +76,16 @@ on:
         required: false
         default: "docs/results-v5-seeds1-10-500y.txt"
         type: string
+      report:
+        description: "Print a progress line (pop, bands, items) to stderr every K years (blank = off)"
+        required: false
+        default: ""
+        type: string
+      sim_timeout:
+        description: "Minutes allowed per sim job (hosted runners stop at 360)"
+        required: false
+        default: "150"
+        type: string
       runner:
         description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
         required: false
@@ -246,7 +256,7 @@ jobs:
     name: Seeds ${{ matrix.name }}
     needs: [plan, build]
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 150
+    timeout-minutes: ${{ fromJSON(inputs.sim_timeout || '150') }}
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -260,6 +270,7 @@ jobs:
       CONFIG: ${{ inputs.config }}
       SAVE_CIVSAVE: ${{ inputs.save_civsave }}
       SCREENSHOTS: ${{ inputs.screenshots }}
+      REPORT: ${{ inputs.report }}
     steps:
       - uses: actions/checkout@v4
         if: inputs.config != ''
@@ -279,6 +290,7 @@ jobs:
           mkdir -p out
           extra=(--years "$YEARS" --threads "$SIM_THREADS")
           if [ -n "$MAP" ]; then extra+=(--map "$MAP"); fi
+          if [ -n "$REPORT" ]; then extra+=(--report "$REPORT"); fi
           if [ -n "$CONFIG" ]; then
             if [ ! -f "$CONFIG" ]; then echo "::error::config file '$CONFIG' not found in the repo"; exit 1; fi
             extra+=(--config "$CONFIG")
