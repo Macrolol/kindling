@@ -88,4 +88,11 @@ proposal expected). Effective lineages 5.29, largest 26.8 % (top on the main lan
   cells, no sail invented in that world; crossings #2 Y157, #3 Y188 (by sea); pop 109085, war
   0.347 %/yr, effective lineages 5.61 (largest 22 %).
 
-CI: _pending_
+CI (run 40240330260, [results-v9-step3-seeds1-10-500y.txt](results-v9-step3-seeds1-10-500y.txt)):
+pop 1037037 (step 2 1120438, step 1b 993655), war 0.371 %/yr, disease 0.131 %/yr, items 69.7,
+tau 0.14; iron in 7 worlds (4). Crossings in the same 4/10 worlds, later than in step 2 in three
+of them: s1 Y157, s2 Y308, s7 Y294, s8 Y190. Seacraft p90 0.41-0.69 (mean 0.53) and coastal boat
+range p90 17-20 cells in every world; only s5 invented a sail (466 sail-usable bands). The
+uncrossed gaps from settled land are 21-59 cells: beyond every world's range, and in s9, s10 and
+s6 nobody has even seen the far shore. Seamanship is now lived and taught, but boats, not skill,
+cap the range. Effective lineages 5.33, largest 26.1 %.
