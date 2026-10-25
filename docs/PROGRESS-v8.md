@@ -103,3 +103,33 @@ Iron is now usable in 5 seeds instead of 8, and 4 seeds reach bronze with no usa
 moves the balance toward bronze, but nothing in D3 targets it directly: tin and bloom dates are
 much the same, so this looks like seed-level variation in who gets to bloomery iron first rather
 than a real effect.
+
+## D4. Storage, salt, dairying and manuring (done, commits 917d79a and a031258, run 40210898547)
+- Salt: brine is at hand on sea shores and in hot, dry lowland salt pans. Heating brine in a fired
+  pot over a fire leaves salt (the recipe is found, not given). Salt is kept, traded (it is now
+  one of the trade goods), and wanted by bands that store meat and fish in pots or over smoke.
+  Salted meat and fish spoil 30% slower.
+- Storage pits and granaries: a settled band with a digging tool on dry enough ground (rain
+  < 0.6) loses grain 40% slower and can store 30% more of its crop.
+- Dairying: a herd tame enough to milk (tame > 0.8), with pots to hold the milk, gives 1.4 times
+  the food. Cheese (the same herd and fired pots) adds up to 0.3 x pop to what a band can put
+  by for winter.
+- Manuring: a settled band that keeps its herd on its own fields spreads dung on purpose, and the
+  soil recovers twice as fast.
+- Test `salt_from_brine`.
+
+| metric | D3 | D4 |
+|---|---|---|
+| pop | 848,732 | 995,992 (+7.3% vs target) |
+| war %/yr | 0.328 | 0.323 |
+| disease %/yr | 0.108 | 0.131 |
+| farming seeds | 8 | 8 |
+| crossings | 4/10 | 4/10 (Y134, Y190, Y257, Y280) |
+| iron seeds (median) | 5 (Y247) | 7 (Y251) |
+| bronze seeds (median) | 6 (Y328) | 5 (Y255) |
+| tau | 0.133 | 0.146 |
+| lineage max share, mean / worst | 30.0% / 43% | 26.8% / 32% |
+
+Salt is invented in 9 of 10 seeds (first between Y113 and Y314). Population rose 17% as
+expected, and with it disease (0.108 to 0.131%/yr). It stays inside the target band. Farming holds
+more people: in seeds 1 and 3 foragers fell from 95% and 82% of people to 21% and 27%.
