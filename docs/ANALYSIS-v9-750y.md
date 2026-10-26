@@ -108,7 +108,7 @@ No sim code was changed for this analysis.
 - **Metal dates** vary by 300+ years between seeds. Tin (metal) was lost worldwide and found again several times (s870 lost it three times).
 - **Wool items** show low or negative spread correlation (`r`) in the firsts lists, e.g. "bow (wool string)" −0.11 and "tin (metal)" in s865 −0.20. I suspect wool items spread along herding regions instead of by distance. Not investigated.
 
-## Bugs and oddities (reported, not fixed)
+## Bugs and oddities
 
 1. **Losses missing from the "lost worldwide" line.** Items that never reached 5 bands are logged as `LostLocal`, so they don't appear in that line. s865 lost copper (2 bands ever), which shows only as "stage now: pottery, ever: copper" with no matching entry. This is by design (world.rs ~3116), but it is confusing when reading results. A "lost (minor)" count would help.
 2. **Repeated names in firsts lists.** "outrigger canoe" can appear twice because two recipes produce items with the same name. Tools that dedupe by name, including my tau calculation, merge them. Harmless, but worth knowing.
@@ -120,6 +120,13 @@ No sim code was changed for this analysis.
    - `boat_q` 1.0: 55–92% of boat bands.
    - curiosity 2.5 and ambition 1.0: reached by the tail only.
 7. **No stuck counters.** Every counter is non-zero in every seed, and all large counters are u64. `pairs_seen` reaches 2.8e9 per seed, which would have overflowed a u32 if it were one.
+
+**Status (fixed in the reporting, Oct 2026; the simulation and saves are unchanged):**
+1. The headless output has a new "not made anywhere now:" line. It lists every item nobody can make, including quiet local losses, and gives how often each was lost (`Summary.gone_now` in JSON).
+2. Every form × material now has its own name, e.g. "outrigger reed boat", "outrigger skin boat", "flax basket". A test checks this. Saves store item ids, so they are unaffected.
+3. The continents line marks the homeland ("home") and adds "most people on #N (home #M)".
+4. Continent distances now come from settled land: "[sea, G from settled]" at arrival, or "never (G from settled land)" for unreached continents. The island count adds "N by sea, longest hop G from settled". The gap from the homeland is still in `--json`.
+5. Each seed prints a "discovery order:" line, and `tools/agg_results.py` computes tau across single-seed jobs from these lines. Both parsers read the old and new formats.
 
 ## Performance
 

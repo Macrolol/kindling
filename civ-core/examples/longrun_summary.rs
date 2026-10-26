@@ -5,7 +5,7 @@ use civ_core::materials::*;
 use civ_core::world::{EventKind, World};
 
 const KEY: [&str; 14] = [
-    "fire", "fired pottery", "dugout canoe", "outrigger canoe", "plank boat", "salt", "copper (metal)",
+    "fire", "fired pottery", "dugout canoe", "outrigger (any)", "plank boat", "salt", "copper (metal)",
     "tin (metal)", "bronze (metal)", "iron bloom", "wrought iron", "sinew-strung bow", "carrying frame (plant fibre)", "bone beads",
 ];
 
@@ -32,7 +32,7 @@ fn main() {
         println!("   landfalls on new landmasses: {} [{}] | crossings {} voyages {} lost at sea {}", lf.len(), lf.join(" "), w.counters.crossings, w.counters.voyages, w.counters.lost_at_sea);
         let firsts: Vec<String> = KEY
             .iter()
-            .map(|k| match w.firsts.iter().filter(|f| item_name(f.item) == *k).map(|f| f.tick).min() {
+            .map(|k| match w.firsts.iter().filter(|f| if *k == "outrigger (any)" { form(f.item) == Form::Outrigger } else { item_name(f.item) == *k }).map(|f| f.tick).min() {
                 Some(t) => format!("{k} Y{:.0}", t as f32 / 4.0),
                 None => format!("{k} -"),
             })

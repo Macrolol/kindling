@@ -81,25 +81,29 @@ pub fn run(a: &Args) {
                 .continents
                 .iter()
                 .map(|c| match c.landfall_year {
-                    Some(y) => format!(
-                        "#{} {}c gap {} Y{:.0} pop {}{}",
+                    // distances are from land already settled (at arrival, or now for a continent
+                    // nobody has reached), not from the homeland; the home gap stays in --json
+                    Some(y) => format!("#{} {}c {}Y{:.0} pop {}{}", c.id, c.cells, if c.home { "home " } else { "" }, y, c.pop_now, how_reached(c)),
+                    None => format!(
+                        "#{} {}c never ({} from settled land)",
                         c.id,
                         c.cells,
-                        c.gap.map(|g| g.to_string()).unwrap_or("-".into()),
-                        y,
-                        c.pop_now,
-                        how_reached(c)
+                        c.gap_now.map(|g| g.to_string()).unwrap_or("no sea path".into())
                     ),
-                    None => format!("#{} {}c gap {} never", c.id, c.cells, c.gap.map(|g| g.to_string()).unwrap_or("-".into())),
                 })
                 .collect();
+            let hop = s.island_hop_max.map(|g| format!(", longest hop {g} from settled")).unwrap_or_default();
             println!(
-                "    continents settled {}/{}: {} | islands reached {}/{}",
+                "    continents settled {}/{}: {} | most people on #{} (home #{}) | islands reached {}/{} ({} by sea{})",
                 s.continents.iter().filter(|c| c.landfall_year.is_some()).count(),
                 s.continents.len(),
                 cs.join(", "),
+                s.most_people_landmass,
+                s.home_landmass,
                 s.islands_reached,
-                s.islands
+                s.islands,
+                s.islands_by_sea,
+                hop
             );
             println!("    started in: {}", s.origin);
             let q = &s.sea;
@@ -147,6 +151,23 @@ pub fn run(a: &Args) {
             if !s.lost_worldwide.is_empty() {
                 println!("    lost worldwide: {}", s.lost_worldwide.join(", "));
             }
+            if !s.gone_now.is_empty() {
+                // everything nobody can make any more, including local tricks lost quietly (they
+                // are not in the chronicle, so not in "lost worldwide")
+                let g: Vec<String> = s
+                    .gone_now
+                    .iter()
+                    .map(|g| {
+                        let n = if g.times_lost == 0 { "dropped before a yearly count".to_string() } else { format!("lost {}x", g.times_lost) };
+                        format!("{} (Y{:.0}, {}{})", g.name, g.year_first, n, if g.widespread { "" } else { ", never widespread" })
+                    })
+                    .collect();
+                println!("    not made anywhere now: {}", g.join(", "));
+            }
+            // per-seed discovery order (item ids), so tools/agg_results.py can compare seeds run
+            // as separate jobs
+            let ord: Vec<String> = s.firsts.iter().map(|f| f.item.to_string()).collect();
+            println!("    discovery order: {}", ord.join(" "));
         }
         let cf = conflict_stats(&w);
         if !a.json {

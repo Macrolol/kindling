@@ -8,6 +8,9 @@ Usage: agg_results.py results.txt [baseline.txt]   (baseline: print a side-by-si
 import re
 import sys
 
+# the part of a continent entry between "#id" and its year, old or new format
+CONT = r'\d+c (?:gap \d+ )?(?:home )?'
+
 
 def parse(path):
     seeds = {}
@@ -27,13 +30,17 @@ def parse(path):
         if cur is None:
             continue
         if 'continents settled' in line:
-            ys = [int(y) for y in re.findall(r'gap \d+ Y(\d+) pop', line)]
+            # old lines: "#1 1234c gap 12 Y356 pop ..."; newer: "#1 1234c Y356 pop ..." and
+            # "#2 999c home Y0 pop ..." (gaps now come from settled land, in the [sea, ..] tag)
+            ys = [int(y) for y in re.findall(CONT + r'Y(\d+) pop', line)]
             cur['cross'] = sorted(y for y in ys if y > 0)
             cur['cont'] = re.search(r'settled (\d+/\d+)', line).group(1)
             # v9: how each continent was first reached ("[sea, G from settled]" / "[foot]")
             if '[sea' in line or '[foot]' in line or '[?]' in line:
-                cur['boat'] = sorted((int(y), g) for y, g in re.findall(r'gap \d+ Y(\d+) pop \d+ \[sea, (\S+) from settled\]', line) if int(y) > 0)
-                cur['foot'] = sorted(int(y) for y in re.findall(r'gap \d+ Y(\d+) pop \d+ \[foot\]', line) if int(y) > 0)
+                cur['boat'] = sorted((int(y), g) for y, g in re.findall(CONT + r'Y(\d+) pop \d+ \[sea, (\S+) from settled\]', line) if int(y) > 0)
+                cur['foot'] = sorted(int(y) for y in re.findall(CONT + r'Y(\d+) pop \d+ \[foot\]', line) if int(y) > 0)
+        elif re.match(r'\s+discovery order:', line):
+            cur['order'] = [int(x) for x in line.split(':', 1)[1].split()]
         elif re.match(r'\s+lineages:', line):
             cur['eff'] = float(re.search(r'effective ([\d.]+)', line).group(1))
             t = re.search(r'top L\d+ (\d+)%', line)
@@ -85,13 +92,33 @@ def parse(path):
     return [seeds[k] for k in sorted(seeds) if 'forag' in seeds[k]]
 
 
-def tau(path):
-    """Kendall-tau discovery-order distance from a multi-seed run's summary block (None if absent)."""
+def order_distance(a, b):
+    """Share of item pairs found in opposite order (same as civ_core::analysis::order_distance)."""
+    common = [i for i in a if i in b]
+    if len(common) < 3:
+        return None
+    pa = {x: k for k, x in enumerate(a)}
+    pb = {x: k for k, x in enumerate(b)}
+    disc = tot = 0
+    for i in range(len(common)):
+        for j in range(i + 1, len(common)):
+            tot += 1
+            if (pa[common[i]] < pa[common[j]]) != (pb[common[i]] < pb[common[j]]):
+                disc += 1
+    return disc / tot
+
+
+def tau(path, rows=None):
+    """Kendall-tau discovery-order distance: from a multi-seed run's summary block, or else
+    computed from the per-seed "discovery order:" lines (one job per seed). None if neither."""
     for line in open(path):
         m = re.search(r'Kendall tau, 0 same .. 1 reversed\): mean ([\d.]+)', line)
         if m:
             return float(m.group(1))
-    return None
+    orders = [r['order'] for r in (rows or []) if r.get('order')]
+    ds = [d for i in range(len(orders)) for j in range(i + 1, len(orders))
+          if (d := order_distance(orders[i], orders[j])) is not None]
+    return round(sum(ds) / len(ds), 2) if ds else None
 
 
 def agg(rows, tau_v=None):
@@ -138,9 +165,11 @@ def agg(rows, tau_v=None):
 
 
 def main():
-    a = agg(parse(sys.argv[1]), tau(sys.argv[1]))
+    ra = parse(sys.argv[1])
+    a = agg(ra, tau(sys.argv[1], ra))
     if len(sys.argv) > 2:
-        b = agg(parse(sys.argv[2]), tau(sys.argv[2]))
+        rb = parse(sys.argv[2])
+        b = agg(rb, tau(sys.argv[2], rb))
         w = max(len(k) for k in a)
         # columns: baseline (second argument) first, then the new results; label by
         # the last two path parts so two results-all.txt downloads are told apart

@@ -42,6 +42,12 @@ pub struct Summary {
     pub splits: u64,
     pub deaths: u64,
     pub lost_worldwide: Vec<String>,
+    /// every item that was made at some point but that no band can make now, with how often it
+    /// was lost. `lost_worldwide` lists only items that had spread to 5+ bands; this also covers
+    /// the local tricks lost quietly, so it accounts for any gap between `stage_ever` and
+    /// `stage_now`
+    #[serde(default)]
+    pub gone_now: Vec<GoneItem>,
     pub firsts: Vec<ItemSummary>,
     /// fraction of band-known recipes found by the band itself or an ancestor (kept through
     /// splits) rather than taught by another band. v2 counted only the band's own finds, which
@@ -59,6 +65,18 @@ pub struct Summary {
     /// smaller islands: how many exist, how many were ever reached
     pub islands: u32,
     pub islands_reached: u32,
+    /// islands first reached over open water, and the longest such hop (sea cells from land
+    /// already settled at the time, not from the homeland)
+    #[serde(default)]
+    pub islands_by_sea: u32,
+    #[serde(default)]
+    pub island_hop_max: Option<u32>,
+    /// landmass where people started (the one with landfall at year 0) and the one with the most
+    /// people now; they differ once a colony outgrows its homeland
+    #[serde(default)]
+    pub home_landmass: u32,
+    #[serde(default)]
+    pub most_people_landmass: u32,
     /// share of land cells per biome (percent), in Biome order
     pub biome_pct: Vec<(String, f32)>,
     pub trade: TradeSummary,
@@ -315,6 +333,17 @@ fn quantile(v: &mut [f32], q: f32) -> f32 {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct GoneItem {
+    pub item: Item,
+    pub name: String,
+    pub year_first: f32,
+    /// times it fell out of use everywhere (0 if no band could make it at the last yearly count)
+    pub times_lost: u32,
+    /// it had once spread to 5+ bands, so its loss is also in `lost_worldwide`
+    pub widespread: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct LandmassSummary {
     pub id: u32,
     pub cells: u32,
@@ -324,6 +353,14 @@ pub struct LandmassSummary {
     /// fewest sea cells to cross from the landmass people started on (0 = that landmass)
     #[serde(default)]
     pub gap: Option<u32>,
+    /// the landmass people started on
+    #[serde(default)]
+    pub home: bool,
+    /// fewest sea cells to it from any landmass people have reached by the end (0 = reached).
+    /// For an unreached continent this is the crossing still ahead, measured from the nearest
+    /// settled shore rather than from the homeland
+    #[serde(default)]
+    pub gap_now: Option<u32>,
     /// (v9) how people first came: Some(true) over water, Some(false) on foot, None = never
     /// reached, a homeland, or a save from before v9
     pub by_sea: Option<bool>,
@@ -442,12 +479,24 @@ pub fn summarize(w: &World) -> Summary {
             needs,
         });
     }
-    let lost = w
+    let lost_big: Vec<(Item, u32)> = w
         .chronicle
         .iter()
         .filter(|e| e.kind == crate::world::EventKind::LostWorldwide as u8)
-        .map(|e| format!("{} (Y{})", item_name(e.item), e.tick / 4))
+        .map(|e| (e.item, e.tick))
         .collect();
+    let gone_now: Vec<GoneItem> = firsts
+        .iter()
+        .filter(|f| f.bands_now == 0)
+        .map(|f| GoneItem {
+            item: f.item,
+            name: f.name.clone(),
+            year_first: f.year_first,
+            times_lost: w.item_lost.get(&f.item).copied().unwrap_or(0),
+            widespread: lost_big.iter().any(|&(i, _)| i == f.item),
+        })
+        .collect();
+    let lost = lost_big.iter().map(|&(i, t)| format!("{} (Y{})", item_name(i), t / 4)).collect();
     let (mut selfk, mut allk) = (0usize, 0usize);
     for b in &w.bands {
         for k in &b.known {
@@ -480,6 +529,10 @@ pub fn summarize(w: &World) -> Summary {
     // sea gaps from the home landmass (breadth-first over sea cells, 8-connected)
     let home = w.landfall.iter().position(|&t| t == 0).unwrap_or(1);
     let gap = m.sea_gaps(|l| l == home);
+    let reached = |l: usize| w.landfall.get(l).is_some_and(|&t| t != u32::MAX);
+    let gap_now = m.sea_gaps(reached);
+    let most_people = (1..nl).max_by_key(|&l| (lpop[l], std::cmp::Reverse(l))).filter(|&l| lpop[l] > 0).unwrap_or(home);
+    let (mut islands_by_sea, mut island_hop_max) = (0u32, None::<u32>);
     let rec = |l: usize| w.landfalls.iter().find(|r| r.landmass as usize == l);
     let cont_min = m.continent_cells();
     let mut continents = Vec::new();
@@ -494,6 +547,8 @@ pub fn summarize(w: &World) -> Summary {
                 landfall_year: lf(l),
                 pop_now: lpop[l],
                 gap: gap.get(l).copied().flatten(),
+                home: l == home,
+                gap_now: gap_now.get(l).copied().flatten(),
                 by_sea: r.map(|r| r.by_sea),
                 gap_settled: r.map(|r| r.gap).filter(|&g| g != u32::MAX),
                 from: r.map(|r| r.from as u32).unwrap_or(0),
@@ -502,6 +557,12 @@ pub fn summarize(w: &World) -> Summary {
             islands += 1;
             if lf(l).is_some() {
                 islands_reached += 1;
+                if let Some(r) = rec(l).filter(|r| r.by_sea && lf(l).is_some_and(|y| y > 0.0)) {
+                    islands_by_sea += 1;
+                    if r.gap != u32::MAX {
+                        island_hop_max = Some(island_hop_max.unwrap_or(0).max(r.gap));
+                    }
+                }
             }
         }
     }
@@ -646,6 +707,7 @@ pub fn summarize(w: &World) -> Summary {
         splits: w.counters.splits,
         deaths: w.counters.deaths,
         lost_worldwide: lost,
+        gone_now,
         firsts,
         self_invented_frac: if allk > 0 { selfk as f32 / allk as f32 } else { 0.0 },
         own_find_share: {
@@ -685,6 +747,10 @@ pub fn summarize(w: &World) -> Summary {
         continents,
         islands,
         islands_reached,
+        islands_by_sea,
+        island_hop_max,
+        home_landmass: home as u32,
+        most_people_landmass: most_people as u32,
         biome_pct,
         trade,
         farming,

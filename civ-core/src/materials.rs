@@ -317,7 +317,8 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n} cord"),
         },
         Form::Vessel => match m {
-            Mat::Fibre | Mat::Flax => "woven basket".into(),
+            Mat::Fibre => "woven basket".into(),
+            Mat::Flax => "flax basket".into(),
             Mat::Wool => "woollen bag".into(),
             Mat::Hide => "hide bag".into(),
             Mat::Clay => "unfired clay pot".into(),
@@ -361,13 +362,24 @@ pub fn item_name(i: Item) -> String {
             _ => format!("bow ({n} string)"),
         },
         Form::Shield => format!("{n} shield"),
-        Form::Outrigger => "outrigger canoe".into(),
+        // every (form, material) pair has its own name, so reports keyed by name never merge two
+        // items (the material of an outrigger is its hull's; of a sail, its cloth)
+        Form::Outrigger => match m {
+            Mat::Wood => "outrigger canoe".into(),
+            Mat::Hide => "outrigger skin boat".into(),
+            Mat::Fibre => "outrigger reed boat".into(),
+            _ => format!("{n} outrigger"),
+        },
         Form::Sail => match m {
             Mat::Flax => "linen sail".into(),
             Mat::Wool => "woollen sail".into(),
-            _ => "woven mat sail".into(),
+            Mat::Fibre => "woven mat sail".into(),
+            _ => format!("{n} sail"),
         },
-        Form::Plank => "plank boat".into(),
+        Form::Plank => match m {
+            Mat::Wood => "plank boat".into(),
+            _ => format!("{n} plank boat"),
+        },
         Form::Frame => format!("carrying frame ({n})"),
         Form::Ornament => match m {
             Mat::Bone => "bone beads".into(),

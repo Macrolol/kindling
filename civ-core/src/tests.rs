@@ -836,3 +836,47 @@ fn prestige_biases_learning_and_gini_measures_spread() {
     assert_eq!(gini(&[1.0, 1.0, 1.0]), 0.0);
     assert!(gini(&[0.0, 0.0, 0.0, 9.0]) > 0.7);
 }
+
+#[test]
+fn item_names_are_unique() {
+    // reports and summaries key items by name; two items sharing one would be merged
+    let mut seen = std::collections::HashMap::new();
+    for (fi, _) in ALL_FORMS.iter().enumerate() {
+        for (mi, _) in ALL_MATS.iter().enumerate() {
+            let i = (fi * 32 + mi) as Item;
+            if !valid_item(i) {
+                continue;
+            }
+            if let Some(prev) = seen.insert(item_name(i), i) {
+                panic!("items {prev} and {i} are both called {:?}", item_name(i));
+            }
+        }
+    }
+}
+
+#[test]
+fn summary_accounts_for_lost_items_and_landmasses() {
+    let mut w = small();
+    for _ in 0..600 {
+        w.step();
+    }
+    let s = crate::analysis::summarize(&w);
+    // everything once made but made by nobody now is listed, quiet local losses included
+    let gone: Vec<Item> = s.gone_now.iter().map(|g| g.item).collect();
+    for f in &s.firsts {
+        assert_eq!(f.bands_now == 0, gone.contains(&f.item), "{}", f.name);
+    }
+    if s.stage_now != s.stage_ever {
+        assert!(!s.gone_now.is_empty());
+    }
+    // the homeland is flagged once; reached land is 0 sea cells from settled land
+    assert!(s.continents.iter().filter(|c| c.home).count() <= 1);
+    assert!(s.continents.iter().all(|c| c.home == (c.id == s.home_landmass)));
+    for c in &s.continents {
+        if c.landfall_year.is_some() {
+            assert_eq!(c.gap_now, Some(0));
+        }
+    }
+    assert!(s.islands_by_sea <= s.islands_reached);
+    assert_eq!(s.island_hop_max.is_some(), s.islands_by_sea > 0 && w.landfalls.iter().any(|r| r.by_sea && r.gap != u32::MAX && (r.landmass as usize) < w.map.landmass_size.len() && w.map.landmass_size[r.landmass as usize] < w.map.continent_cells()));
+}
