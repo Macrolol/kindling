@@ -145,6 +145,8 @@ Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 wr
     0: `world.leg_record`, `landfalls[].leg` / `.tech`) are additive named fields that default to
     0, so no format bump. Band field `pilot` (inventions step 3) is appended after `carry` in the
     positional band rows (and named in JSON); older rows are one shorter and load it as 0.
+    Band field `sky` (inventions step 4) is appended after `pilot` the same way; older rows
+    load it as 0.
   - Typical effect: a 147 MB v9 save (800×800, 750 years, 68.7k bands) re-saves as 83 MB.
   - **Event log and history store** (`civ-core/src/archive.rs`, same version, all fields default
     when missing, so v10 saves written before them still load):

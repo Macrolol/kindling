@@ -342,6 +342,12 @@ pub struct YearStats {
     pub pilot_bands: u32,
     pub pilot_mean: f32,
     pub pilot_p90: f32,
+    /// (inventions step 4) bands with sky lore above 0.1, mean sky lore of farming bands
+    /// (sow > 0) and of bands with boats, and mean sky lore as it counts at sea (boat bands)
+    pub sky_bands: u32,
+    pub sky_farm_mean: f32,
+    pub sky_sea_mean: f32,
+    pub sky_at_sea_mean: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -427,6 +433,9 @@ counters! {
         sign_voyages,
         /// (inventions step 3) planned voyages steered for a far shore the band had word of
         aimed_voyages,
+        /// (inventions step 4) planned voyages whose crew steered by the stars (sky lore at sea
+        /// >= 0.2: the ledger's `sky` bit)
+        sky_voyages,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -2096,8 +2105,9 @@ impl World {
         }
         // (v9) a bold crew pushes on past the safe range (and the sea takes its toll)
         let range = Self::boat_range(kit, b.seacraft) * (AMBITION_REACH * b.ambition).exp();
-        // (v8) wayfinding: seasoned seafarers read stars, swells and birds, and steer half as wide
-        let err = if b.seacraft > 0.6 { 0.15 } else { 0.3 };
+        // (v8) wayfinding: seasoned seafarers read stars, swells and birds, and steer half as wide;
+        // (inventions step 4) star paths steady the heading further
+        let err = Self::heading_error(b);
         let (x0, y0) = (b.x as f32 + 0.5, b.y as f32 + 0.5);
         let ang = match aim {
             Some(t) => {
@@ -2174,11 +2184,18 @@ impl World {
         if b.far_shore.is_some() && self.rumour_age(b) > RUMOUR_YEARS {
             b.d.sailed_tech |= TECH_ROUTE; // word kept only as remembered sailing directions
         }
+        if b.d.sailed_tech & TECH_SKY != 0 {
+            fx.counters.sky_voyages += 1;
+        }
         if rng.chance(p) {
             // a crossing made is a lesson learned, (v9) the more so the longer it was
             Self::learn_sea(b, VOYAGE_LESSON + VOYAGE_LESSON_PER_CELL * sea.min(10.0));
             // (inventions step 3) and days out of sight of land teach the signs of it
             if sea >= PILOT_OUT {
+                // (inventions step 4) a pilot who sails on through the night steers by the stars
+                // (as far as its pilotage lets it read the night sky: a novice learns little)
+                let read = (b.pilot / SKY_PILOT).min(1.0);
+                Self::learn_sky(b, SKY_PER_CELL * read * sea.min(PILOT_CELLS_MAX));
                 Self::learn_pilot(b, PILOT_PER_CELL * sea.min(PILOT_CELLS_MAX));
             }
             return 0;
@@ -2229,6 +2246,7 @@ impl World {
         let ci = b.cell(m.w);
         b.seacraft *= 0.998; // what is not practised is lost, generation by generation
         b.pilot *= PILOT_FADE;
+        b.sky *= SKY_FADE; // (inventions step 4) every band: renewed only by sowing and night sailing
         // (v9) news nobody has confirmed for a lifetime or two is forgotten; (inventions step 3)
         // pilots keep it longer, as sailing directions
         if b.far_shore.is_some() && self.rumour_age(b) as f32 > Self::rumour_keep(b) {
@@ -2397,6 +2415,7 @@ impl World {
             ambition: b.ambition,
             seacraft: b.seacraft,
             pilot: b.pilot + PILOT_DRIFT * (1.0 - b.pilot),
+            sky: b.sky,
             flame: b.flame && rng.chance(0.3),
             known,
             stock: b.stock.iter().map(|v| v * 0.3).collect(),
@@ -3026,6 +3045,15 @@ impl World {
                 bands[dst].pilot += SEA_TEACH_SHARE * gap;
             }
         }
+        // (inventions step 4) and sky lore, to people with a use for it: farmers to time their
+        // sowing, pilots to steer by at night (so farmers' calendars reach coastal seafarers)
+        let gap = bands[src].sky - bands[dst].sky;
+        if gap > 0.1 && (bands[dst].sow > 0.1 || bands[dst].pilot > 0.02) {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            if rng.chance(if kin { 2.0 * SEA_TEACH_P } else { SEA_TEACH_P }) {
+                bands[dst].sky += SEA_TEACH_SHARE * gap;
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
@@ -3203,6 +3231,7 @@ impl World {
                 sick: b.sick,
                 seacraft: b.seacraft,
                 pilot: b.pilot,
+                sky: b.sky,
                 herbal: 0.9 * b.herbal,
                 ride: b.ride,
                 ..Default::default()

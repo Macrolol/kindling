@@ -133,3 +133,27 @@ Checks:
   within range, so on (b) they can change when and how often, not whether; the 4–6/10 target
   rests on ships (step 5) making 47–54-cell legs. On the default map the needed hops are
   3–48 cells (seed 10's continent is 21 cells away by island chain and is not yet reached).
+
+## Step 4. Sky lore (built; checks running)
+- Band field `sky` (0..1; appended after `pilot`, older rows load as 0; no format bump): a
+  calendar and star paths, one practice for farming and sailing (decision 7).
+- Learned by settled farmers (0.003 x sow x settled per season, once both are above 0.3; at full
+  farming it settles near 0.6 after about 50 years) and by crews out of sight of land on a leg
+  survived (0.003 per open-water cell up to 25, times pilot / 0.3 up to 1, so a novice learns
+  little). Fades 0.998 per season, passes to daughters and drift parties, and is taught to
+  neighbours who farm or have some pilotage (pilot > 0.02), so farmers' calendars reach coastal
+  seafarers.
+- Farming: sowing effort (the plough factor) x (1 + 0.05 x sky), at most +5%.
+- At sea it counts only as far as the crew has pilotage: `sky_at_sea` = sky x min(pilot / 0.3,
+  1), and an aimed heading's error shrinks by 0.6 x that (0.15 -> 0.06 for a seasoned crew).
+  Sky lore alone steers nobody and adds no range. Ledger bit `sky` when `sky_at_sea` >= 0.2.
+- YearStats `sky_bands`, `sky_farm_mean`, `sky_sea_mean`, `sky_at_sea_mean`; counter
+  `sky_voyages`; `summary.json` `sea.sky_*`; a "sky lore" line in the multi-seed report.
+- Tests: `sky_lore_heading_and_save` (no heading change without pilotage, 0.15 -> 0.06 with it,
+  more hits on an island 16 cells out with no extra range, ledger bit, learning bounds, binary
+  and JSON round trip), `farmers_learn_sky_lore`; v10 fixture bands load with sky 0.
+- Local look: seed 3, 300 years: no farming to speak of by Y300 and pilot p90 0.07, so no sky
+  lore at all (a first version let only pilots above 0.3 learn at sea; nobody ever got there,
+  so sea learning was made proportional instead). Seed 5, 400 years: sky lore from Y250 with
+  farming, 7122 bands above 0.1 by Y400, farmers' mean 0.23 (+1.2% sowing effort), boat bands'
+  mean 0.14 but only 0.008 usable at sea (pilotage is low on that map).

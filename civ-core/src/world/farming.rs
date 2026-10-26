@@ -206,6 +206,8 @@ impl World {
             if b.tame > 0.6 && b.herd > 0.15 && b.d.kit.axe != NONE {
                 ft.plough = 1.4;
             }
+            // (inventions step 4) sowing at the right time by the stars and the sun
+            ft.plough *= 1.0 + SKY_SOW * b.sky;
         }
         if b.herd > 0.0 && !self.graze_pot.is_empty() {
             let gp = self.graze_pot[b.cell(self.map.w)].max(0.3);
@@ -291,6 +293,11 @@ impl World {
         // settling in: people who stay put build lasting houses, stores, field walls
         // (living off fields and herds most; a long-used camp a little; it fades if neither)
         b.settled = (b.settled * 0.99 + (0.03 * farm_share + 0.002 * campf) * (1.0 - b.settled)).clamp(0.0, 1.0);
+        // (inventions step 4) people who stay and sow watch where the sun rises and which stars
+        // come up before dawn, to know when to sow: a calendar, built over generations
+        if b.sow > SKY_FARM_MIN && b.settled > SKY_FARM_MIN {
+            World::learn_sky(b, SKY_FARM * b.sow * b.settled);
+        }
         // ---- starting to farm (organic: tended stands + digging stick + push to do more)
         if b.sow <= 0.0 {
             let seed = b.strain > 0.0 && b.stock[Mat::Grain as usize] > 0.05;

@@ -322,6 +322,13 @@ pub fn run(a: &Args) {
                 100.0 * signs as f32 / voy.max(1) as f32,
                 pil.join(", ")
             );
+            let skyv: u64 = sums.iter().map(|s| s.sea.sky_voyages).sum();
+            let sky: Vec<String> = sums.iter().map(|s| format!("s{} {:.2}/{:.2}/{:.2}", s.seed, s.sea.sky_farm_mean, s.sea.sky_sea_mean, s.sea.sky_at_sea_mean)).collect();
+            println!(
+                "  sky lore: steered by the stars {:.1}% of voyages | sky farmers/boat bands/at sea {}",
+                100.0 * skyv as f32 / voy.max(1) as f32,
+                sky.join(", ")
+            );
         }
         {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();

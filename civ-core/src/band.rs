@@ -131,6 +131,11 @@ pub struct Band {
     /// sight of land (long voyages, scouting, coming home from a drift), taught to seafaring
     /// neighbours, inherited by daughters, fades when not used.
     pub pilot: f32,
+    /// (inventions step 4) sky lore, 0..1: star paths and the sun's rising points through the
+    /// year. Farmers learn it timing their sowing, pilots sailing at night; taught to neighbours
+    /// who farm or pilot, inherited by daughters, fades when not used. Helps sowing a little;
+    /// at sea it steadies an aimed heading, but only as far as the crew has pilotage to use it.
+    pub sky: f32,
 }
 
 /// A standing exchange relationship with another band (grows with use, fades without).

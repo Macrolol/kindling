@@ -1083,6 +1083,7 @@ fn v10_fixture_loads_and_runs() {
         assert_eq!(b.craft[Mat::Pitch as usize], 1.0);
         assert_eq!(b.stock[Mat::Pitch as usize], 0.0);
         assert_eq!(b.pilot, 0.0); // (inventions step 3) an additive field: older rows load at 0
+        assert_eq!(b.sky, 0.0); // (inventions step 4) likewise
     }
     assert_eq!((w.tick, w.bands.len()), (600, 606));
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
@@ -1322,4 +1323,115 @@ fn pilotage_signs_and_routes() {
     let json = w.save_json(None, "test", "now").unwrap();
     let (w3, _, _) = World::load_bytes(json.as_bytes()).unwrap();
     assert_eq!(w3.bands[0].pilot, 0.37);
+}
+
+/// (inventions step 4) Sky lore: it steadies an aimed heading only as far as the crew has
+/// pilotage (sky lore alone steers nobody), finds a far island more often with no extra range,
+/// sets the ledger's `sky` bit, is learned toward 1, and is saved with the band.
+#[test]
+fn sky_lore_heading_and_save() {
+    use crate::world::*;
+    let mut w = small();
+    let (mw, mh) = (w.map.w, w.map.h);
+    // a long coast on the west, open sea, and a small island 16 cells out
+    for y in 0..mh {
+        for x in 0..mw {
+            let i = y * mw + x;
+            let island = (25..27).contains(&x) && (24..26).contains(&y);
+            w.map.height[i] = if x < 10 || island { 0.2 } else { -0.5 };
+        }
+    }
+    w.map.label_landmasses();
+    let mut b = w.bands[0].clone();
+    (b.x, b.y) = (9, 10);
+    b.ambition = 0.0;
+    b.seacraft = 1.0;
+    b.d.kit = crate::band::Kit::default();
+    b.d.kit.boat = item(Form::Boat, Mat::Wood);
+    b.d.kit.boat_q = 1.0;
+    // heading error: sky lore without pilotage changes nothing; with it, 0.15 -> 0.06
+    b.pilot = 0.0;
+    b.sky = 1.0;
+    assert!((World::heading_error(&b) - 0.15).abs() < 1e-6);
+    assert_eq!(World::sky_at_sea(&b), 0.0);
+    assert_eq!(World::voyage_tech(&b, false) & TECH_SKY, 0);
+    b.pilot = SKY_PILOT;
+    assert!((World::heading_error(&b) - 0.06).abs() < 1e-6);
+    assert_ne!(World::voyage_tech(&b, false) & TECH_SKY, 0);
+    b.seacraft = 0.5;
+    assert!((World::heading_error(&b) - 0.12).abs() < 1e-6);
+    b.seacraft = 1.0;
+
+    let range = World::boat_range(&b.d.kit, b.seacraft);
+    let target = 25 * mw + 25;
+    let island = w.map.landmass_of(target);
+    let trial = |sky: f32| {
+        let mut bb = b.clone();
+        bb.pilot = 0.05; // too little to read signs (half a cell), enough to show it is gated
+        bb.sky = sky;
+        let mut rng = crate::rng::Rng::new(5);
+        let mut found = 0;
+        for _ in 0..4000 {
+            if let Some((c, sea, _)) = w.voyage_x(&bb, &mut rng, Some(target as u32)) {
+                assert!(sea <= range + 1e-3, "sky lore adds no range");
+                found += (w.map.landmass_of(c) == island) as u32;
+            }
+        }
+        found
+    };
+    let (f0, f1) = (trial(0.0), trial(1.0));
+    assert!(f1 > f0, "a little pilotage lets the stars help a little: {f0} vs {f1}");
+    let trial_p = |sky: f32| {
+        let mut bb = b.clone();
+        bb.pilot = SKY_PILOT;
+        bb.sky = sky;
+        bb.d.kit.boat_q = 1.0;
+        let mut rng = crate::rng::Rng::new(5);
+        let mut found = 0;
+        for _ in 0..4000 {
+            if let Some((c, _, _)) = w.voyage_x(&bb, &mut rng, Some(target as u32)) {
+                found += (w.map.landmass_of(c) == island) as u32;
+            }
+        }
+        found
+    };
+    let (g0, g1) = (trial_p(0.0), trial_p(1.0));
+    assert!(g1 as f32 > 1.3 * g0.max(1) as f32, "star paths: the island is hit far more often: {g0} vs {g1}");
+
+    // learned toward 1, never past it
+    let mut p = b.clone();
+    p.sky = 0.0;
+    World::learn_sky(&mut p, SKY_FARM);
+    assert!((p.sky - SKY_FARM).abs() < 1e-6);
+    for _ in 0..1000 {
+        World::learn_sky(&mut p, 0.5);
+    }
+    assert!(p.sky <= 1.0);
+
+    // saved with the band (binary and JSON)
+    let mut w = small();
+    w.bands[0].sky = 0.41;
+    let bytes = w.save_bytes(None, "test", "now").unwrap();
+    let (w2, _, _) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(w2.bands[0].sky, 0.41);
+    let json = w.save_json(None, "test", "now").unwrap();
+    let (w3, _, _) = World::load_bytes(json.as_bytes()).unwrap();
+    assert_eq!(w3.bands[0].sky, 0.41);
+}
+
+/// (inventions step 4) Settled farmers build up sky lore season by season; nobody else does.
+#[test]
+fn farmers_learn_sky_lore() {
+    let mut w = small();
+    for (k, b) in w.bands.iter_mut().enumerate() {
+        b.sky = 0.0;
+        b.pilot = 0.0;
+        (b.sow, b.settled) = if k % 2 == 0 { (1.0, 1.0) } else { (0.0, 0.0) };
+    }
+    for _ in 0..40 {
+        w.step();
+    }
+    let top = w.bands.iter().map(|b| b.sky).fold(0.0f32, f32::max);
+    assert!(top > 0.005 && top < 0.2, "settled farmers learn the sky, slowly: {top}");
+    assert!(w.bands.iter().all(|b| (0.0..=1.0).contains(&b.sky)));
 }

@@ -78,6 +78,25 @@ pub const PILOT_FADE: f32 = 0.998;
 pub const ROUTE_KEEP: f32 = 2.0;
 /// ...and tells it to neighbours up to (1 + PILOT_TELL x pilot) times as far off.
 pub const PILOT_TELL: f32 = 0.5;
+/// (inventions step 4) Sky lore. Settled farmers (sow and settled above `SKY_FARM_MIN`) learn
+/// this much per season, times sow x settled...
+pub const SKY_FARM: f32 = 0.003;
+pub const SKY_FARM_MIN: f32 = 0.3;
+/// ...and crews this much per open-water cell of a leg out of sight of land (nights at sea
+/// steered by the stars; up to `PILOT_CELLS_MAX` cells), times pilot / `SKY_PILOT` up to 1.
+pub const SKY_PER_CELL: f32 = 0.003;
+/// What is not used fades by this factor each season (as seacraft and pilotage).
+pub const SKY_FADE: f32 = 0.998;
+/// At sea, sky lore counts as far as the crew can use it: fully from this pilotage up, in
+/// proportion below it (so sky lore alone steers nobody).
+pub const SKY_PILOT: f32 = 0.3;
+/// An aimed heading's error shrinks by up to this share (0.15 -> 0.06 for seasoned crews).
+pub const SKY_HEADING: f32 = 0.6;
+/// Fields sown by the calendar yield up to this much more (the plough-like effort factor).
+pub const SKY_SOW: f32 = 0.05;
+/// A crossing counts as steered by the stars (ledger `sky` bit) from this effective sky lore.
+pub const SKY_TECH_MIN: f32 = 0.2;
+
 /// Signs are looked up only this many steps from land.
 const SIGN_MAX: u8 = 12;
 
@@ -143,7 +162,29 @@ impl World {
         if k.jar != NONE {
             t |= TECH_JAR;
         }
+        if Self::sky_at_sea(b) >= SKY_TECH_MIN {
+            t |= TECH_SKY;
+        }
         t
+    }
+
+    /// (inventions step 4) Band `b` learns something of the sky: sky lore moves `gain` of the
+    /// way to 1.
+    pub(crate) fn learn_sky(b: &mut Band, gain: f32) {
+        b.sky = (b.sky + gain * (1.0 - b.sky)).min(1.0);
+    }
+
+    /// (inventions step 4) Sky lore as it counts at sea: only as far as the crew has the
+    /// pilotage to use it on the water.
+    pub fn sky_at_sea(b: &Band) -> f32 {
+        b.sky * (b.pilot / SKY_PILOT).min(1.0)
+    }
+
+    /// (inventions step 4) Heading error (radians, one sigma) of an aimed course: seasoned
+    /// seafarers steer half as wide (v8), and star paths steady it further.
+    pub fn heading_error(b: &Band) -> f32 {
+        let base = if b.seacraft > 0.6 { 0.15 } else { 0.3 };
+        base * (1.0 - SKY_HEADING * Self::sky_at_sea(b))
     }
 
     /// (inventions step 3) The sea-signs field, built on first use.
@@ -286,6 +327,11 @@ impl World {
             ps.sort_by(|a, b| a.partial_cmp(b).unwrap());
             ys.pilot_p90 = ps[(ps.len() * 9 / 10).min(ps.len() - 1)];
         }
+        ys.sky_bands = self.bands.iter().filter(|b| b.sky > 0.1).count() as u32;
+        let mean = |v: Vec<f32>| if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 };
+        ys.sky_farm_mean = mean(self.bands.iter().filter(|b| b.sow > 0.0).map(|b| b.sky).collect());
+        ys.sky_sea_mean = mean(self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.sky).collect());
+        ys.sky_at_sea_mean = mean(self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(Self::sky_at_sea).collect());
         ys.dried_bands = self.bands.iter().filter(|b| self.dries_food(b, b.cell(w))).count() as u32;
         ys.cellar_bands = self.bands.iter().filter(|b| self.cold_cellar(b, b.cell(w))).count() as u32;
         let mut es: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| self.provisions(b, b.cell(w)).1).collect();

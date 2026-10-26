@@ -340,6 +340,13 @@ pub struct SeaSummary {
     pub pilot_bands: u32,
     pub pilot_mean: f32,
     pub pilot_p90: f32,
+    /// (inventions step 4) planned voyages steered by the stars; bands with sky lore > 0.1; mean
+    /// sky lore of farming bands and of bands with boats, and as it counts at sea, at the end
+    pub sky_voyages: u64,
+    pub sky_bands: u32,
+    pub sky_farm_mean: f32,
+    pub sky_sea_mean: f32,
+    pub sky_at_sea_mean: f32,
 }
 
 /// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
@@ -787,6 +794,11 @@ pub fn summarize(w: &World) -> Summary {
             pilot_bands: w.history.last().map_or(0, |y| y.pilot_bands),
             pilot_mean: w.history.last().map_or(0.0, |y| y.pilot_mean),
             pilot_p90: w.history.last().map_or(0.0, |y| y.pilot_p90),
+            sky_voyages: w.counters.sky_voyages,
+            sky_bands: w.history.last().map_or(0, |y| y.sky_bands),
+            sky_farm_mean: w.history.last().map_or(0.0, |y| y.sky_farm_mean),
+            sky_sea_mean: w.history.last().map_or(0.0, |y| y.sky_sea_mean),
+            sky_at_sea_mean: w.history.last().map_or(0.0, |y| y.sky_at_sea_mean),
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }

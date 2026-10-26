@@ -144,6 +144,23 @@ span, tallies are summed over it.
   when the band held word of the far shore longer than an ordinary rumour lasts (50 years) -
   pilots keep it up to 3x as long.
 
+### Sky lore (inventions step 4)
+
+- Band field `sky` (0..1, additive: saved after `pilot`, older rows load as 0): a calendar and
+  star paths. Settled farmers learn it (0.003 x sow x settled per season, when both are above
+  0.3), and so do crews out of sight of land on a leg survived (0.003 per open-water cell up to
+  25, times pilot / 0.3 up to 1). It fades 0.998 per season, passes to daughters and drift
+  parties, and is taught (like pilotage) to neighbours who farm or have a little pilotage.
+- Effects: sowing effort (the plough factor) x (1 + 0.05 x sky); at sea it counts only as far
+  as the crew has pilotage, `sky_at_sea` = sky x min(pilot / 0.3, 1), and an aimed heading's
+  error shrinks by 0.6 x `sky_at_sea` (0.15 -> 0.06 for a seasoned crew). Sky lore adds no range.
+- `metrics.csv` / `YearStats`: `sky_bands` (bands with sky > 0.1), `sky_farm_mean` (over bands
+  that sow), `sky_sea_mean` and `sky_at_sea_mean` (over bands with boats).
+- Counter `sky_voyages` (voyages whose crew had `sky_at_sea` >= 0.2). In `counters`,
+  `summary.json` `sea.sky_voyages` / `sea.sky_bands` / `sea.sky_farm_mean` / `sea.sky_sea_mean` /
+  `sea.sky_at_sea_mean`, and a "sky lore" line in the multi-seed text report.
+- Crossing ledger: the `sky` bit is set when the crossing crew had `sky_at_sea` >= 0.2.
+
 ## What a save keeps (format v11)
 
 | what | resolution | kept |
