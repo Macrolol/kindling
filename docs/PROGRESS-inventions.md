@@ -58,7 +58,7 @@ Checks:
 - Watch: deaths in fights up in all 10 seeds, 0.363 -> 0.409 %/y (+13%). Raids are lured by the
   other band's store, and jars mean more stored food; emergent, not tuned.
 
-## Step 2. Provisions and endurance (in progress)
+## Step 2. Provisions and endurance (built, dedfd2d; check (b) pending)
 - Provisions are continuous: `fed` = store / (half a season's food per person), 0..1 (a plank
   boat always counts as fully fed). The sea toll's provisions factor is 1 - 0.3 x fed, so the
   old all-or-nothing rule is its two ends.
@@ -79,8 +79,16 @@ Checks:
 - Local look, seed 3, 300 years: endurance p90 22 (racks + skins), 2282 bands drying food by
   Y300, no cellars on the default map; 28 of 11 755 voyages went past endurance; pop 106k.
   Pitch came late in this run (Y213), so no jars yet: discovery timing is chaotic.
+- Check (a), run [40417386615](https://github.com/Macrolol/kindling/actions/runs/40417386615),
+  `docs/results-inv-step2-seeds1-10-500y.txt`: continents crossed 4/10 (Y118, Y179, Y205, Y276;
+  step 1 Y128, Y160, Y190, Y274), none before Y100, pass. Pop 1 144 582 (-1.6% on step 1), war
+  0.402 %/y (0.409), items 72.7 (69.2). Lost at sea per voyage 0.151 (0.148), so short hops are
+  not hurt; 833 of 267 882 voyages (0.3%) went past endurance. Endurance p90 32 cells in most
+  seeds by Y500.
+- Check (b), run [40417390032](https://github.com/Macrolol/kindling/actions/runs/40417390032):
+  running (dispatched 19:06 EDT).
 
-## Step 3. Pilotage and remembered routes (in progress)
+## Step 3. Pilotage and remembered routes (built, c5b9207; checks running)
 - Band field `pilot` (0..1; appended after `carry`, so older band rows load as 0; no format
   bump). Learned out of sight of land: a planned leg of 6+ open-water cells survived (0.003 per
   cell, up to 25), a scouting party home (0.03), a drift party home or ashore (0.03), and
@@ -101,4 +109,6 @@ Checks:
   lost at sea 1357 (step 2 build: 1472); pop 94k. A first version without fishing-ground
   learning and with a 43-year fade left pilotage at p90 0.02 (14 sign voyages): too rare to
   matter, so learning on the fishing grounds was added and the fade matched to seacraft's.
-
+- Check (a), run [40419063313](https://github.com/Macrolol/kindling/actions/runs/40419063313), and
+  check (b), run [40419072634](https://github.com/Macrolol/kindling/actions/runs/40419072634):
+  running (dispatched 19:20 EDT).
