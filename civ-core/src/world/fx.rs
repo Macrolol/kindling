@@ -84,13 +84,7 @@ macro_rules! add_fields {
 }
 
 pub(crate) fn add_counters(a: &mut Counters, b: &Counters) {
-    add_fields!(a, b; experiments, inventions, transfers, forgets, splits, deaths, voyages, sea_disasters,
-        lost_at_sea, drifts, drift_landings, drift_returns, sightings, scouting, scout_finds, scouts_lost,
-        crossings, pairs_seen, meetings, confrontations, avoided, tributes, fled, fights, conflict_deaths,
-        displaced, fled_by_sea, absorbed, captives, farm_starts, farm_origins, took_up_farming,
-        abandoned_farming, herds_started, herds_lost, epidemics, disease_deaths, dissent_splits, marriages,
-        fights_in_law, refinements, prestige_taught);
-    a.max_fight_deaths = a.max_fight_deaths.max(b.max_fight_deaths);
+    a.add(b);
 }
 
 pub(crate) fn add_acc(a: &mut YearStats, b: &YearStats) {

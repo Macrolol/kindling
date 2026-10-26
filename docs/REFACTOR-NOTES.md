@@ -15,7 +15,8 @@ their commit; skipped ones with the reason and a rough effort, so they can be pi
   `DISSENT_*`, `MARRIAGE_P`, `REFINE_*`/`QUALITY_*`, `PRESTIGE_*`) instead of an inline literal
   (steps 2-8).
 - `Counters` and `fx::add_counters` documented: a new counter field must be added to the
-  `add_fields!` list or it silently stays zero in parallel phases (step 4).
+  `add_fields!` list or it silently stays zero in parallel phases (step 4). (Superseded by the
+  `counters!` registry, see below.)
 - Moved the displaced doc comment of `Band::bond` back onto its field (step 6).
 - `tools/agg_results.py` labels its columns "baseline" / "new" from the last two path parts, and
   parses each v9 summary line, so step-to-step comparisons need no hand editing (steps 1-8).
@@ -43,8 +44,13 @@ their commit; skipped ones with the reason and a rough effort, so they can be pi
   it into `confront` touches war balance, so left for a dedicated balance pass.
 - **P3 expectation-valuing** (bands valuing a destination by remembered return rather than the
   current estimate) - skipped as a model change with unclear balance effects.
-- **`add_fields!` manual list.** A derive macro (or `serde`-based field walk) would make counter
-  summing automatic. Small-medium effort; for now documented (above).
+- ~~**`add_fields!` manual list.**~~ Done (data groundwork): `Counters` is declared through the
+  `counters!` macro in `world.rs`, which generates the struct, `Counters::add` (what
+  `fx::add_counters` calls), `NAMES` / `values()` for the metrics output and `since()` for the
+  per-year deltas in the history store. A new counter is one line in that list and is summed,
+  written to `metrics.csv` and archived automatically; test `counter_registry_covers_every_field`
+  checks the generated code against the serialized struct. `YearStats` per-year sums still use
+  the short `add_fields!` list in `fx::add_acc` (most of its fields are set at year end).
 - **P6 per-century improvement series** - only the total refinement count is kept; adding a
   `YearStats` field is easy but enlarges every save.
 - **Quality does not touch weapons** - deliberate (war balance), but the hook would sit in

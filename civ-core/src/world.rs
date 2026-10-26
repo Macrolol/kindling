@@ -300,71 +300,107 @@ pub struct YearStats {
     pub eff_lineages: f32,
 }
 
-/// Running totals since the start. Counted in per-band effect buffers (`Fx`) and summed by
-/// `fx::add_counters`: a new field must be added to that list too, or it stays 0.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Counters {
-    pub experiments: u64,
-    pub inventions: u64,
-    pub transfers: u64,
-    pub forgets: u64,
-    pub splits: u64,
-    /// (v9) splits brought on by dissent rather than size
-    pub dissent_splits: u64,
-    /// (v9) weddings between bands (each an exchange of spouses), and fights between in-laws
-    pub marriages: u64,
-    pub fights_in_law: u64,
-    /// (v9) recipes made better by play and practice (`World::refine`)
-    pub refinements: u64,
-    /// (v9) recipes taught by the more prestigious of the two bands
-    pub prestige_taught: u64,
-    pub deaths: u64,
-    /// band moves and daughter settlements made across open water
-    pub voyages: u64,
-    /// voyages (planned or drift) that ended in deaths at sea, and the people lost
-    pub sea_disasters: u64,
-    pub lost_at_sea: u64,
-    /// fishing parties blown off course: total, came ashore and founded a band, got home
-    pub drifts: u64,
-    pub drift_landings: u64,
-    pub drift_returns: u64,
-    /// bands that sighted a far shore from their coast
-    pub sightings: u64,
-    /// (v5) scouting trips by experienced seafarers: sent, came home with news of a far shore,
-    /// lost at sea
-    pub scouting: u64,
-    pub scout_finds: u64,
-    pub scouts_lost: u64,
-    /// (v5) bands (or drifted parties) that came ashore alive on a landmass other than the one
-    /// they set out from
-    pub crossings: u64,
-    /// (v5, diagnostic) band pairs within meeting range, summed over seasons
-    pub pairs_seen: u64,
-    pub meetings: u64,
-    /// conflict (v4)
-    pub confrontations: u64,
-    pub avoided: u64,
-    pub tributes: u64,
-    pub fled: u64,
-    pub fights: u64,
-    pub conflict_deaths: u64,
-    pub displaced: u64,
-    pub fled_by_sea: u64,
-    pub absorbed: u64,
-    pub captives: u64,
-    pub max_fight_deaths: u64,
-    /// farming (v5)
-    pub farm_starts: u64,
-    pub farm_origins: u64,
-    pub took_up_farming: u64,
-    pub abandoned_farming: u64,
-    pub herds_started: u64,
-    pub herds_lost: u64,
-    pub epidemics: u64,
-    pub disease_deaths: u64,
+/// Running totals since the start, declared once through `counters!`: the struct, the summing
+/// of the per-band effect buffers (`Counters::add`, used by `fx::add_counters`), the names and
+/// values used by the metrics output and the per-year deltas of the history store all come from
+/// this one list, so a new counter cannot be left out of any of them (it used to stay 0 when it
+/// was missed in a hand-kept list). `sum` counters are added up; `max` ones keep the largest.
+macro_rules! counters {
+    (sum { $( $(#[$m:meta])* $f:ident, )* } max { $( $(#[$mm:meta])* $g:ident, )* }) => {
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+        #[serde(default)]
+        pub struct Counters {
+            $( $(#[$m])* pub $f: u64, )*
+            $( $(#[$mm])* pub $g: u64, )*
+        }
+        impl Counters {
+            /// field names, in declaration order (the metrics columns)
+            pub const NAMES: &'static [&'static str] = &[$(stringify!($f),)* $(stringify!($g),)*];
+            /// values in the order of `NAMES`
+            pub fn values(&self) -> Vec<u64> {
+                vec![$(self.$f,)* $(self.$g,)*]
+            }
+            /// the inverse of `values` (missing values read 0)
+            pub fn from_values(v: &[u64]) -> Counters {
+                let mut it = v.iter().copied();
+                Counters { $( $f: it.next().unwrap_or(0), )* $( $g: it.next().unwrap_or(0), )* }
+            }
+            /// add another buffer's counts (`max` counters keep the larger)
+            pub fn add(&mut self, b: &Counters) {
+                $( self.$f += b.$f; )*
+                $( self.$g = self.$g.max(b.$g); )*
+            }
+            /// what happened since `earlier` (`max` counters: the value now)
+            pub fn since(&self, earlier: &Counters) -> Counters {
+                Counters { $( $f: self.$f.saturating_sub(earlier.$f), )* $( $g: self.$g, )* }
+            }
+        }
+    };
 }
-
+counters! {
+    sum {
+        experiments,
+        inventions,
+        transfers,
+        forgets,
+        splits,
+        /// (v9) splits brought on by dissent rather than size
+        dissent_splits,
+        /// (v9) weddings between bands (each an exchange of spouses), and fights between in-laws
+        marriages,
+        fights_in_law,
+        /// (v9) recipes made better by play and practice (`World::refine`)
+        refinements,
+        /// (v9) recipes taught by the more prestigious of the two bands
+        prestige_taught,
+        deaths,
+        /// band moves and daughter settlements made across open water
+        voyages,
+        /// voyages (planned or drift) that ended in deaths at sea, and the people lost
+        sea_disasters,
+        lost_at_sea,
+        /// fishing parties blown off course: total, came ashore and founded a band, got home
+        drifts,
+        drift_landings,
+        drift_returns,
+        /// bands that sighted a far shore from their coast
+        sightings,
+        /// (v5) scouting trips by experienced seafarers: sent, came home with news of a far shore,
+        /// lost at sea
+        scouting,
+        scout_finds,
+        scouts_lost,
+        /// (v5) bands (or drifted parties) that came ashore alive on a landmass other than the one
+        /// they set out from
+        crossings,
+        /// (v5, diagnostic) band pairs within meeting range, summed over seasons
+        pairs_seen,
+        meetings,
+        /// conflict (v4)
+        confrontations,
+        avoided,
+        tributes,
+        fled,
+        fights,
+        conflict_deaths,
+        displaced,
+        fled_by_sea,
+        absorbed,
+        captives,
+        /// farming (v5)
+        farm_starts,
+        farm_origins,
+        took_up_farming,
+        abandoned_farming,
+        herds_started,
+        herds_lost,
+        epidemics,
+        disease_deaths,
+    }
+    max {
+        max_fight_deaths,
+    }
+}
 
 /// (v9) How people first reached a landmass (see `World::track_landfall`).
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]

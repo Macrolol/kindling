@@ -937,3 +937,31 @@ fn v9_fixture_loads_exactly() {
     let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
     assert_eq!(w.save_json(None, "t", "t").unwrap(), w2.save_json(None, "t", "t").unwrap());
 }
+
+/// The `counters!` registry: every serialized field is in `NAMES` (same order), `values` /
+/// `from_values` round-trip, and `add` sums every `sum` counter (so none silently stays 0).
+#[test]
+fn counter_registry_covers_every_field() {
+    use crate::world::Counters;
+    let names: Vec<String> = match serde_json::to_value(Counters::default()).unwrap() {
+        serde_json::Value::Object(m) => m.keys().cloned().collect(),
+        _ => unreachable!(),
+    };
+    let mut sorted: Vec<String> = Counters::NAMES.iter().map(|s| s.to_string()).collect();
+    sorted.sort();
+    let mut n2 = names.clone();
+    n2.sort();
+    assert_eq!(sorted, n2, "Counters::NAMES must list every field");
+    let v: Vec<u64> = (1..=Counters::NAMES.len() as u64).collect();
+    let c = Counters::from_values(&v);
+    assert_eq!(c.values(), v);
+    let mut a = Counters::default();
+    a.add(&c);
+    a.add(&c);
+    for (i, (n, x)) in Counters::NAMES.iter().zip(a.values()).enumerate() {
+        let want = if *n == "max_fight_deaths" { v[i] } else { 2 * v[i] };
+        assert_eq!(x, want, "counter {n} not summed by Counters::add");
+    }
+    assert_eq!(a.since(&c).values().iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>(),
+        v.iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>());
+}
