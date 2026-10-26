@@ -58,6 +58,9 @@ impl World {
         if prepared {
             t |= TECH_PROVISIONED;
         }
+        if k.jar != NONE {
+            t |= TECH_JAR;
+        }
         t
     }
 
@@ -119,5 +122,7 @@ impl World {
             ys.seacraft_p90 = xs[(xs.len() * 9 / 10).min(xs.len() - 1)];
         }
         ys.leg_record = self.leg_record;
+        ys.pitch_bands = self.bands.iter().filter(|b| b.d.kit.pitch != NONE).count() as u32;
+        ys.jar_bands = self.bands.iter().filter(|b| b.d.kit.jar != NONE).count() as u32;
     }
 }

@@ -43,6 +43,14 @@ pub const SEA_VISIT_LESSON: f32 = 0.02;
 /// between kin), and the share of the gap closed.
 pub const SEA_TEACH_P: f32 = 0.1;
 pub const SEA_TEACH_SHARE: f32 = 0.25;
+/// (inventions step 1) upkeep of boats, outriggers, sails and plank hulls caulked with pitch
+pub const PITCH_CAULK: f32 = 0.6;
+/// (inventions step 1) upkeep of a hafted weapon or axe glued with pitch
+pub const PITCH_GLUE: f32 = 0.9;
+/// (inventions step 1) spoilage of stored food in sealed jars, and the extra store they hold
+/// (per person)
+pub const JAR_SPOIL: f32 = 0.8;
+pub const JAR_STORE: f32 = 0.2;
 /// (v9) Ambition (log scale) is clamped to +-this, drifts by this sd at each split, and founders
 /// start with this sd.
 pub const AMBITION_MAX: f32 = 1.0;
@@ -320,6 +328,9 @@ pub struct YearStats {
     pub seacraft_p90: f32,
     pub rumour_share: f32,
     pub leg_record: f32,
+    /// (inventions step 1) bands that can make pitch, and bands with sealed jars
+    pub pitch_bands: u32,
+    pub jar_bands: u32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -1368,19 +1379,33 @@ impl World {
         let mut upkeep = 0.0;
         let mut needed = 0u32;
         let mut used = Vec::with_capacity(17);
+        // (inventions step 1) pitch is boiled up only for something that needs it: hulls by the
+        // water to caulk, or jars to seal; while it is about, hafts are glued with it too
+        let has_craft = [kit.boat, kit.outrigger, kit.sail, kit.plank].iter().any(|&i| i != NONE);
+        let pitch = kit.pitch != NONE && ((wet && has_craft) || kit.jar != NONE);
         for &it in kit.used_items().iter() {
             if it == NONE {
                 continue;
             }
             let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank;
             // ornaments are kept for show, not worn out at work
-            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament {
+            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament || (it == kit.pitch && !pitch) {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
             needed |= mask;
             if !matches!(form(it), Form::Fire | Form::Cooked) {
-                upkeep += p.upkeep * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
+                // a caulked hull leaks and rots less; a glued haft works loose less often
+                let sealed = if !pitch {
+                    1.0
+                } else if craft {
+                    PITCH_CAULK
+                } else if it == kit.hunt || it == kit.axe {
+                    PITCH_GLUE
+                } else {
+                    1.0
+                };
+                upkeep += sealed * p.upkeep * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
             } else {
                 upkeep += 0.01;
             }
@@ -1445,12 +1470,15 @@ impl World {
         let pits = b.settled > 0.5 && kit.dig != NONE && self.map.rain[ci] < 0.6;
         let fresh = 1.0 - crop_share;
         let keep = (1.0 - if salt { 0.3 * fresh } else { 0.0 }) * (1.0 - if pits { 0.4 * crop_share } else { 0.0 });
-        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep;
+        // (inventions step 1) sealed jars keep out damp, air and vermin
+        let jar = kit.jar != NONE;
+        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep * if jar { JAR_SPOIL } else { 1.0 };
         // (v8) cheese: milk from a tame herd, kept in fired pots, lasts the winter
         let cheese = b.tame > 0.8 && b.herd > 0.1 && kit.vessel != NONE && mat(kit.vessel) == Mat::Ceramic;
         let store_cap = pop
             * (0.5 + 1.5 * vq + 1.5 * crop_share * (0.3 + 0.7 * b.settled) * if pits { 1.3 } else { 1.0 }
-                + if cheese { 0.3 * b.herd.min(1.0) } else { 0.0 });
+                + if cheese { 0.3 * b.herd.min(1.0) } else { 0.0 }
+                + if jar { JAR_STORE } else { 0.0 });
         let spare = ((labour - e_food - upkeep_l) / labour).clamp(0.0, 1.0);
         let mut ec = Econ {
             cells,
@@ -1527,7 +1555,7 @@ impl World {
         }
         for mi in 0..NMAT {
             let mm = ALL_MATS[mi];
-            if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic {
+            if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic || mm == Mat::Pitch {
                 continue;
             }
             let present = match mm {

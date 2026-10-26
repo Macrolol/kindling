@@ -27,3 +27,21 @@ Checks:
 - Local check: seed 3, 300 years: the text report is byte-identical to the v10 build and
   `metrics.csv` is identical on all shared columns (behaviour unchanged); the v10 fixture
   loads and continues identically.
+
+## Step 1. Pitch and sealed jars (in progress)
+- New material `Pitch` (25: seal 9, no fuel value, never carried, made where it is used) and
+  form `Jar` (25). Recipes (physics): heat wood + a fired pot over any fire (>= 350 C) gives
+  pitch (p 0.2); combine a fired pot + pitch gives a sealed jar (p 0.25). Unfired or woven pots
+  do neither.
+- Effects (economy, constants in `world.rs`): pitch is boiled up only when there is a hull by
+  the water to caulk or a jar to seal (its upkeep is then paid). While it is about, boats,
+  outriggers, sails and planks cost 0.6× upkeep (`PITCH_CAULK`) and hafted weapons and axes
+  0.9× (`PITCH_GLUE`). Jars: stored food spoils 0.8× (`JAR_SPOIL`) and the store holds 0.2 more
+  per person (`JAR_STORE`).
+- Save format v11 (`v10_to_v11`; binary v10 decoded directly and padded by `fit_vectors`).
+- YearStats `pitch_bands`, `jar_bands`; crossing ledger `jar` bit.
+- Tests: `pitch_and_sealed_jars`, `jars_only_after_pottery`; fixture tests updated (v10
+  fixture's 10-year checksum is this build's own: the new material shifts the craft-leaning
+  normalisation, as in v8).
+- Local look, seed 3, 300 years, default map: pitch Y76, sealed jar Y124 (pottery first);
+  by Y200 every band with pitch has jars (2091 bands).

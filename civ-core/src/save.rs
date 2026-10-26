@@ -15,12 +15,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 10;
+pub const FORMAT_VERSION: u32 = 11;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -233,6 +233,33 @@ fn v8_to_v9(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 fn v9_to_v10(v: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(v)
 }
+/// v10 -> v11 (inventions step 1: pitch and sealed jars). Frozen: do not edit.
+/// - `bands[].stock` and `bands[].origin` grow from 25 to 26 entries (0.0 / u32::MAX);
+/// - `bands[].craft` is [25 material leanings, 3 action leanings]; the new material leaning
+///   (1.0 = neutral) goes in at index 25, before the action leanings.
+/// Item ids are unchanged (material 25 and form 25 are appended); everything else is additive.
+fn v10_to_v11(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let world = v.get_mut("world").and_then(|w| w.as_object_mut()).ok_or("payload has no world")?;
+    if let Some(bands) = world.get_mut("bands").and_then(|b| b.as_array_mut()) {
+        for b in bands {
+            let Some(b) = b.as_object_mut() else { continue };
+            for (key, fill) in [("stock", json!(0.0)), ("origin", json!(u32::MAX))] {
+                if let Some(a) = b.get_mut(key).and_then(|x| x.as_array_mut()) {
+                    while a.len() < 26 {
+                        a.push(fill.clone());
+                    }
+                }
+            }
+            if let Some(a) = b.get_mut("craft").and_then(|x| x.as_array_mut()) {
+                if a.len() == 28 {
+                    a.insert(25, json!(1.0));
+                }
+            }
+        }
+    }
+    Ok(v)
+}
 /// The same as `v8_to_v9`, for saves decoded straight into the current schema.
 fn age_old_rumours(w: &mut World) {
     let heard = (w.tick / 4).saturating_sub(40).min(u16::MAX as u32) as u16;
@@ -407,8 +434,9 @@ impl World {
         // v7 -> v8 only lengthens per-material vectors, which `Band::fit_vectors` does on load
         // v8 -> v9 only dates the rumours already held, done in place below
         // v9 -> v10 changed only the binary layout, which `logical` covers
-        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5..=9) && matches!(enc, Enc::Mp(_)));
-        if matches!(h.format_version, 5..=9) {
+        // v10 -> v11 only lengthens per-material vectors again (`Band::fit_vectors`)
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5..=10) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5..=10) {
             info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {

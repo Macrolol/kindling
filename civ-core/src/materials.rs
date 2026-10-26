@@ -5,7 +5,7 @@
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
 
-pub const NMAT: usize = 25;
+pub const NMAT: usize = 26;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
 /// products of physics (charcoal, ceramic, metals).
 pub const NRAW: usize = 13;
@@ -47,6 +47,10 @@ pub enum Mat {
     Brine,
     /// salt boiled out of brine: keeps meat and fish
     Salt,
+    // inventions step 1: appended so every older index is unchanged
+    /// pitch (wood tar): resinous wood heated slowly in a closed pot, short of air; caulks
+    /// hulls, glues hafts, seals jars. Made where it is used, never carried
+    Pitch,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wood,
@@ -74,6 +78,7 @@ pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Iron,
     Mat::Brine,
     Mat::Salt,
+    Mat::Pitch,
 ];
 
 /// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
@@ -167,6 +172,7 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 5.5, tough: 9.0, sharp: 7.0, malleable: 6.0, melt: 1538.0, ..p("iron") },
     Props { hard: 0.0, tough: 0.0, ..p("brine") },
     Props { hard: 2.5, tough: 1.0, ..p("salt") },
+    Props { hard: 0.5, tough: 2.0, seal: 9.0, ..p("pitch") },
 ];
 
 impl Mat {
@@ -188,7 +194,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 25;
+pub const NFORM: usize = 26;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -243,6 +249,9 @@ pub enum Form {
     Frame,
     /// a bead, pendant or ring, kept for show and given away
     Ornament,
+    // inventions step 1: appended so every older item id is unchanged
+    /// a fired pot sealed with pitch: keeps food and water (material = the pot)
+    Jar,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -270,6 +279,7 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Plank,
     Form::Frame,
     Form::Ornament,
+    Form::Jar,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -385,6 +395,10 @@ pub fn item_name(i: Item) -> String {
             Mat::Bone => "bone beads".into(),
             Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => format!("{n} ring"),
             _ => format!("{n} pendant"),
+        },
+        Form::Jar => match m {
+            Mat::Ceramic => "sealed jar".into(),
+            _ => format!("sealed {n} jar"),
         },
     }
 }

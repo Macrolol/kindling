@@ -182,6 +182,11 @@ pub struct Kit {
     pub plank: Item,
     pub frame: Item,
     pub ornament: Item,
+    // inventions step 1
+    /// pitch the band can make (caulking, glue, seals)
+    pub pitch: Item,
+    /// sealed jars
+    pub jar: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
     /// cooking known for grain (v5)
@@ -228,6 +233,8 @@ impl Default for Kit {
             plank: NONE,
             frame: NONE,
             ornament: NONE,
+            pitch: NONE,
+            jar: NONE,
             cooked: [NONE; 3],
             cooked_grain: NONE,
             plants_m: 1.0,
@@ -244,12 +251,12 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 25] {
+    pub fn used_items(&self) -> [Item; 27] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
             self.boat, self.net, self.trap, self.cooked_grain, self.bow, self.shield, self.outrigger,
-            self.sail, self.plank, self.frame, self.ornament,
+            self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -557,7 +564,7 @@ pub fn loss_guard(k: &Kit) -> f32 {
 pub fn make_kit(avail: &ItemSet) -> Kit {
     let mut k = Kit::default();
     let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
-    let mut best = [0f32; 21];
+    let mut best = [0f32; 22];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -595,6 +602,8 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
             Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
+            Form::Jar => upd(21, vessel_q(m), &mut k.jar),
+            Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,
                 Mat::Meat => k.cooked[1] = it,

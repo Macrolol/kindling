@@ -104,7 +104,17 @@ over the map (row-major); `lore` rows `[item, bands able to make it, times learn
 forgotten]`; `weddings` rows `[lineage a, lineage b, count]`. Snapshots are at the end of the
 span, tallies are summed over it.
 
-## What a save keeps (format v10)
+### Pitch and sealed jars (inventions step 1)
+
+- New material `pitch` (25) and form `Jar` (25; "sealed jar"), item ids `25` (raw pitch) and
+  `25*32+mat` (jar). They appear in `discovery order`, chronicle `FirstInvention`, item counts
+  and the lore events like any other item; no new event kind.
+- `metrics.csv` / `YearStats`: `pitch_bands` (bands that can make pitch), `jar_bands` (bands
+  with sealed jars).
+- Crossing ledger: the `jar` bit of `tech` is set when the crossing band had jars.
+- Save format v11 (see `SAVE_FORMAT.md`): per-material band vectors are 26 long.
+
+## What a save keeps (format v11)
 
 | what | resolution | kept |
 |---|---|---|

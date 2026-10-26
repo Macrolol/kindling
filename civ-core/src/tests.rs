@@ -526,9 +526,10 @@ fn v7_0_fixture_gains_new_materials_in_place() {
         let oc: Vec<f32> = o["craft"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect();
         assert_eq!(oc.len(), 26);
         assert_eq!(&b.craft[..23], &oc[..23]);
-        assert_eq!(&b.craft[23..25], &[1.0, 1.0]);
-        assert_eq!(&b.craft[25..], &oc[23..]);
-        assert_eq!(&b.stock[23..], &[0.0, 0.0]);
+        // every material added since v7 (brine and salt in v8, pitch in v11) leans neutral
+        assert!(b.craft[23..NMAT].iter().all(|&c| c == 1.0));
+        assert_eq!(&b.craft[NMAT..], &oc[23..]);
+        assert!(b.stock[23..].iter().all(|&x| x == 0.0));
     }
     let json = serde_json::to_string(&env).unwrap();
     let (wj, _, ij) = World::load_bytes(json.as_bytes()).expect("v7.0 save as JSON loads");
@@ -892,7 +893,7 @@ fn v10_binary_is_exact() {
     assert!(a.bands.iter().any(|b| !b.partners.is_empty()), "test world should have partners");
     let bytes = a.save_bytes(None, "t", "t").unwrap();
     let (b, _, info) = World::load_bytes(&bytes).unwrap();
-    assert_eq!(info.format_version, 10);
+    assert_eq!(info.format_version, crate::save::FORMAT_VERSION);
     // (`after_load` recomputes the season's figures, so compare loaded worlds with each other)
     let (c, _, _) = World::load_bytes(a.save_json(None, "t", "t").unwrap().as_bytes()).unwrap();
     assert_eq!(c.save_json(None, "t", "t").unwrap(), b.save_json(None, "t", "t").unwrap());
@@ -927,8 +928,11 @@ fn v9_fixture_loads_exactly() {
         for p in &b.partners {
             s = s.wrapping_mul(31).wrapping_add(p.strength.to_bits() as u64 + p.married.to_bits() as u64 + p.id as u64);
         }
-        for c in &b.craft {
-            s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
+        // (v11 inserts the neutral pitch leaning; the v9 leanings must be unchanged around it)
+        for (i, c) in b.craft.iter().enumerate() {
+            if i != Mat::Pitch as usize {
+                s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
+            }
         }
     }
     assert_eq!(s, 0x4a026ad8e2339cbe);
@@ -1061,14 +1065,22 @@ fn data_outputs_shape() {
 }
 
 /// (inventions step 0) A v10 save written by the v10 build before the inventions work loads,
-/// gains the crossing-ledger fields at their defaults, and runs on exactly as that build did:
-/// the checksum after 10 more years is from this build, whose report for the same 10 years
-/// matched the v10 build's line for line.
+/// gains the crossing-ledger fields at their defaults, and runs on. Step 0 ran it on exactly as
+/// the v10 build did; since step 1 (pitch, v11) the extra material shifts the craft-leaning
+/// normalisation, so the checksum after 10 more years is this build's own.
 #[test]
 fn v10_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v10_seed9_y150_64x40.civsave");
     let (mut w, _, info) = World::load_bytes(bytes).expect("v10 save loads");
     assert_eq!(info.format_version, 10);
+    assert_eq!(info.migrated_from, Some(10));
+    // (inventions step 1, v11) pitch joins the materials: every per-material vector grows, the
+    // new craft leaning going in neutral before the action leanings
+    for b in &w.bands {
+        assert_eq!((b.stock.len(), b.origin.len(), b.craft.len()), (NMAT, NMAT, crate::band::CRAFT_LEN));
+        assert_eq!(b.craft[Mat::Pitch as usize], 1.0);
+        assert_eq!(b.stock[Mat::Pitch as usize], 0.0);
+    }
     assert_eq!((w.tick, w.bands.len()), (600, 606));
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
     assert_eq!(w.leg_record, 0.0);
@@ -1078,7 +1090,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa68b2657b4ecfafb);
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xd6539409eefbe685);
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1111,4 +1123,50 @@ fn longest_crossing_sets_the_record() {
     assert_eq!(crate::world::tech_names(crate::world::TECH_OUTRIGGER | crate::world::TECH_ADRIFT), vec!["outrigger", "adrift"]);
     // the new event kind survives the u8 round trip used by the event columns
     assert_eq!(EventKind::from_u8(EventKind::LongestCrossing as u8) as u8, EventKind::LongestCrossing as u8);
+}
+
+/// (inventions step 1) Pitch: wood heated in a closed fired pot over any fire gives pitch; a
+/// fired pot sealed with it is a jar. Neither works with an unfired or woven pot, and a kit with
+/// them caulks, glues and keeps food better.
+#[test]
+fn pitch_and_sealed_jars() {
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let wood = item(Form::Raw, Mat::Wood);
+    let pitch = item(Form::Raw, Mat::Pitch);
+    let pot = item(Form::Vessel, Mat::Ceramic);
+    let fire = item(Form::Fire, Mat::Wood);
+    let heat = |inp| physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx).map(|o| o.out);
+    let comb = |inp| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &ctx).map(|o| o.out);
+    assert_eq!(heat([wood, pot, fire, NONE]), Some(pitch));
+    assert_eq!(heat([pot, wood, fire, NONE]), Some(pitch));
+    assert_ne!(heat([wood, item(Form::Vessel, Mat::Clay), fire, NONE]), Some(pitch));
+    assert_ne!(heat([wood, item(Form::Vessel, Mat::Fibre), fire, NONE]), Some(pitch));
+    assert_eq!(comb([pot, pitch, NONE, NONE]), Some(item(Form::Jar, Mat::Ceramic)));
+    assert_eq!(comb([item(Form::Vessel, Mat::Clay), pitch, NONE, NONE]), None);
+    assert_eq!(item_name(item(Form::Jar, Mat::Ceramic)), "sealed jar");
+    assert_eq!(item_name(pitch), "pitch");
+    // pitch is never a fuel: feeding it to a fire does nothing
+    assert_ne!(comb([fire, pitch, NONE, NONE]).map(form), Some(Form::Fire));
+    let mut s = ItemSet::default();
+    s.add(pot);
+    s.add(pitch);
+    s.add(item(Form::Jar, Mat::Ceramic));
+    let k = crate::band::make_kit(&s);
+    assert_eq!((k.pitch, k.jar), (pitch, item(Form::Jar, Mat::Ceramic)));
+    assert!(k.used_items().contains(&k.jar) && k.used_items().contains(&k.pitch));
+}
+
+/// (inventions step 1) Jars come only after pottery: in a short run no band has a jar without
+/// also having fired pots and pitch.
+#[test]
+fn jars_only_after_pottery() {
+    let mut w = small();
+    for _ in 0..4 * 120 {
+        w.step();
+    }
+    for b in &w.bands {
+        if b.d.kit.jar != NONE {
+            assert!(b.d.tk.avail.has(item(Form::Vessel, Mat::Ceramic)) && b.d.tk.avail.has(item(Form::Raw, Mat::Pitch)));
+        }
+    }
 }

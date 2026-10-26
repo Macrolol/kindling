@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 10` (Kindling 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -162,5 +162,16 @@ Current: `FORMAT_VERSION = 10` (Kindling 0.9 development). v0.8.0 writes format 
     - Neither is read by the simulation; results are unchanged.
     - Cost: about +10% on a 400-year 256×160 save (6.45 → 7.11 MB), +0.4% on the 800×800 save
       (83.02 → 83.35 MB).
+- **v11** (inventions step 1: pitch and sealed jars). Migration `v10_to_v11`:
+  - Material 25 `Pitch` and form 25 `Jar` are appended, so every item id is unchanged.
+  - `bands[].stock` and `bands[].origin` grow from 25 to 26 entries (0.0 / `u32::MAX`);
+    `bands[].craft` ([materials.., 3 action leanings]) gets a neutral 1.0 at index 25, before
+    the action leanings (same pattern as v7 → v8).
+  - Binary v10 saves are decoded directly (compact layout, unchanged) and `Band::fit_vectors`
+    pads the vectors on load; JSON v10 saves go through `v10_to_v11`. Both give the same bands.
+  - New `Kit` slots (`pitch`, `jar`) are derived, not saved.
+  - Tests: `v10_fixture_loads_and_runs` (vectors grow, pitch leaning neutral),
+    `v9_fixture_loads_exactly` (old leanings unchanged around the new one),
+    `v7_0_fixture_gains_new_materials_in_place`.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

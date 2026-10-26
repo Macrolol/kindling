@@ -261,6 +261,12 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Bellows, mat(bag)), 0.04);
         }
     }
+    // (inventions) a fired pot whose mouth and seams are sealed with pitch: a sealed jar
+    if n == 2 && raw(Mat::Pitch) {
+        if let Some(pot) = items.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i) == Mat::Ceramic) {
+            return o(item(Form::Jar, mat(pot)), 0.25);
+        }
+    }
     // sewing: hide + cord + a point to pierce it
     if n == 3 && raw(Mat::Hide) && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         return o(item(Form::Garment, Mat::Hide), 0.35);
@@ -306,6 +312,8 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
 pub const BELLOWS_HEAT: f32 = 250.0;
 /// heat at which an iron bloom can be hammered into wrought iron (deg C)
 pub const FORGE_T: f32 = 1100.0;
+/// (inventions) heat at which resinous wood in a closed pot gives off pitch (deg C)
+pub const PITCH_T: f32 = 350.0;
 
 fn heat(inp: &Inputs) -> Option<Outcome> {
     let (t1, t2, fire, kiln) = (inp[0], inp[1], inp[2], inp[3]);
@@ -346,6 +354,12 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
                 return o(item(Form::Raw, Mat::Salt), 0.3);
             }
             return None;
+        }
+        // (inventions) wood heated slowly in a closed pot, starved of air, sweats out its tar
+        // (about 350-450 C: any wood fire is hot enough)
+        let (wd, pot) = if t1 == item(Form::Raw, Mat::Wood) { (t1, t2) } else { (t2, t1) };
+        if wd == item(Form::Raw, Mat::Wood) && form(pot) == Form::Vessel && mat(pot) == Mat::Ceramic {
+            return if temp >= PITCH_T { o(item(Form::Raw, Mat::Pitch), 0.2) } else { None };
         }
         let (bl, hm) = if form(t1) == Form::Bloom { (t1, t2) } else { (t2, t1) };
         if form(bl) == Form::Bloom && form(hm) == Form::Hammer {
