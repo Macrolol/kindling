@@ -91,7 +91,7 @@ Checks:
   dies out early as before. War 0.296 %/y (step 0 0.280 over all 10), items 76.2 (73.3), lost at
   sea per voyage 0.109 (0.105).
 
-## Step 3. Pilotage and remembered routes (built, c5b9207; checks running)
+## Step 3. Pilotage and remembered routes (done, c5b9207; crossing target not met, see check (b))
 - Band field `pilot` (0..1; appended after `carry`, so older band rows load as 0; no format
   bump). Learned out of sight of land: a planned leg of 6+ open-water cells survived (0.003 per
   cell, up to 25), a scouting party home (0.03), a drift party home or ashore (0.03), and
@@ -120,5 +120,16 @@ Checks:
   seeds 3 and 4 and two seeds (9, 10) whose grain was not domesticated by Y500 (it was at
   Y363/Y395 in step 2); pilotage does not touch farming, so this reads as discovery-timing
   chance, and lost at sea is down (39 391 vs 40 411).
-- Check (b), run [40419072634](https://github.com/Macrolol/kindling/actions/runs/40419072634):
-  running (dispatched 19:20 EDT).
+- Check (b), run [40419072634](https://github.com/Macrolol/kindling/actions/runs/40419072634),
+  `docs/results-inv-step3-750y-800x800.txt`: 1/10 crossed (seed 499246293, Y723, as in step 2);
+  the plan's 2–3 is not met. Pilotage works as meant: 41–60% of voyages aimed, 7–17% steered by
+  signs, landings up 6% (370 746 vs 349 247) on slightly fewer voyages, lost at sea down
+  (226 578 vs 230 181). War 0.299 %/y (0.296), items 75.1 (76.2), pop 7.31M (7.20M).
+- Why no more crossings: geography. `civ-core/examples/hop_chain.rs` (new, world generation only)
+  finds, for each unreached continent, the narrowest open-water hop on the best chain of
+  islands. On the (b) worlds that is 47 cells (seed 297), 50 (295), 54 (301), 66 (294), 85
+  (292), 97 (296), 160 (299), 171 (300); seed 293's is 14 (crossed) and 298's 13 (dies out in
+  Y39). The longest leg made in any (b) run is 26–35 cells. Pilotage and sky lore only steer
+  within range, so on (b) they can change when and how often, not whether; the 4–6/10 target
+  rests on ships (step 5) making 47–54-cell legs. On the default map the needed hops are
+  3–48 cells (seed 10's continent is 21 cells away by island chain and is not yet reached).
