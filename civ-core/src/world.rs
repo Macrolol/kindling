@@ -24,6 +24,8 @@ use fx::{Fx, Layer, Op, Pair};
 const MAX_MEETINGS: u8 = 4;
 pub mod farming;
 pub mod terrain;
+pub mod voyaging;
+pub use voyaging::*;
 pub use farming::{crop_potential, graze_potential};
 
 /// Size of the old single event ring (formats 1-9); now `archive::RING_CAPS` per class.
@@ -188,6 +190,9 @@ pub enum EventKind {
     /// (v10, history store only) band and other exchanged spouses (cell = band's); kept in
     /// `Archive::marriages`, never in the event log
     Married,
+    /// (inventions step 0) a crossing to another landmass over more open water than any before
+    /// it (major; other = landmass reached, recipe = open-water cells, item = the boat)
+    LongestCrossing,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -196,11 +201,11 @@ impl EventKind {
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
-            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married,
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 35;
+    pub const COUNT: usize = 36;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -219,6 +224,7 @@ impl EventKind {
                 | EventKind::FirstEpidemic
                 | EventKind::FirstPlough
                 | EventKind::FirstRiding
+                | EventKind::LongestCrossing
         )
     }
 }
@@ -305,6 +311,15 @@ pub struct YearStats {
     /// (v9) effective number of lineages, 1/sum(share^2): 6 even founders read 6, one
     /// lineage holding everyone reads 1 (0 in older saves)
     pub eff_lineages: f32,
+    /// (inventions step 0) seafaring at year end: bands with boats, of them those that can use
+    /// a sail, their mean and 90th-percentile seacraft, the share of all bands holding word of
+    /// a far shore, and the longest crossing to another landmass so far (open-water cells)
+    pub boat_bands: u32,
+    pub sail_bands: u32,
+    pub seacraft_mean: f32,
+    pub seacraft_p90: f32,
+    pub rumour_share: f32,
+    pub leg_record: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -380,6 +395,10 @@ counters! {
         /// (v5) bands (or drifted parties) that came ashore alive on a landmass other than the one
         /// they set out from
         crossings,
+        /// (inventions step 0) open-water cells crossed by those crossings (mean leg =
+        /// crossing_cells / crossings), and planned voyages made with food put by for the trip
+        crossing_cells,
+        voyages_provisioned,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -406,6 +425,8 @@ counters! {
     }
     max {
         max_fight_deaths,
+        /// (inventions step 0) the longest crossing to another landmass so far (open-water cells)
+        longest_leg,
     }
 }
 
@@ -424,6 +445,11 @@ pub struct LandfallRec {
     /// fewest open-water cells between this landmass and any land already settled when they
     /// arrived (u32::MAX = no sea path)
     pub gap: u32,
+    /// (inventions step 0) open-water cells crossed on the trip that brought them (0 on foot,
+    /// or a save from before it)
+    pub leg: f32,
+    /// (inventions step 0) what the party had with it (`TECH_*` bits; 0 on foot)
+    pub tech: u16,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -504,6 +530,9 @@ pub struct World {
     pub farm_flags: u32,
     /// (v10) the history store: tiered per-year frames, band genealogy, recent weddings
     pub archive: Archive,
+    /// (inventions step 0) the longest crossing to another landmass so far (open-water cells;
+    /// 0 in older saves, so the first crossing after loading one is reported as the record)
+    pub leg_record: f32,
     /// crop potential per cell (derived from the map)
     #[serde(skip)]
     pub crop_pot: Vec<f32>,
@@ -863,6 +892,7 @@ impl World {
         pr[3] += t.lap();
         self.bands = bands;
         self.track_landfall();
+        self.track_leg_record();
         self.track_knowledge();
         self.tick += 1;
         if self.tick % 4 == 0 {
@@ -1059,6 +1089,8 @@ impl World {
         let mut tk = if self.prof.is_some() { Some(Tick::now()) } else { None };
         b.fit_vectors();
         b.d.sailed_from = None;
+        b.d.sailed_sea = 0.0;
+        b.d.sailed_tech = 0;
         for k in &mut b.known {
             k.used = false;
         }
@@ -2049,6 +2081,11 @@ impl World {
     fn sea_toll(&self, b: &mut Band, sea: f32, rng: &mut Rng, fx: &mut Fx) -> u32 {
         // (v8) a plank boat has room for water and food for the whole trip
         let prepared = b.store >= 0.5 * b.pop as f32 || b.d.kit.plank != NONE;
+        b.d.sailed_sea = sea;
+        b.d.sailed_tech = Self::voyage_tech(b, prepared);
+        if prepared {
+            fx.counters.voyages_provisioned += 1;
+        }
         if rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, prepared, sea)) {
             // a crossing made is a lesson learned, (v9) the more so the longer it was
             Self::learn_sea(b, VOYAGE_LESSON + VOYAGE_LESSON_PER_CELL * sea.min(10.0));
@@ -2234,6 +2271,7 @@ impl World {
         fx.counters.drift_landings += 1;
         if far_lm {
             fx.counters.crossings += 1;
+            Self::ledger_crossing(sea, fx);
         }
         b.pop -= party;
         let id = 0; // assigned when applied
@@ -2267,6 +2305,8 @@ impl World {
         };
         let mut nb = nb;
         nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
+        nb.d.sailed_sea = sea;
+        nb.d.sailed_tech = TECH_ADRIFT;
         fx.ops.push(Op::Drift(Box::new(nb), b.id, c as u32));
     }
 
@@ -2355,6 +2395,7 @@ impl World {
     pub(crate) fn note_crossing(&self, from: usize, b: &mut Band, fx: &mut Fx) {
         if b.pop > 0 && self.map.landmass_of(from) != self.map.landmass_of(b.cell(self.map.w)) {
             fx.counters.crossings += 1;
+            Self::ledger_crossing(b.d.sailed_sea, fx);
             b.prestige += PRESTIGE_VOYAGE;
         }
     }
@@ -2388,8 +2429,8 @@ impl World {
             }
             if any {
                 // the boat they came in, when they did not walk (a drifted party has none)
-                let boat = if b.d.sailed_from.is_some() { b.d.kit.boat } else { NONE };
-                evs.push((b.id, l, c as u32, b.d.sailed_from, boat));
+                let boat = if b.d.sailed_from.is_some() && b.d.sailed_tech & TECH_ADRIFT == 0 { b.d.kit.boat } else { NONE };
+                evs.push((b.id, l, c as u32, b.d.sailed_from, boat, b.d.sailed_sea, b.d.sailed_tech));
             }
             self.landfall[l] = self.tick;
         }
@@ -2400,7 +2441,7 @@ impl World {
         let tick = self.tick;
         let settled: Vec<bool> = self.landfall.iter().map(|&t| t < tick).collect();
         let gaps = self.map.sea_gaps(|l| settled.get(l).copied().unwrap_or(false));
-        for (id, l, c, from, boat) in evs {
+        for (id, l, c, from, boat, leg, tech) in evs {
             self.landfalls.push(LandfallRec {
                 landmass: l as u16,
                 tick,
@@ -2408,6 +2449,8 @@ impl World {
                 by_sea: from.is_some(),
                 from: from.map(|f| self.map.landmass_of(f as usize)).unwrap_or(0),
                 gap: gaps.get(l).copied().flatten().unwrap_or(u32::MAX),
+                leg,
+                tech,
             });
             self.push_event(EventKind::Landfall, id, l as u32, c, boat, from.is_some() as u32);
         }
@@ -3266,7 +3309,8 @@ impl World {
         }
         let tp = self.total_pop();
         let top_lineage_pct = if tp > 0 { 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tp as f32 } else { 0.0 };
-        let acc = std::mem::take(&mut self.year_acc);
+        let mut acc = std::mem::take(&mut self.year_acc);
+        self.sea_year_stats(&mut acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
             year: self.tick / 4,
@@ -3432,6 +3476,10 @@ impl World {
             EventKind::FirstPlough => format!("Y{yr}: band {} at ({cx},{cy}) is the first to till with an ard drawn by oxen", e.band),
             EventKind::FirstRiding => format!("Y{yr}: band {} at ({cx},{cy}) is the first to ride its herd animals", e.band),
             EventKind::Married => format!("Y{yr}: bands {} and {} exchanged spouses", e.band, e.other),
+            EventKind::LongestCrossing => {
+                let by = if it.is_empty() { String::new() } else { format!(" by {it}") };
+                format!("Y{yr}: band {} comes ashore at ({cx},{cy}) on landmass #{} after {} cells of open water{by}, the longest crossing yet", e.band, e.other, e.recipe)
+            }
         }
     }
 }

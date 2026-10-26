@@ -289,6 +289,28 @@ pub fn run(a: &Args) {
             );
         }
         {
+            // (inventions step 0) the crossing ledger: longest leg per seed, and how the
+            // continents were reached
+            let legs: Vec<String> = sums.iter().map(|s| format!("s{} {:.0}", s.seed, s.sea.longest_leg)).collect();
+            let cont: Vec<String> = sums
+                .iter()
+                .flat_map(|s| {
+                    s.crossings.iter().filter(|c| c.continent).map(move |c| {
+                        let t = if c.tech.is_empty() { "-".to_string() } else { c.tech.join("+") };
+                        format!("s{} Y{:.0} leg {:.0} [{t}]", s.seed, c.year, c.leg)
+                    })
+                })
+                .collect();
+            let voy: u64 = sums.iter().map(|s| s.sea.voyages).sum();
+            let prov: u64 = sums.iter().map(|s| s.sea.voyages_provisioned).sum();
+            println!(
+                "  crossing ledger: longest leg (cells) {} | continents by sea: {} | voyages provisioned {:.0}%",
+                legs.join(", "),
+                if cont.is_empty() { "none".to_string() } else { cont.join(", ") },
+                100.0 * prov as f32 / voy.max(1) as f32
+            );
+        }
+        {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();
             let land: u64 = sums.iter().map(|s| s.sea.crossings).sum();
             let voy: u64 = sums.iter().map(|s| s.sea.voyages).sum();

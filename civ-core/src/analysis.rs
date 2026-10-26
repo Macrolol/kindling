@@ -71,6 +71,9 @@ pub struct Summary {
     pub islands_by_sea: u32,
     #[serde(default)]
     pub island_hop_max: Option<u32>,
+    /// (inventions step 0) the crossing ledger: every landmass first reached over open water,
+    /// in order
+    pub crossings: Vec<CrossingRec>,
     /// landmass where people started (the one with landfall at year 0) and the one with the most
     /// people now; they differ once a colony outgrows its homeland
     #[serde(default)]
@@ -321,6 +324,28 @@ pub struct SeaSummary {
     pub rumour_in_reach_share: f32,
     /// (v9) 90th percentile of boat range (cells) among coastal bands with boats
     pub range_p90: f32,
+    /// (inventions step 0) the longest crossing to another landmass (open-water cells), the
+    /// mean over all crossings, and planned voyages made with food put by for the trip
+    pub longest_leg: f32,
+    pub mean_leg: f32,
+    pub voyages_provisioned: u64,
+}
+
+/// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
+/// landmass over open water.
+#[derive(Clone, Debug, Serialize)]
+pub struct CrossingRec {
+    pub year: f32,
+    pub landmass: u32,
+    pub continent: bool,
+    /// the landmass they put to sea from
+    pub from: u32,
+    /// open-water cells crossed on the trip (0 in saves from before the ledger)
+    pub leg: f32,
+    /// fewest sea cells from land already settled at the time
+    pub gap: Option<u32>,
+    /// what they had with them (`world::TECH_NAMES`)
+    pub tech: Vec<String>,
 }
 
 /// The `q` quantile (0..1) of `v` (sorted in place); 0 when empty.
@@ -368,6 +393,10 @@ pub struct LandmassSummary {
     pub gap_settled: Option<u32>,
     /// (v9) landmass the first arrivals put to sea from (0 = on foot or unknown)
     pub from: u32,
+    /// (inventions step 0) open-water cells the first arrivals crossed, and what they had with
+    /// them (`world::TECH_NAMES`); 0 / empty on foot or in saves from before the ledger
+    pub leg: f32,
+    pub tech: Vec<String>,
 }
 
 impl LandmassSummary {
@@ -552,6 +581,8 @@ pub fn summarize(w: &World) -> Summary {
                 by_sea: r.map(|r| r.by_sea),
                 gap_settled: r.map(|r| r.gap).filter(|&g| g != u32::MAX),
                 from: r.map(|r| r.from as u32).unwrap_or(0),
+                leg: r.map(|r| r.leg).unwrap_or(0.0),
+                tech: r.map(|r| crate::world::tech_names(r.tech)).unwrap_or_default(),
             });
         } else {
             islands += 1;
@@ -735,6 +766,9 @@ pub fn summarize(w: &World) -> Summary {
             scout_finds: w.counters.scout_finds,
             scouts_lost: w.counters.scouts_lost,
             crossings: w.counters.crossings,
+            longest_leg: w.leg_record,
+            mean_leg: w.counters.crossing_cells as f32 / w.counters.crossings.max(1) as f32,
+            voyages_provisioned: w.counters.voyages_provisioned,
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }
@@ -748,6 +782,20 @@ pub fn summarize(w: &World) -> Summary {
         islands,
         islands_reached,
         islands_by_sea,
+        crossings: w
+            .landfalls
+            .iter()
+            .filter(|r| r.by_sea && r.tick > 0)
+            .map(|r| CrossingRec {
+                year: r.tick as f32 / 4.0,
+                landmass: r.landmass as u32,
+                continent: m.landmass_size.get(r.landmass as usize).copied().unwrap_or(0) >= m.continent_cells(),
+                from: r.from as u32,
+                leg: r.leg,
+                gap: Some(r.gap).filter(|&g| g != u32::MAX),
+                tech: crate::world::tech_names(r.tech),
+            })
+            .collect(),
         island_hop_max,
         home_landmass: home as u32,
         most_people_landmass: most_people as u32,

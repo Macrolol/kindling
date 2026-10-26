@@ -1,7 +1,9 @@
 # Proposal: new inventions (after iron and sail)
 
-Status: **proposal only, for Michael to review.** Nothing in here is built yet. The sim code
-on `main` (2b7005c) is the same one that produced `docs/results-v10-750y-800x800.txt`.
+Status: **accepted (Oct 26 2026), being built step by step.** Michael's answers to the open
+questions are in section 6 ("Decisions"); progress per step is in the step table (section 5)
+and in `docs/PROGRESS-inventions.md`. The proposal was written against `main` 2b7005c, the code
+that produced `docs/results-v10-750y-800x800.txt`.
 
 Later themes, not covered here: culture, language, politics, and the live event stream.
 This proposal leaves hooks for each of them (section 4 and the "hook" notes).
@@ -368,20 +370,20 @@ Each step also gets:
 
 Results go to `docs/PROGRESS-inventions.md` (built and checked, like `PROGRESS-v8.md`).
 
-| # | step | contents | pass check | effort |
-|---|---|---|---|---|
-| 0 | **Measure first** | new counters, YearStats fields, landfall leg and tech fields, event kinds (unused yet), report blocks. No behaviour change. Also fix a v10 fixture save. | report and save byte-identical to now apart from new columns; baselines (a)+(b) recorded | S–M |
-| 1 | **Pitch and sealed jars** | material Pitch, form Jar, caulking upkeep, jar spoilage. Save v11 (stock 25→26, craft leaning inserted; same pattern as v7→v8). | (a) pop within ±10%, jars appear only after pottery; no crossing change | M |
-| 2 | **Provisions and endurance** | continuous provisions; drying racks; cold cellars; endurance toll on long legs | (a) unchanged crossings; (b) no more than baseline yet (no reach to use it); lost-at-sea not up on short hops | M |
-| 3 | **Pilotage and remembered routes** | `pilot` practice, sign sighting at sea, routes fade slower | (b) more aimed voyages and sightings; crossings 1→2–3 of 10; none before Y100 | M |
-| 4 | **Sky lore** | `sky` practice from farming and night sailing; heading error; sowing bonus | (a) farm yield +≤5%; (b) crossings about 3–4 of 10 | M |
-| 5 | **Ships** | form Ship, endurance and range with sail, quality → endurance | (b) **target 4–6 of 10 by boat, not 10/10, none before Y100**; refinement no longer pinned for hulls | M–L |
-| 6 | **Iron in the fields** | iron axe and edge open forest and heavy-soil farming | (b) more farmland in wet and forest worlds; disease within reason | S–M |
-| 7 | **Steel** | material Steel, carburise and quench recipe, steel tools and weapons | (b) steel in some but not all iron worlds; fight deaths not more than about 1.3× | M |
-| 8 | **Tallies, tokens and records** | form Mark, `records` practice, slower forgetting, store keeping, partner capacity | (b) records only where storage or trade is heavy; partners no longer pinned; items per band not runaway | M |
-| 9 | **Charts** | records × pilotage keeps and teaches routes | (b) crossings still within 4–6/10 (charts must not push it to 9–10) | S |
-| 10 | **Feasts and ale** | absolute-surplus prestige, ale | (b) prestige ~ size correlation rises (target 0.4–0.6); no single hub takes over | M |
-| 11 | **Native gold** | deposit, map generator v5, gold ornaments | (a)+(b) other map layers unchanged (gold placed from its own random stream); local prestige | M |
+| # | step | contents | pass check | effort | status |
+|---|---|---|---|---|---|
+| 0 | **Measure first** | new counters, YearStats fields, landfall leg and tech fields, event kinds (unused yet), report blocks. No behaviour change. Also fix a v10 fixture save. | report and save byte-identical to now apart from new columns; baselines (a)+(b) recorded | S–M | done (see PROGRESS) |
+| 1 | **Pitch and sealed jars** | material Pitch, form Jar, caulking upkeep, jar spoilage. Save v11 (stock 25→26, craft leaning inserted; same pattern as v7→v8). | (a) pop within ±10%, jars appear only after pottery; no crossing change | M | to do |
+| 2 | **Provisions and endurance** | continuous provisions; drying racks; cold cellars; endurance toll on long legs | (a) unchanged crossings; (b) no more than baseline yet (no reach to use it); lost-at-sea not up on short hops | M | to do |
+| 3 | **Pilotage and remembered routes** | `pilot` practice, sign sighting at sea, routes fade slower | (b) more aimed voyages and sightings; crossings 1→2–3 of 10; none before Y100 | M | to do |
+| 4 | **Sky lore** | `sky` practice from farming and night sailing; heading error; sowing bonus | (a) farm yield +≤5%; (b) crossings about 3–4 of 10 | M | to do |
+| 5 | **Ships** | form Ship, endurance and range with sail, quality → endurance | (b) **target 4–6 of 10 by boat, not 10/10, none before Y100**; refinement no longer pinned for hulls | M–L | to do |
+| 6 | **Iron in the fields** | iron axe and edge open forest and heavy-soil farming | (b) more farmland in wet and forest worlds; disease within reason | S–M | to do |
+| 7 | **Steel** | material Steel, carburise and quench recipe, steel tools and weapons | (b) steel in some but not all iron worlds; fight deaths not more than about 1.3× | M | to do |
+| 8 | **Tallies, tokens and records** | form Mark, `records` practice, slower forgetting, store keeping, partner capacity | (b) records only where storage or trade is heavy; partners no longer pinned; items per band not runaway | M | to do |
+| 9 | **Charts** | records × pilotage keeps and teaches routes | (b) crossings still within 4–6/10 (charts must not push it to 9–10) | S | to do |
+| 10 | **Feasts and ale** | absolute-surplus prestige, ale | (b) prestige ~ size correlation rises (target 0.4–0.6); no single hub takes over | M | to do |
+| 11 | **Native gold** | deposit, map generator v5, gold ornaments | (a)+(b) other map layers unchanged (gold placed from its own random stream); local prestige | M | to do |
 
 If a step overshoots the crossing target, tune that step's own strength rather than add a cap.
 The rough order matters: preservation first (it is useful on land too), then the sea chain,
@@ -392,7 +394,23 @@ long-crossing goal.
 
 ## 6. Risks and open questions for Michael
 
-**Open questions**
+**Decisions (Michael, Oct 26 2026)** — these override the text above where they differ:
+1. **Partner cap:** drop the fixed 8 altogether. Ties fade unless kept up by visits, trade or
+   marriage; records slow the fading (step 8). Old saves' partner lists migrate and load.
+2. **Crossing target:** 4–6 of 10 worlds crossing to another continent by boat, none before
+   Y100, never all — judged on the 800×800, 750-year runs (check b). The 500-year standard map
+   (check a) is a sanity check only.
+3. **Steel:** may make fights deadlier, but only through emergent edge and armour mechanics
+   (no flat multiplier). The war rate is watched.
+4. **Gold:** yes, as a small optional map-generator addition (rare river gravel or quartz
+   veins); a new resource with defaults so old saves load.
+5. **Ale and feasts:** build now, as a small step (prestige from giving).
+6. **Disease:** leave as it is. Wells and drains come later with towns and politics (noted in
+   `docs/IDEAS-later.md`).
+7. **Sky lore:** one shared practice that helps farming and sailing. Its sea effect is gated
+   on pilot / sea practice, so sky lore alone gives no crossings.
+
+**Open questions (as asked)**
 1. **Partner cap.** Should the flat 8 trade partners become "8 plus what records let you keep
    track of", or should it be replaced by ties that simply fade unless kept up (no number at
    all)? The second is purer but harder to balance.

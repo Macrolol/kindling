@@ -63,6 +63,26 @@ block of the text report, `counters` the run totals by name, `event_rings` how f
 event ring reaches (`{lore|conflict|life: {len, from_year}}`), `archive` the history store's
 extent (`frames`, `decadal`, `genealogy`, `weddings_kept`, `begun_year`).
 
+### Crossing ledger (inventions step 0)
+
+Additive fields, no schema change:
+- `metrics.csv` / `YearStats`: `boat_bands`, `sail_bands` (boats and the seacraft to use a sail),
+  `seacraft_mean`, `seacraft_p90` (over bands with boats), `rumour_share` (bands holding word of
+  a far shore), `leg_record` (longest crossing to another landmass so far, open-water cells).
+- counters: `crossing_cells` (open-water cells of all crossings; mean leg = `crossing_cells /
+  crossings`), `voyages_provisioned` (planned voyages with food put by), `longest_leg` (a `max`
+  counter, cells, rounded).
+- `summary.sea`: `longest_leg`, `mean_leg`, `voyages_provisioned`.
+- `summary.continents[]`: `leg` and `tech` of the first arrivals.
+- `summary.crossings[]`: every landmass first reached over open water, in order:
+  `{year, landmass, continent, from, leg, gap, tech}`. `tech` lists names from
+  `civ_core::world::TECH_NAMES`: `outrigger`, `sail`, `plank`, `provisioned`, `ship`, `jar`,
+  `pilot`, `sky`, `route`, `adrift` (bits reserved for later steps stay unset until then).
+- `world.landfalls[]` in saves: `leg`, `tech` (bitmask), default 0.
+- event kind `LongestCrossing` (id 35, major): a crossing to another landmass over more open
+  water than any before it (at least 3 cells). `band` came ashore at `x, y` on landmass
+  `other` after `recipe` cells; `item` is the boat (unset when adrift).
+
 ## Event records (chronicle.ndjson; the event feed)
 
 `civ_core::data::event_record`:

@@ -140,6 +140,10 @@ Current: `FORMAT_VERSION = 10` (Kindling 0.9 development). v0.8.0 writes format 
     current reader and re-serialize it with `serde_json` (human readable = logical shape).
   - Fixture `v9_seed9_y150_64x40.civsave` (written by the v9 code) is loaded by
     `v9_fixture_loads_exactly`, which checks it against checksums taken from the v9 build.
+  - Fixture `v10_seed9_y150_64x40.civsave` (written by the v10 build before the inventions
+    work) is loaded by `v10_fixture_loads_and_runs`. The crossing-ledger fields (inventions step
+    0: `world.leg_record`, `landfalls[].leg` / `.tech`) are additive named fields that default to
+    0, so no format bump.
   - Typical effect: a 147 MB v9 save (800×800, 750 years, 68.7k bands) re-saves as 83 MB.
   - **Event log and history store** (`civ-core/src/archive.rs`, same version, all fields default
     when missing, so v10 saves written before them still load):

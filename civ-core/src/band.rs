@@ -366,6 +366,10 @@ pub struct Derived {
     /// (a voyage, a sea flight, a daughter's crossing or a drift); cleared at the start of each
     /// season, read by `World::track_landfall` to tell boat-borne landfalls from walking ones
     pub sailed_from: Option<u32>,
+    /// (inventions step 0) with `sailed_from`: the open-water cells crossed and what the party
+    /// had with it (`TECH_*` bits), for the landfall record and the crossing ledger
+    pub sailed_sea: f32,
+    pub sailed_tech: u16,
 }
 
 pub const MAX_PARTNERS: usize = 8;

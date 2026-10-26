@@ -959,11 +959,11 @@ fn counter_registry_covers_every_field() {
     a.add(&c);
     a.add(&c);
     for (i, (n, x)) in Counters::NAMES.iter().zip(a.values()).enumerate() {
-        let want = if *n == "max_fight_deaths" { v[i] } else { 2 * v[i] };
+        let want = if matches!(*n, "max_fight_deaths" | "longest_leg") { v[i] } else { 2 * v[i] };
         assert_eq!(x, want, "counter {n} not summed by Counters::add");
     }
-    assert_eq!(a.since(&c).values().iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>(),
-        v.iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>());
+    assert_eq!(a.since(&c).values().iter().zip(Counters::NAMES).filter(|(_, n)| !matches!(**n, "max_fight_deaths" | "longest_leg")).map(|(x, _)| *x).collect::<Vec<_>>(),
+        v.iter().zip(Counters::NAMES).filter(|(_, n)| !matches!(**n, "max_fight_deaths" | "longest_leg")).map(|(x, _)| *x).collect::<Vec<_>>());
 }
 
 /// The event log keeps each class in its own ring, and round-trips through both encodings.
@@ -1047,7 +1047,7 @@ fn data_outputs_shape() {
     assert_eq!(lines.len(), 11);
     let n = lines[0].split(',').count();
     assert!(lines.iter().all(|l| l.split(',').count() == n), "ragged csv");
-    assert!(lines[0].contains(",c_experiments,") && lines[0].ends_with(",c_max_fight_deaths"));
+    assert!(lines[0].contains(",c_experiments,") && lines[0].ends_with(",c_max_fight_deaths,c_longest_leg"));
     let mut total = crate::world::Counters::default();
     for d in &deltas {
         total.add(d);
@@ -1058,4 +1058,57 @@ fn data_outputs_shape() {
         assert!(r["kind"].is_string() && r["text"].is_string());
         serde_json::from_str::<serde_json::Value>(&r.to_string()).unwrap();
     }
+}
+
+/// (inventions step 0) A v10 save written by the v10 build before the inventions work loads,
+/// gains the crossing-ledger fields at their defaults, and runs on exactly as that build did:
+/// the checksum after 10 more years is from this build, whose report for the same 10 years
+/// matched the v10 build's line for line.
+#[test]
+fn v10_fixture_loads_and_runs() {
+    let bytes = include_bytes!("../tests/fixtures/v10_seed9_y150_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v10 save loads");
+    assert_eq!(info.format_version, 10);
+    assert_eq!((w.tick, w.bands.len()), (600, 606));
+    assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
+    assert_eq!(w.leg_record, 0.0);
+    assert!(w.landfalls.iter().all(|r| r.leg == 0.0 && r.tech == 0));
+    for _ in 0..40 {
+        w.step();
+    }
+    assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
+}
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa68b2657b4ecfafb);
+
+/// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
+/// more open water than anyone before is a major event and sets the record; a shorter one does
+/// not; and the tech bits read back as names.
+#[test]
+fn longest_crossing_sets_the_record() {
+    use crate::world::EventKind;
+    let mut w = World::new(Config { seed: 3, map_w: 120, map_h: 80, ..Default::default() }, Params::default());
+    let m = &w.map;
+    let home = w.bands[0].cell(m.w);
+    let lh = m.landmass_of(home);
+    let other = (0..m.w * m.h).find(|&c| m.is_land(c) && m.landmass_of(c) != lh && m.landmass_of(c) != 0).expect("a second landmass");
+    let n0 = w.chronicle.iter().filter(|e| e.kind == EventKind::LongestCrossing as u8).count();
+    let arrive = |w: &mut World, leg: f32| {
+        let mw = w.map.w;
+        let b = &mut w.bands[0];
+        b.x = (other % mw) as u16;
+        b.y = (other / mw) as u16;
+        b.d.sailed_from = Some(home as u32);
+        b.d.sailed_sea = leg;
+        b.d.sailed_tech = crate::world::TECH_OUTRIGGER | crate::world::TECH_PROVISIONED;
+        w.track_leg_record();
+    };
+    arrive(&mut w, 7.0);
+    assert_eq!(w.leg_record, 7.0);
+    arrive(&mut w, 5.0);
+    assert_eq!(w.leg_record, 7.0);
+    let n1 = w.chronicle.iter().filter(|e| e.kind == EventKind::LongestCrossing as u8).count();
+    assert_eq!(n1, n0 + 1);
+    assert_eq!(crate::world::tech_names(crate::world::TECH_OUTRIGGER | crate::world::TECH_ADRIFT), vec!["outrigger", "adrift"]);
+    // the new event kind survives the u8 round trip used by the event columns
+    assert_eq!(EventKind::from_u8(EventKind::LongestCrossing as u8) as u8, EventKind::LongestCrossing as u8);
 }

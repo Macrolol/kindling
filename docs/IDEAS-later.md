@@ -67,3 +67,11 @@ small part of the diet, and **nothing turns that depletion into a reason to go f
 
 **Suggested order:** 1 together with a light version of 2 first, then 4. Keep 3 and 5 for a later
 content pass. Option 5 overlaps with the "hunting sea mammals" item in `REFACTOR-NOTES.md`.
+
+## Wells and drains (decided Oct 26 2026)
+
+Disease stays as it is for now: it rising with crowding and farming is realistic. Michael's
+decision on the inventions proposal (question 6): wells, drains and other public-health works
+come later, together with towns and politics (they need lime or brick, and someone to organise
+the digging). Not part of the inventions plan.
+
