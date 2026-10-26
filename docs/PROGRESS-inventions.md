@@ -58,7 +58,7 @@ Checks:
 - Watch: deaths in fights up in all 10 seeds, 0.363 -> 0.409 %/y (+13%). Raids are lured by the
   other band's store, and jars mean more stored food; emergent, not tuned.
 
-## Step 2. Provisions and endurance (built, dedfd2d; check (b) pending)
+## Step 2. Provisions and endurance (done, dedfd2d)
 - Provisions are continuous: `fed` = store / (half a season's food per person), 0..1 (a plank
   boat always counts as fully fed). The sea toll's provisions factor is 1 - 0.3 x fed, so the
   old all-or-nothing rule is its two ends.
@@ -85,8 +85,11 @@ Checks:
   0.402 %/y (0.409), items 72.7 (69.2). Lost at sea per voyage 0.151 (0.148), so short hops are
   not hurt; 833 of 267 882 voyages (0.3%) went past endurance. Endurance p90 32 cells in most
   seeds by Y500.
-- Check (b), run [40417390032](https://github.com/Macrolol/kindling/actions/runs/40417390032):
-  running (dispatched 19:06 EDT).
+- Check (b), run [40417390032](https://github.com/Macrolol/kindling/actions/runs/40417390032),
+  `docs/results-inv-step2-750y-800x800.txt`: 1/10 crossed (seed 499246293, Y723, leg 20, gap 14,
+  outrigger+plank+provisioned+jar; step 0 Y649), no more than the baseline, pass. Seed 499246298
+  dies out early as before. War 0.296 %/y (step 0 0.280 over all 10), items 76.2 (73.3), lost at
+  sea per voyage 0.109 (0.105).
 
 ## Step 3. Pilotage and remembered routes (built, c5b9207; checks running)
 - Band field `pilot` (0..1; appended after `carry`, so older band rows load as 0; no format
@@ -109,6 +112,13 @@ Checks:
   lost at sea 1357 (step 2 build: 1472); pop 94k. A first version without fishing-ground
   learning and with a 43-year fade left pilotage at p90 0.02 (14 sign voyages): too rare to
   matter, so learning on the fishing grounds was added and the fade matched to seacraft's.
-- Check (a), run [40419063313](https://github.com/Macrolol/kindling/actions/runs/40419063313), and
-  check (b), run [40419072634](https://github.com/Macrolol/kindling/actions/runs/40419072634):
+- Check (a), run [40419063313](https://github.com/Macrolol/kindling/actions/runs/40419063313),
+  `docs/results-inv-step3-seeds1-10-500y.txt`: continents crossed 4/10 (Y118, Y179, Y205, Y270;
+  step 2 Y118, Y179, Y205, Y276), none before Y100. Aimed voyages 30-51%, steered by signs
+  8-14%; pilot p90 0.20-0.22 in the two seeds that cross most, 0.01-0.09 elsewhere. War 0.407
+  %/y (0.402), items 68.1 (72.7), pop 1 035 270 (-9.6% on step 2). Watch: the drop is mostly
+  seeds 3 and 4 and two seeds (9, 10) whose grain was not domesticated by Y500 (it was at
+  Y363/Y395 in step 2); pilotage does not touch farming, so this reads as discovery-timing
+  chance, and lost at sea is down (39 391 vs 40 411).
+- Check (b), run [40419072634](https://github.com/Macrolol/kindling/actions/runs/40419072634):
   running (dispatched 19:20 EDT).
