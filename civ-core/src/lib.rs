@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod band;
 pub mod archive;
 pub mod codec;
+pub mod data;
 pub mod knowledge;
 pub mod map;
 pub mod materials;

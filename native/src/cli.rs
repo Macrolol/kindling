@@ -9,6 +9,10 @@ pub struct Args {
     pub config: Option<String>,
     pub load: Option<String>,
     pub save: Option<String>,
+    /// structured outputs (manifest, metrics.csv, summary.json, ...) under DIR/seed-S/
+    pub out: Option<String>,
+    /// also write the band genealogy (genealogy.csv) with --out
+    pub out_genealogy: bool,
     pub json: bool,
     pub verbose: bool,
     pub report: u32,
@@ -27,7 +31,8 @@ kindling [--seed S] [--map WxH] [--config params.json] [--load file.civsave] [--
          [--start x,y | --starts x1,y1;x2,y2;...]
   desktop:  [--screenshot out.png [--years N] [--overlay 0-8] [--ui inspector|log|stats|settings|picker]]
   headless: --headless [--seeds A..B | --seed S] [--years N] [--report K] [--json] [--verbose]
-            [--save out.civsave]";
+            [--save out.civsave (\"{seed}\" in the name: one file per seed)]
+            [--out DIR [--out-genealogy]]  (structured outputs per seed, docs/DATA_SCHEMA.md)";
 
 pub fn parse_args() -> Args {
     let mut a = Args {
@@ -38,6 +43,8 @@ pub fn parse_args() -> Args {
         config: None,
         load: None,
         save: None,
+        out: None,
+        out_genealogy: false,
         json: false,
         verbose: false,
         report: 0,
@@ -91,6 +98,11 @@ pub fn parse_args() -> Args {
             "--config" => a.config = Some(next),
             "--load" => a.load = Some(next),
             "--save" => a.save = Some(next),
+            "--out" => a.out = Some(next),
+            "--out-genealogy" => {
+                a.out_genealogy = true;
+                skip = 0
+            }
             "--screenshot" => a.screenshot = Some(next),
             "--overlay" => a.overlay = next.parse().unwrap_or(1),
             "--ui" => a.ui = next,

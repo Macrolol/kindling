@@ -1028,3 +1028,31 @@ fn archive_frames_and_folding() {
     assert!(founded >= founders, "{founded} < {founders}");
     assert_eq!(fr.last().unwrap().lineages.iter().map(|r| r.2).sum::<u32>(), w.history.last().unwrap().pop);
 }
+
+/// The structured outputs (data schema v1): one metrics.csv row per closed year with as many
+/// fields as the header, deltas matching the archive frames, and parseable event records.
+#[test]
+fn data_outputs_shape() {
+    let mut w = World::new(Config { seed: 5, map_w: 80, map_h: 50, ..Default::default() }, Params::default());
+    let mut deltas = Vec::new();
+    for _ in 0..40 {
+        w.step();
+        if w.history.len() > deltas.len() {
+            deltas.push(w.archive.frames.last().unwrap().counters.clone());
+        }
+    }
+    assert_eq!(deltas.len(), 10);
+    let csv = crate::data::metrics_csv(&w.history, 0, &deltas);
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines.len(), 11);
+    let n = lines[0].split(',').count();
+    assert!(lines.iter().all(|l| l.split(',').count() == n), "ragged csv");
+    assert!(lines[0].contains("c_experiments") || lines[0].contains("c_"));
+    let total: u64 = deltas.iter().map(|d| d.values().iter().sum::<u64>()).sum();
+    assert_eq!(total, w.counters.values().iter().sum::<u64>(), "deltas add up to the run totals");
+    for e in w.events.all().iter().take(50) {
+        let r = crate::data::event_record(&w, e);
+        assert!(r["kind"].is_string() && r["text"].is_string());
+        serde_json::from_str::<serde_json::Value>(&r.to_string()).unwrap();
+    }
+}

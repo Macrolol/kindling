@@ -27,9 +27,15 @@ pub fn run(a: &Args) {
         if std::env::var("KINDLING_PROF").is_ok() {
             w.prof = Some(Box::default());
         }
+        let (first, start_year) = (w.history.len(), w.tick as f32 / 4.0);
+        let mut deltas: Vec<civ_core::world::Counters> = Vec::new();
         let ticks = a.years * 4;
         for t in 0..ticks {
             w.step();
+            if a.out.is_some() && w.history.len() > first + deltas.len() {
+                // the year just closed: its counter increase, from the history store
+                deltas.push(w.archive.frames.last().map(|f| f.counters.clone()).unwrap_or_default());
+            }
             if a.report > 0 && (t + 1) % (a.report * 4) == 0 {
                 if let Some(h) = w.history.last() {
                     eprintln!(
@@ -48,10 +54,18 @@ pub fn run(a: &Args) {
             eprintln!("  seed {seed} profile: {} | pairs in range {:.1}M, meetings {:.1}M", parts.join(" | "), w.counters.pairs_seen as f64 / 1e6, w.counters.meetings as f64 / 1e6);
         }
         let s = summarize(&w);
+        let t1 = Instant::now();
+        let mut saved = None;
         if let Some(p) = &a.save {
+            let p = p.replace("{seed}", &seed.to_string());
             let bytes = w.save_bytes(None, env!("CARGO_PKG_VERSION"), "headless").unwrap();
-            std::fs::write(p, bytes).unwrap();
+            if let Some(dir) = std::path::Path::new(&p).parent().filter(|d| !d.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            std::fs::write(&p, &bytes).unwrap();
+            saved = Some((p, bytes.len() as u64));
         }
+        let t_save = t1.elapsed().as_secs_f32();
         if a.json {
             println!("{}", serde_json::to_string(&s).unwrap());
         } else {
@@ -170,6 +184,12 @@ pub fn run(a: &Args) {
             println!("    discovery order: {}", ord.join(" "));
         }
         let cf = conflict_stats(&w);
+        if let Some(dir) = &a.out {
+            let run = Run { seed, start_year, first, deltas: &deltas, t_gen, t_run: el - t_gen, t_save, saved };
+            if let Err(e) = write_outputs(a, &w, &s, &cf, &run, dir) {
+                eprintln!("seed {seed}: writing outputs to {dir}: {e}");
+            }
+        }
         if !a.json {
             println!(
                 "    conflict: {} confrontations ({} avoided, {} paid off, {} fled) | {} fights ({:.1}/century), {} killed = {:.3}%/yr of people (lost at sea {}) | {} displaced ({} by sea), {} absorbed, {} captives | by century fights {:?} | lineages {} (largest {:.0}% of people; by century {:?}) | disease deaths {:.3}%/yr | pop by century {:?}",
@@ -380,6 +400,94 @@ fn how_reached(c: &civ_core::analysis::LandmassSummary) -> String {
         None if c.landfall_year == Some(0.0) => String::new(),
         None => " [?]".to_string(),
     }
+}
+
+struct Run<'a> {
+    seed: u64,
+    start_year: f32,
+    first: usize,
+    deltas: &'a [civ_core::world::Counters],
+    t_gen: f32,
+    t_run: f32,
+    t_save: f32,
+    saved: Option<(String, u64)>,
+}
+
+/// The structured outputs of one seed (data schema `civ_core::data::DATA_SCHEMA`): DIR/seed-S/
+/// manifest.json, metrics.csv, summary.json, chronicle.ndjson, frames.ndjson and, with
+/// --out-genealogy, genealogy.csv. The text report on stdout is unchanged.
+fn write_outputs(a: &Args, w: &World, s: &Summary, cf: &ConflictStats, r: &Run, dir: &str) -> std::io::Result<()> {
+    use civ_core::data::{event_record, metrics_csv, Manifest, DATA_SCHEMA};
+    use std::io::Write;
+    let d = std::path::Path::new(dir).join(format!("seed-{}", r.seed));
+    std::fs::create_dir_all(&d)?;
+    let m = Manifest {
+        schema: DATA_SCHEMA,
+        kind: "kindling-headless-run",
+        program: "kindling".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        git_sha: option_env!("KINDLING_GIT_SHA").unwrap_or("unknown").into(),
+        seed: r.seed,
+        map_w: w.map.w,
+        map_h: w.map.h,
+        loaded_from: a.load.clone(),
+        start_year: r.start_year,
+        end_year: w.tick as f32 / 4.0,
+        years_requested: a.years,
+        threads: rayon::current_num_threads(),
+        save_format: civ_core::save::FORMAT_VERSION,
+        saved_to: r.saved.as_ref().map(|x| x.0.clone()),
+        save_bytes: r.saved.as_ref().map(|x| x.1),
+        t_gen: r.t_gen,
+        t_run: r.t_run,
+        t_save: r.t_save,
+        started_unix: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|x| x.as_secs()).unwrap_or(0).saturating_sub((r.t_gen + r.t_run + r.t_save) as u64),
+        command: std::env::args().collect(),
+        params: serde_json::to_value(w.params).unwrap_or_default(),
+        config: serde_json::to_value(&w.cfg).unwrap_or_default(),
+    };
+    std::fs::write(d.join("manifest.json"), serde_json::to_string_pretty(&m)? + "\n")?;
+    std::fs::write(d.join("metrics.csv"), metrics_csv(&w.history, r.first, r.deltas))?;
+    let conflict = serde_json::json!({
+        "confrontations": cf.confrontations, "avoided": cf.avoided, "tributes": cf.tributes, "fled": cf.fled,
+        "fights": cf.fights, "fights_per_century": cf.fights_per_century, "deaths": cf.deaths,
+        "death_rate_pct": cf.death_rate_pct, "displaced": cf.displaced, "fled_by_sea": cf.fled_by_sea,
+        "absorbed": cf.absorbed, "captives": cf.captives, "lineages": cf.lineages, "top_lineage_pct": cf.top_lineage_pct,
+        "disease_rate_pct": cf.disease_rate_pct,
+    });
+    let reach = w.events.reach();
+    let sum = serde_json::json!({
+        "schema": DATA_SCHEMA,
+        "seed": r.seed,
+        "summary": s,
+        "conflict": conflict,
+        "counters": civ_core::world::Counters::NAMES.iter().zip(w.counters.values()).map(|(n, v)| (n.to_string(), serde_json::json!(v))).collect::<serde_json::Map<_, _>>(),
+        "event_rings": (0..3).map(|c| (civ_core::archive::CLASS_NAMES[c].to_string(), serde_json::json!({"len": w.events.ring(c).len(), "from_year": reach[c].map(|t| t as f32 / 4.0)}))).collect::<serde_json::Map<_, _>>(),
+        "archive": {"frames": w.archive.frames.len(), "decadal": w.archive.frames.iter().filter(|f| f.span > 1).count(), "genealogy": w.archive.genealogy.len(), "weddings_kept": w.archive.marriages.len(), "begun_year": w.archive.begun.map(|t| t as f32 / 4.0)},
+    });
+    std::fs::write(d.join("summary.json"), serde_json::to_string_pretty(&sum)? + "\n")?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(d.join("chronicle.ndjson"))?);
+    for e in &w.chronicle {
+        writeln!(f, "{}", event_record(w, e))?;
+    }
+    f.flush()?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(d.join("frames.ndjson"))?);
+    for fr in &w.archive.frames {
+        writeln!(f, "{}", serde_json::to_string(fr)?)?;
+    }
+    f.flush()?;
+    if a.out_genealogy {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(d.join("genealogy.csv"))?);
+        writeln!(f, "t,kind,band,other,x,y,n")?;
+        let mw = w.map.w.max(1) as u32;
+        for e in &w.archive.genealogy {
+            let other = if e.other == u32::MAX { String::new() } else { e.other.to_string() };
+            let n = if e.recipe == u32::MAX { String::new() } else { e.recipe.to_string() };
+            writeln!(f, "{},{:?},{},{},{},{},{}", e.tick, civ_core::world::EventKind::from_u8(e.kind), e.band, other, e.cell % mw, e.cell / mw, n)?;
+        }
+        f.flush()?;
+    }
+    Ok(())
 }
 
 struct ConflictStats {
