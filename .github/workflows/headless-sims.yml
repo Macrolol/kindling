@@ -543,7 +543,7 @@ jobs:
       - name: Publish pre-release
         run: |
           set -euo pipefail
-          inp=$(python3 -c "import json,os; print('\n'.join(f'- {k}: \`{v}\`' for k, v in json.loads(os.environ['INPUTS_JSON']).items()))")
+          inp=$(python3 -c "import json,os; print('\n'.join(f'- {k}: \`{str(v).lower() if isinstance(v, bool) else v}\`' for k, v in json.loads(os.environ['INPUTS_JSON']).items()))")
           cat > notes.md <<EOF
           Archived outputs of headless-sims run [${GITHUB_RUN_ID}](${RUN_URL}) on \`${SHA}\` (sim jobs: ${SIM_RESULT}).
           Not a Kindling release.
