@@ -303,11 +303,15 @@ pub fn run(a: &Args) {
                 .collect();
             let voy: u64 = sums.iter().map(|s| s.sea.voyages).sum();
             let prov: u64 = sums.iter().map(|s| s.sea.voyages_provisioned).sum();
+            let past: u64 = sums.iter().map(|s| s.sea.past_endurance).sum();
+            let endu: Vec<String> = sums.iter().map(|s| format!("s{} {:.0}", s.seed, s.sea.endurance_p90)).collect();
             println!(
-                "  crossing ledger: longest leg (cells) {} | continents by sea: {} | voyages provisioned {:.0}%",
+                "  crossing ledger: longest leg (cells) {} | continents by sea: {} | voyages provisioned {:.0}% | past endurance {:.1}% | endurance p90 {}",
                 legs.join(", "),
                 if cont.is_empty() { "none".to_string() } else { cont.join(", ") },
-                100.0 * prov as f32 / voy.max(1) as f32
+                100.0 * prov as f32 / voy.max(1) as f32,
+                100.0 * past as f32 / voy.max(1) as f32,
+                endu.join(", ")
             );
         }
         {

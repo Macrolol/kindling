@@ -329,6 +329,10 @@ pub struct SeaSummary {
     pub longest_leg: f32,
     pub mean_leg: f32,
     pub voyages_provisioned: u64,
+    /// (inventions step 2) planned voyages longer than the crew's endurance, and the
+    /// 90th-percentile endurance (open-water cells) of bands with boats at the end
+    pub past_endurance: u64,
+    pub endurance_p90: f32,
 }
 
 /// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
@@ -769,6 +773,8 @@ pub fn summarize(w: &World) -> Summary {
             longest_leg: w.leg_record,
             mean_leg: w.counters.crossing_cells as f32 / w.counters.crossings.max(1) as f32,
             voyages_provisioned: w.counters.voyages_provisioned,
+            past_endurance: w.counters.past_endurance,
+            endurance_p90: w.history.last().map_or(0.0, |y| y.endurance_p90),
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }

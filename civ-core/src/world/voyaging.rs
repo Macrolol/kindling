@@ -11,7 +11,7 @@ pub const TECH_OUTRIGGER: u16 = 1 << 0;
 /// a sail the crew had the seamanship to use (seacraft > 0.4)
 pub const TECH_SAIL: u16 = 1 << 1;
 pub const TECH_PLANK: u16 = 1 << 2;
-/// food put by for the trip (store >= half the people, or a plank boat)
+/// food put by for the trip in full (store >= half the people, or a plank boat)
 pub const TECH_PROVISIONED: u16 = 1 << 3;
 pub const TECH_SHIP: u16 = 1 << 4;
 pub const TECH_JAR: u16 = 1 << 5;
@@ -38,6 +38,25 @@ pub fn tech_names(t: u16) -> Vec<String> {
     TECH_NAMES.iter().filter(|(b, _)| t & b != 0).map(|(_, n)| n.to_string()).collect()
 }
 
+/// (inventions step 2) Endurance: how many open-water cells a crew can cross before its food
+/// and water run out. Everyone has this much (fish caught on the way, rain, a few days' food);
+/// it is set so every leg the old boats made routinely (up to 18 cells) is unchanged.
+pub const ENDURANCE_BASE: f32 = 18.0;
+/// Food that keeps (salted, dried, smoked, cheese, grain, food in sealed jars), put by in full,
+/// adds up to this much more...
+pub const ENDURANCE_FOOD: f32 = 10.0;
+/// ...but only as far as the water lasts: skins and gourds carry this much beyond the base,
+pub const WATER_SKINS: f32 = 4.0;
+/// sealed jars this much.
+pub const WATER_JARS: f32 = 10.0;
+/// A plank boat has room for more of both.
+pub const ENDURANCE_PLANK: f32 = 4.0;
+/// Past endurance the crew starves and thirsts: survival falls as exp(-k * over^2).
+pub const ENDURANCE_TOLL: f32 = 0.03;
+/// Drying racks cut spoilage of fresh food (meat and fish) by this share; cold cellars too.
+pub const RACK_KEEP: f32 = 0.25;
+pub const CELLAR_KEEP: f32 = 0.3;
+
 /// A crossing below this many open-water cells is never reported as a record (straits).
 pub const LEG_RECORD_MIN: f32 = 3.0;
 
@@ -62,6 +81,62 @@ impl World {
             t |= TECH_JAR;
         }
         t
+    }
+
+    /// (inventions step 2) Drying racks: people with an edge and cord, where the air is dry or
+    /// freezing in winter, dry meat and fish on racks so it keeps.
+    pub(crate) fn dries_food(&self, b: &Band, c: usize) -> bool {
+        let k = &b.d.kit;
+        k.cut != NONE && k.cord != NONE && (self.map.rain[c] < 0.35 || self.map.temp_winter(c) < 0.0)
+    }
+
+    /// (inventions step 2) Cold cellars: settled people with a digging stick, where the winters
+    /// freeze hard, dig a pit below the frost line that stays cold into summer.
+    pub(crate) fn cold_cellar(&self, b: &Band, c: usize) -> bool {
+        b.settled > 0.5 && b.d.kit.dig != NONE && self.map.temp_winter(c) < -5.0
+    }
+
+    /// (inventions step 2) How well band `b`'s food keeps on a trip (0..1): the best of what it
+    /// has (a cellar does not travel).
+    pub(crate) fn preserved(&self, b: &Band, home: usize) -> f32 {
+        let k = &b.d.kit;
+        let mut p: f32 = 0.0;
+        if b.stock.get(Mat::Salt as usize).copied().unwrap_or(0.0) > 0.1 || self.dries_food(b, home) {
+            p = 1.0;
+        }
+        if b.d.farm_share > 0.3 {
+            p = p.max(1.0); // dry grain
+        }
+        if k.jar != NONE {
+            p = p.max(0.8);
+        }
+        if b.tame > 0.8 && b.herd > 0.1 && k.vessel != NONE && mat(k.vessel) == Mat::Ceramic {
+            p = p.max(0.8); // cheese
+        }
+        if k.smoke {
+            p = p.max(0.6);
+        }
+        p
+    }
+
+    /// (inventions step 2) Band `b`'s provisions for a trip from `home`: the share (0..1) of
+    /// the food a trip wants that is put by (half a season's food per person; a plank boat
+    /// always has room for it), and its endurance in open-water cells.
+    pub(crate) fn provisions(&self, b: &Band, home: usize) -> (f32, f32) {
+        let k = &b.d.kit;
+        let plank = k.plank != NONE;
+        let fed = if plank { 1.0 } else { (b.store / (0.5 * b.pop.max(1) as f32)).clamp(0.0, 1.0) };
+        let food = ENDURANCE_FOOD * self.preserved(b, home) * fed;
+        let water = if k.jar != NONE { WATER_JARS } else { WATER_SKINS };
+        let e = ENDURANCE_BASE + food.min(water) + if plank { ENDURANCE_PLANK } else { 0.0 };
+        (fed, e)
+    }
+
+    /// (inventions step 2) Survival factor for a leg of `sea` cells by a crew whose food and
+    /// water last `endurance` cells: 1 within it, falling steeply beyond.
+    pub fn endurance_factor(sea: f32, endurance: f32) -> f32 {
+        let over = (sea - endurance).max(0.0);
+        (-ENDURANCE_TOLL * over * over).exp()
     }
 
     /// Book a crossing to another landmass of `sea` open-water cells in the season's counters.
@@ -124,5 +199,14 @@ impl World {
         ys.leg_record = self.leg_record;
         ys.pitch_bands = self.bands.iter().filter(|b| b.d.kit.pitch != NONE).count() as u32;
         ys.jar_bands = self.bands.iter().filter(|b| b.d.kit.jar != NONE).count() as u32;
+        let w = self.map.w;
+        ys.dried_bands = self.bands.iter().filter(|b| self.dries_food(b, b.cell(w))).count() as u32;
+        ys.cellar_bands = self.bands.iter().filter(|b| self.cold_cellar(b, b.cell(w))).count() as u32;
+        let mut es: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| self.provisions(b, b.cell(w)).1).collect();
+        if !es.is_empty() {
+            es.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            ys.endurance_p50 = es[es.len() / 2];
+            ys.endurance_p90 = es[(es.len() * 9 / 10).min(es.len() - 1)];
+        }
     }
 }

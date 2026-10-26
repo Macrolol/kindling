@@ -114,6 +114,19 @@ span, tallies are summed over it.
 - Crossing ledger: the `jar` bit of `tech` is set when the crossing band had jars.
 - Save format v11 (see `SAVE_FORMAT.md`): per-material band vectors are 26 long.
 
+### Provisions and endurance (inventions step 2)
+
+- No new item, event kind or save field: drying racks and cold cellars are practices read off a
+  band's kit and its cell's climate; endurance is worked out when a band puts to sea.
+- `metrics.csv` / `YearStats`: `dried_bands` (bands drying meat and fish on racks),
+  `cellar_bands` (bands with cold cellars), `endurance_p50` / `endurance_p90` (endurance in
+  open-water cells of bands with boats, as if they sailed from where they are).
+- Counter `past_endurance`: planned voyages longer than the crew's endurance (in
+  `counters`, `summary.json` `sea.past_endurance`, and the text report's crossing-ledger line
+  as a share of voyages). `summary.json` `sea.endurance_p90` is the last year's value.
+- `voyages_provisioned` and the ledger's `provisioned` bit keep their meaning: food put by in
+  full (store >= half a season's food per person, or a plank boat).
+
 ## What a save keeps (format v11)
 
 | what | resolution | kept |

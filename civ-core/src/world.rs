@@ -331,6 +331,12 @@ pub struct YearStats {
     /// (inventions step 1) bands that can make pitch, and bands with sealed jars
     pub pitch_bands: u32,
     pub jar_bands: u32,
+    /// (inventions step 2) bands drying meat and fish on racks, bands with cold cellars, and
+    /// the median and 90th-percentile endurance (open-water cells) of bands with boats
+    pub dried_bands: u32,
+    pub cellar_bands: u32,
+    pub endurance_p50: f32,
+    pub endurance_p90: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -410,6 +416,8 @@ counters! {
         /// crossing_cells / crossings), and planned voyages made with food put by for the trip
         crossing_cells,
         voyages_provisioned,
+        /// (inventions step 2) planned voyages longer than the food and water lasted
+        past_endurance,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -1469,7 +1477,14 @@ impl World {
         let salt = b.stock.get(Mat::Salt as usize).copied().unwrap_or(0.0) > 0.1;
         let pits = b.settled > 0.5 && kit.dig != NONE && self.map.rain[ci] < 0.6;
         let fresh = 1.0 - crop_share;
-        let keep = (1.0 - if salt { 0.3 * fresh } else { 0.0 }) * (1.0 - if pits { 0.4 * crop_share } else { 0.0 });
+        // (inventions step 2) meat and fish dried on racks in dry or freezing air, and food kept
+        // in cold cellars dug where the winters freeze hard
+        let racks = self.dries_food(b, ci);
+        let cellar = self.cold_cellar(b, ci);
+        let keep = (1.0 - if salt { 0.3 * fresh } else { 0.0 })
+            * (1.0 - if pits { 0.4 * crop_share } else { 0.0 })
+            * (1.0 - if racks { RACK_KEEP * fresh } else { 0.0 })
+            * (1.0 - if cellar { CELLAR_KEEP * fresh } else { 0.0 });
         // (inventions step 1) sealed jars keep out damp, air and vermin
         let jar = kit.jar != NONE;
         let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep * if jar { JAR_SPOIL } else { 1.0 };
@@ -2023,11 +2038,12 @@ impl World {
     /// Chance that people in a boat of quality `q` come through `sea` cells of open water.
     /// Better boats (higher q) are both faster and safer; a raft on a long crossing often is not.
     pub fn sea_survival(q: f32, sea: f32) -> f32 {
-        Self::sea_survival_x(q, 0.0, false, sea)
+        Self::sea_survival_x(q, 0.0, 0.0, sea)
     }
-    /// ... for people with seafaring experience `xp` (0..1), and with food put by for the trip
-    pub fn sea_survival_x(q: f32, xp: f32, prepared: bool, sea: f32) -> f32 {
-        let prep = if prepared { 0.7 } else { 1.0 };
+    /// ... for people with seafaring experience `xp` (0..1), and with `fed` (0..1) of the food
+    /// the trip wants put by (inventions step 2: continuous; before, all or nothing)
+    pub fn sea_survival_x(q: f32, xp: f32, fed: f32, sea: f32) -> f32 {
+        let prep = 1.0 - 0.3 * fed.clamp(0.0, 1.0);
         (-0.02 * sea * prep * (1.4 - q - 0.25 * xp).max(0.3).powi(2)).exp()
     }
     /// How far out over open water a band can go (cells): the boat, and how well they handle it.
@@ -2107,14 +2123,20 @@ impl World {
     /// Open water takes its toll: maybe some (or all) of `b` drown on a crossing of `sea` cells.
     /// Returns the number lost.
     fn sea_toll(&self, b: &mut Band, sea: f32, rng: &mut Rng, fx: &mut Fx) -> u32 {
-        // (v8) a plank boat has room for water and food for the whole trip
-        let prepared = b.store >= 0.5 * b.pop as f32 || b.d.kit.plank != NONE;
+        // (inventions step 2) how much food is put by, and how far it and the water last
+        let home = b.d.sailed_from.map_or(b.cell(self.map.w), |c| c as usize);
+        let (fed, endurance) = self.provisions(b, home);
+        let prepared = fed >= 1.0;
         b.d.sailed_sea = sea;
         b.d.sailed_tech = Self::voyage_tech(b, prepared);
         if prepared {
             fx.counters.voyages_provisioned += 1;
         }
-        if rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, prepared, sea)) {
+        if sea > endurance {
+            fx.counters.past_endurance += 1;
+        }
+        let p = Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, fed, sea) * Self::endurance_factor(sea, endurance);
+        if rng.chance(p) {
             // a crossing made is a lesson learned, (v9) the more so the longer it was
             Self::learn_sea(b, VOYAGE_LESSON + VOYAGE_LESSON_PER_CELL * sea.min(10.0));
             return 0;
@@ -2225,7 +2247,7 @@ impl World {
             fx.counters.scouting += 1;
             let found = self.voyage(b, rng, None);
             let sea = found.map(|f| f.1).unwrap_or(Self::boat_range(&b.d.kit, xp));
-            if !rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), xp, true, 2.0 * sea)) {
+            if !rng.chance(Self::sea_survival_x(Self::boat_safety(&b.d.kit), xp, 1.0, 2.0 * sea)) {
                 let party = 5.min(b.pop / 4);
                 b.pop -= party;
                 fx.counters.scouts_lost += 1;
@@ -2274,7 +2296,7 @@ impl World {
             }
             t += 0.7;
         }
-        let survive = landing.is_some() && rng.chance(Self::sea_survival_x(0.7 * q, xp, false, sea));
+        let survive = landing.is_some() && rng.chance(Self::sea_survival_x(0.7 * q, xp, 0.0, sea));
         if !survive {
             b.pop -= party;
             fx.counters.sea_disasters += 1;
@@ -3116,6 +3138,13 @@ impl World {
                 d.d.kit.outrigger = b.d.kit.outrigger;
                 d.d.kit.sail = b.d.kit.sail;
                 d.d.kit.plank = b.d.kit.plank;
+                // (inventions step 2) and what keeps their food and water on the way
+                d.d.kit.jar = b.d.kit.jar;
+                d.d.kit.cut = b.d.kit.cut;
+                d.d.kit.cord = b.d.kit.cord;
+                d.d.kit.vessel = b.d.kit.vessel;
+                d.d.kit.smoke = b.d.kit.smoke;
+                d.d.farm_share = b.d.farm_share;
                 d.d.sailed_from = Some(b.cell(w) as u32);
                 self.counters.voyages += 1;
                 let mut fx = Fx::default();

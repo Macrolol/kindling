@@ -1067,7 +1067,8 @@ fn data_outputs_shape() {
 /// (inventions step 0) A v10 save written by the v10 build before the inventions work loads,
 /// gains the crossing-ledger fields at their defaults, and runs on. Step 0 ran it on exactly as
 /// the v10 build did; since step 1 (pitch, v11) the extra material shifts the craft-leaning
-/// normalisation, so the checksum after 10 more years is this build's own.
+/// normalisation, and since step 2 provisions and endurance change the sea toll and spoilage, so
+/// the checksum after 10 more years is this build's own.
 #[test]
 fn v10_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v10_seed9_y150_64x40.civsave");
@@ -1090,7 +1091,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xd6539409eefbe685);
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x326367ff064150a);
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1169,4 +1170,78 @@ fn jars_only_after_pottery() {
             assert!(b.d.tk.avail.has(item(Form::Vessel, Mat::Ceramic)) && b.d.tk.avail.has(item(Form::Raw, Mat::Pitch)));
         }
     }
+}
+
+/// (inventions step 2) Provisions and endurance: continuous provisioning matches the old
+/// all-or-nothing rule at its ends, legs within the base endurance are untouched, food that
+/// keeps lengthens endurance only as far as the water lasts, and jars carry water.
+#[test]
+fn provisions_and_endurance() {
+    use crate::world::*;
+    // the old rule's two ends
+    let old = |prepared: bool, q: f32, xp: f32, sea: f32| (-0.02 * sea * if prepared { 0.7 } else { 1.0 } * (1.4f32 - q - 0.25 * xp).max(0.3).powi(2)).exp();
+    for sea in [2.0, 9.0, 18.0, 30.0] {
+        assert!((World::sea_survival_x(0.6, 0.3, 1.0, sea) - old(true, 0.6, 0.3, sea)).abs() < 1e-6);
+        assert!((World::sea_survival_x(0.6, 0.3, 0.0, sea) - old(false, 0.6, 0.3, sea)).abs() < 1e-6);
+    }
+    // no extra toll within the base endurance; steep past it
+    for sea in [1.0, 10.0, ENDURANCE_BASE] {
+        assert_eq!(World::endurance_factor(sea, ENDURANCE_BASE), 1.0);
+    }
+    assert!(World::endurance_factor(ENDURANCE_BASE + 8.0, ENDURANCE_BASE) < 0.2);
+
+    let mut w = small();
+    let mut b = w.bands[0].clone();
+    let c = b.cell(w.map.w);
+    // a mild, wet place: no drying racks, no cellar
+    w.map.rain[c] = 0.8;
+    w.map.temp[c] = 18.0;
+    w.map.tamp[c] = 4.0;
+    b.pop = 40;
+    b.store = 0.0;
+    b.d.kit = crate::band::Kit::default();
+    b.d.farm_share = 0.0;
+    b.tame = 0.0;
+    for s in b.stock.iter_mut() {
+        *s = 0.0;
+    }
+    assert!(!w.dries_food(&b, c) && !w.cold_cellar(&b, c));
+    assert_eq!(w.provisions(&b, c), (0.0, ENDURANCE_BASE));
+    // food put by but none of it keeps: no longer
+    b.store = 40.0;
+    assert_eq!(w.provisions(&b, c), (1.0, ENDURANCE_BASE));
+    // half provisioned is half fed
+    b.store = 10.0;
+    assert!((w.provisions(&b, c).0 - 0.5).abs() < 1e-6);
+    // salted food: longer, but only as far as skins of water last
+    b.store = 40.0;
+    b.stock[Mat::Salt as usize] = 1.0;
+    assert_eq!(w.provisions(&b, c).1, ENDURANCE_BASE + WATER_SKINS);
+    // sealed jars carry water: the salted food now counts in full
+    b.d.kit.jar = item(Form::Jar, Mat::Ceramic);
+    assert_eq!(w.provisions(&b, c).1, ENDURANCE_BASE + ENDURANCE_FOOD.min(WATER_JARS));
+    // a plank boat has room for it all, store or not
+    b.store = 0.0;
+    b.d.kit.plank = item(Form::Plank, Mat::Wood);
+    let (fed, e) = w.provisions(&b, c);
+    assert_eq!(fed, 1.0);
+    assert_eq!(e, ENDURANCE_BASE + ENDURANCE_FOOD.min(WATER_JARS) + ENDURANCE_PLANK);
+
+    // drying racks need an edge and cord, and dry or freezing air
+    b.d.kit.cut = item(Form::Edge, Mat::Flint);
+    b.d.kit.cord = item(Form::Cord, Mat::Fibre);
+    assert!(!w.dries_food(&b, c));
+    w.map.rain[c] = 0.2;
+    assert!(w.dries_food(&b, c));
+    w.map.rain[c] = 0.8;
+    w.map.temp[c] = -2.0;
+    w.map.tamp[c] = 10.0;
+    assert!(w.dries_food(&b, c));
+    // cold cellars: settled, a digging stick, hard winters
+    b.settled = 0.8;
+    assert!(!w.cold_cellar(&b, c));
+    b.d.kit.dig = item(Form::Shaft, Mat::Wood);
+    assert!(w.cold_cellar(&b, c));
+    w.map.temp[c] = 10.0;
+    assert!(!w.cold_cellar(&b, c));
 }
