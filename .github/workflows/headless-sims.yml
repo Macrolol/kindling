@@ -16,6 +16,10 @@
 #   --config takes a JSON params file (Params::from_json_compat), not TOML.
 #   --save writes after every seed, so this workflow runs one process per seed when
 #   saves are requested, to keep one .civsave per seed.
+#   --out DIR writes structured outputs per seed (DIR/seed-S/manifest.json, metrics.csv,
+#   summary.json, chronicle.ndjson, frames.ndjson; docs/DATA_SCHEMA.md). The summary job
+#   aggregates those (tools/collect_runs.py, tools/agg_results.py) and still keeps the text
+#   reports (results-*.txt, tools/sum_results.py).
 name: headless-sims
 
 on:
@@ -288,7 +292,7 @@ jobs:
           set -euo pipefail
           chmod +x bin/kindling
           mkdir -p out
-          extra=(--years "$YEARS" --threads "$SIM_THREADS")
+          extra=(--years "$YEARS" --threads "$SIM_THREADS" --out out/data)
           if [ -n "$MAP" ]; then extra+=(--map "$MAP"); fi
           if [ -n "$REPORT" ]; then extra+=(--report "$REPORT"); fi
           if [ -n "$CONFIG" ]; then
@@ -332,6 +336,7 @@ jobs:
             out/*.txt
             out/*.png
             out/*.civsave
+            out/data/**
           retention-days: 14
           if-no-files-found: warn
 
@@ -391,7 +396,18 @@ jobs:
           # aggregate lines a multi-seed process prints), side by side with the baseline.
           base=()
           if [ -n "$BASELINE" ] && [ -f "$BASELINE" ]; then base=("$BASELINE"); fi
-          if python3 tools/agg_results.py combined/results-all.txt "${base[@]}" > combined/aggregate.md 2> combined/aggregate.err; then
+          # structured outputs (data schema v1) when the sims wrote them; text report otherwise
+          src=combined/results-all.txt
+          if find artifacts -path '*/data/seed-*/summary.json' | grep -q .; then
+            mkdir -p combined/data
+            for d in $(find artifacts -type d -path '*/data/seed-*'); do cp -r "$d" combined/data/; done
+            if python3 tools/collect_runs.py combined/data combined > combined/collect.txt 2>&1; then
+              src=combined/data
+              { echo; echo "### Runs (structured outputs)"; echo; echo '```'; cat combined/collect.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            cat combined/collect.txt
+          fi
+          if python3 tools/agg_results.py "$src" "${base[@]}" > combined/aggregate.md 2> combined/aggregate.err; then
             { echo; echo "### Aggregate${base:+ vs $BASELINE}"; echo; cat combined/aggregate.md; } >> "$GITHUB_STEP_SUMMARY"
           fi
           cat combined/aggregate.md combined/aggregate.err 2>/dev/null || true

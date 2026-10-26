@@ -1047,9 +1047,12 @@ fn data_outputs_shape() {
     assert_eq!(lines.len(), 11);
     let n = lines[0].split(',').count();
     assert!(lines.iter().all(|l| l.split(',').count() == n), "ragged csv");
-    assert!(lines[0].contains("c_experiments") || lines[0].contains("c_"));
-    let total: u64 = deltas.iter().map(|d| d.values().iter().sum::<u64>()).sum();
-    assert_eq!(total, w.counters.values().iter().sum::<u64>(), "deltas add up to the run totals");
+    assert!(lines[0].contains(",c_experiments,") && lines[0].ends_with(",c_max_fight_deaths"));
+    let mut total = crate::world::Counters::default();
+    for d in &deltas {
+        total.add(d);
+    }
+    assert_eq!(total, w.counters, "the yearly deltas add up to the run totals");
     for e in w.events.all().iter().take(50) {
         let r = crate::data::event_record(&w, e);
         assert!(r["kind"].is_string() && r["text"].is_string());

@@ -141,5 +141,22 @@ Current: `FORMAT_VERSION = 10` (Kindling 0.9 development). v0.8.0 writes format 
   - Fixture `v9_seed9_y150_64x40.civsave` (written by the v9 code) is loaded by
     `v9_fixture_loads_exactly`, which checks it against checksums taken from the v9 build.
   - Typical effect: a 147 MB v9 save (800×800, 750 years, 68.7k bands) re-saves as 83 MB.
+  - **Event log and history store** (`civ-core/src/archive.rs`, same version, all fields default
+    when missing, so v10 saves written before them still load):
+    - `world.events` is an `EventLog` of three rings with their own retention (lore 20 000:
+      learned / forgot; conflict 40 000; life 40 000: everything else). Older saves' single ring
+      is sorted into the three on load.
+    - `world.archive`: `frames` (one `Frame` a year for the last 100 years, folded into one a
+      decade before that), `genealogy` (every Founded / Split / Merged / Died / Drifted /
+      Absorbed event, for ever), `marriages` (single weddings of the last 10 years),
+      `last_counters`, `tally` (the open year) and `begun` (tick the store started: 0, or the
+      load tick for pre-v10 saves).
+    - Event lists (`chronicle`, the rings, `genealogy`, `marriages`) are stored as one blob each
+      (`codec::encode_events`, layout `EVENTS_V` = 1): count, then columns of tick deltas,
+      kinds, bands, `other - band`, cells, `item + 1`, `recipe + 1` as varints. The reader also
+      accepts a plain sequence of events. JSON keeps them as lists of event objects.
+    - Neither is read by the simulation; results are unchanged.
+    - Cost: about +10% on a 400-year 256×160 save (6.45 → 7.11 MB), +0.4% on the 800×800 save
+      (83.02 → 83.35 MB).
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

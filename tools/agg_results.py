@@ -3,8 +3,14 @@
 
 Works on any concatenation of per-seed output (one `kindling --headless` process per seed or
 one multi-seed process), unlike the cross-seed lines that only a multi-seed run prints.
-Usage: agg_results.py results.txt [baseline.txt]   (baseline: print a side-by-side table)
+Usage: agg_results.py RESULTS [BASELINE]   (baseline: print a side-by-side table)
+RESULTS / BASELINE: a text report (results.txt) or a structured-output directory written by
+`kindling --headless --out DIR` (summary.json + manifest.json per seed, docs/DATA_SCHEMA.md);
+both give the same rows, so old text baselines compare against new structured runs.
 """
+import glob
+import json
+import os
 import re
 import sys
 
@@ -12,7 +18,59 @@ import sys
 CONT = r'\d+c (?:gap \d+ )?(?:home )?'
 
 
+def r0(x):
+    return int(round(x)) if x is not None else None
+
+
+def row_from_json(sm, man):
+    """One seed's row (same keys as the text parser) from summary.json (+ manifest.json)."""
+    s, cf = sm['summary'], sm['conflict']
+    r = dict(seed=sm['seed'], year=r0(s['years']), pop=s['pop'], stage=s['stage_now'], items=s['items_now'],
+             t=round((man or {}).get('t_gen', 0) + (man or {}).get('t_run', 0), 1))
+    cs = s['continents']
+    r['cross'] = sorted(r0(c['landfall_year']) for c in cs if c['landfall_year'] is not None and r0(c['landfall_year']) > 0)
+    r['cont'] = f"{sum(1 for c in cs if c['landfall_year'] is not None)}/{len(cs)}"
+    if any(c['landfall_year'] is not None and not (c['landfall_year'] == 0 and c.get('by_sea') is None) for c in cs):
+        r['boat'] = sorted((r0(c['landfall_year']), str(c['gap_settled']) if c['gap_settled'] is not None else '-')
+                           for c in cs if c.get('by_sea') is True and c['landfall_year'] is not None and r0(c['landfall_year']) > 0)
+        r['foot'] = sorted(r0(c['landfall_year']) for c in cs if c.get('by_sea') is False and c['landfall_year'] is not None and r0(c['landfall_year']) > 0)
+    r['order'] = [f['item'] for f in s['firsts']]
+    l = s['lineages']
+    r['eff'] = round(l['effective'], 2)
+    r['top_lm'] = r0(l['by_landmass'][0]['top_pct']) if l['by_landmass'] else None
+    q, mo = s['sea'], s['motives']
+    r.update(lost=q['lost_at_sea'], voy=q['voyages'], land=q['crossings'], xp90=round(q['seacraft_p90'], 2),
+             sail=q['sail_bands'], rng90=round(q['range_p90'], 1), anc_top=r0(l['ancestry_top_pct']),
+             anc_eff=round(l['ancestry_effective'], 2), wed=mo['marriages'], inlaw=mo['fights_in_law'],
+             refine=mo['refinements'], quality=round(mo['quality_mean'], 2), boatq=round(mo['boat_q_mean'], 2),
+             pmean=round(mo['prestige_mean'], 2), pgini=round(mo['prestige_gini'], 2), ptop=r0(mo['prestige_top10_pct']),
+             ptaught=r0(mo['prestige_taught_pct']))
+    for metal in ('iron', 'bronze', 'copper'):
+        ys = [y for y, m in s['trade']['first_traded'] if m == metal]
+        r[metal] = r0(ys[0]) if ys else None
+    r.update(war=round(cf['death_rate_pct'], 3), dis=round(cf['disease_rate_pct'], 3), fights=round(cf['fights_per_century'], 1),
+             top=r0(cf['top_lineage_pct']) if cf['lineages'] > 0 else None)
+    g = s['farming']
+    r['orig'] = len(g['origins'])
+    r['dom'] = r0(g['first_domestic_grain'])
+    r['forag'] = g['forager_pop'] / max(1, g['farmer_pop'] + g['forager_pop'])
+    r['ffood'] = r0(100 * g['farm_food_share'])
+    return r
+
+
+def parse_dir(path):
+    rows = {}
+    for f in sorted(glob.glob(os.path.join(path, '**', 'summary.json'), recursive=True)):
+        sm = json.load(open(f))
+        mf = os.path.join(os.path.dirname(f), 'manifest.json')
+        man = json.load(open(mf)) if os.path.exists(mf) else None
+        rows[sm['seed']] = row_from_json(sm, man)
+    return [rows[k] for k in sorted(rows)]
+
+
 def parse(path):
+    if os.path.isdir(path):
+        return parse_dir(path)
     seeds = {}
     cur = None
     for line in open(path):
@@ -111,7 +169,7 @@ def order_distance(a, b):
 def tau(path, rows=None):
     """Kendall-tau discovery-order distance: from a multi-seed run's summary block, or else
     computed from the per-seed "discovery order:" lines (one job per seed). None if neither."""
-    for line in open(path):
+    for line in ([] if os.path.isdir(path) else open(path)):
         m = re.search(r'Kendall tau, 0 same .. 1 reversed\): mean ([\d.]+)', line)
         if m:
             return float(m.group(1))
