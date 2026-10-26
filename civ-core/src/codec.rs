@@ -605,7 +605,28 @@ pub mod events {
         if d.is_human_readable() {
             Vec::<Event>::deserialize(d)
         } else {
-            decode_events(&de_blob(d)?).map_err(D::Error::custom)
+            // a blob, or (v10 development saves from before the event blob) a plain list
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Vec<Event>;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("an event blob or list")
+                }
+                fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Vec<Event>, E> {
+                    decode_events(v).map_err(E::custom)
+                }
+                fn visit_byte_buf<E: serde::de::Error>(self, v: Vec<u8>) -> Result<Vec<Event>, E> {
+                    decode_events(&v).map_err(E::custom)
+                }
+                fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut a: A) -> Result<Vec<Event>, A::Error> {
+                    let mut out = Vec::with_capacity(a.size_hint().unwrap_or(0).min(1 << 20));
+                    while let Some(e) = a.next_element::<Event>()? {
+                        out.push(e);
+                    }
+                    Ok(out)
+                }
+            }
+            d.deserialize_any(V)
         }
     }
 }
