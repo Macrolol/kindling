@@ -333,6 +333,13 @@ pub struct SeaSummary {
     /// 90th-percentile endurance (open-water cells) of bands with boats at the end
     pub past_endurance: u64,
     pub endurance_p90: f32,
+    /// (inventions step 3) planned voyages aimed at a far shore the band had word of, those
+    /// that turned toward signs of land on the way, and pilotage of bands with boats at the end
+    pub aimed_voyages: u64,
+    pub sign_voyages: u64,
+    pub pilot_bands: u32,
+    pub pilot_mean: f32,
+    pub pilot_p90: f32,
 }
 
 /// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
@@ -775,6 +782,11 @@ pub fn summarize(w: &World) -> Summary {
             voyages_provisioned: w.counters.voyages_provisioned,
             past_endurance: w.counters.past_endurance,
             endurance_p90: w.history.last().map_or(0.0, |y| y.endurance_p90),
+            aimed_voyages: w.counters.aimed_voyages,
+            sign_voyages: w.counters.sign_voyages,
+            pilot_bands: w.history.last().map_or(0, |y| y.pilot_bands),
+            pilot_mean: w.history.last().map_or(0.0, |y| y.pilot_mean),
+            pilot_p90: w.history.last().map_or(0.0, |y| y.pilot_p90),
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }

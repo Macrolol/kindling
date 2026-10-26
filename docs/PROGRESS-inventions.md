@@ -11,7 +11,7 @@ Checks:
   (4–6 of 10 by boat, none before Y100, not all) is judged here. Baseline
   `docs/results-v10-750y-800x800.txt` (1/10 crossed: seed 293 at Y649, gap 14).
 
-## Step 0. Measure first (in progress)
+## Step 0. Measure first (done, fcaeb50)
 - New: crossing ledger. Each crossing to another landmass records its open-water leg (cells)
   and the sea tech used (`TECH_*` bits in `civ_core::world::voyaging`: outrigger, sail, plank,
   provisioned, …; later bits reserved for jars, ships, pilotage, sky lore, routes; `adrift`).
@@ -27,6 +27,11 @@ Checks:
 - Local check: seed 3, 300 years: the text report is byte-identical to the v10 build and
   `metrics.csv` is identical on all shared columns (behaviour unchanged); the v10 fixture
   loads and continues identically.
+- Check (a), run 40415208414 (`docs/results-inv-step0-seeds1-10-500y.txt`): pop 1191364, war
+  0.363%/y, items 69.3, continent crossed 4/10 (Y142, Y172, Y191, Y234). Baseline for step 1+.
+- Check (b), run 40415219305 (`docs/results-inv-step0-750y-800x800.txt`): 1/10 crossed (seed
+  499246293, Y649, leg 20, gap 14), identical to the v10 baseline; seed 499246298 dies out in
+  Y39 as before. War 0.311%/y over the 9 live seeds, items 81.4 (live seeds).
 
 ## Step 1. Pitch and sealed jars (done, 4b9e8b7)
 - New material `Pitch` (25: seal 9, no fuel value, never carried, made where it is used) and
@@ -74,4 +79,26 @@ Checks:
 - Local look, seed 3, 300 years: endurance p90 22 (racks + skins), 2282 bands drying food by
   Y300, no cellars on the default map; 28 of 11 755 voyages went past endurance; pop 106k.
   Pitch came late in this run (Y213), so no jars yet: discovery timing is chaotic.
+
+## Step 3. Pilotage and remembered routes (in progress)
+- Band field `pilot` (0..1; appended after `carry`, so older band rows load as 0; no format
+  bump). Learned out of sight of land: a planned leg of 6+ open-water cells survived (0.003 per
+  cell, up to 25), a scouting party home (0.03), a drift party home or ashore (0.03), and
+  fishing grounds beyond 6 cells (0.002 x fish share per season). Fades 0.998 per season (as
+  seacraft), passes to daughters, is taught to coastal boat-owning neighbours like seacraft.
+- Signs at sea: out on the water a crew with pilotage reads land within 10 x pilot cells (a
+  map-derived nearest-land field, cached, not saved) and, once per trip, turns toward it if it is
+  another landmass, with its usual heading error. Range is unchanged: signs only redirect.
+- Routes: word of a far shore lasts 50 x (1 + 2 x pilot) years instead of 50, and a pilot tells
+  it to neighbours up to 1.5x as far off (the hearer's own reach x (1 + 0.5 x teller's pilot)).
+- Ledger bits `pilot` and `route` now set; counters `aimed_voyages`, `sign_voyages`; YearStats
+  `pilot_bands`, `pilot_mean`, `pilot_p90`; a "pilotage" line in the multi-seed report.
+- Tests: `pilotage_signs_and_routes` (signs field, pilots find an island 15 cells out far more
+  often with no extra range, learning/fading bounds, rumour keep, save round trip); v10
+  fixture's 10-year checksum updated, and its bands load with pilot 0.
+- Local look, seed 3, 300 years (one continent, so no crossing test): 11 966 voyages, 56% aimed,
+  8.7% steered by signs; 381 bands with pilot > 0.1, mean 0.02 / p90 0.07 over boat bands;
+  lost at sea 1357 (step 2 build: 1472); pop 94k. A first version without fishing-ground
+  learning and with a 43-year fade left pilotage at p90 0.02 (14 sign voyages): too rare to
+  matter, so learning on the fishing grounds was added and the fade matched to seacraft's.
 

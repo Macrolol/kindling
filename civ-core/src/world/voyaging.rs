@@ -57,6 +57,69 @@ pub const ENDURANCE_TOLL: f32 = 0.03;
 pub const RACK_KEEP: f32 = 0.25;
 pub const CELLAR_KEEP: f32 = 0.3;
 
+/// (inventions step 3) Pilotage: at pilot 1, land is read from signs this many cells off.
+pub const PILOT_SIGNS: f32 = 10.0;
+/// A crew this many cells out has lost sight of land; longer legs teach pilotage...
+pub const PILOT_OUT: f32 = 6.0;
+/// ...this much per open-water cell crossed (up to `PILOT_CELLS_MAX` cells),
+pub const PILOT_PER_CELL: f32 = 0.003;
+pub const PILOT_CELLS_MAX: f32 = 25.0;
+/// a scouting party that comes home this much, and a drift party that finds its way home (or
+/// comes ashore somewhere new) this much.
+pub const PILOT_SCOUT: f32 = 0.03;
+pub const PILOT_DRIFT: f32 = 0.03;
+/// Fishers whose grounds lie out of sight of land (`1 + 3q + 3 q xp` > `PILOT_OUT`) learn this
+/// much per season, times their fish share.
+pub const PILOT_FISH: f32 = 0.002;
+/// Pilotage not used fades by this factor each season (half gone in about 87 years; as seacraft).
+pub const PILOT_FADE: f32 = 0.998;
+/// A pilot keeps word of a far shore up to (1 + ROUTE_KEEP x pilot) times as long, as sailing
+/// directions...
+pub const ROUTE_KEEP: f32 = 2.0;
+/// ...and tells it to neighbours up to (1 + PILOT_TELL x pilot) times as far off.
+pub const PILOT_TELL: f32 = 0.5;
+/// Signs are looked up only this many steps from land.
+const SIGN_MAX: u8 = 12;
+
+/// (inventions step 3) Per cell: 8-neighbour steps to the nearest land (0 on land, 255 beyond
+/// `SIGN_MAX`) and that land cell (u32::MAX if none within reach). Derived from the map.
+#[derive(Clone, Default)]
+pub struct SeaSigns {
+    pub dist: Vec<u8>,
+    pub near: Vec<u32>,
+}
+
+impl SeaSigns {
+    pub fn build(m: &Map) -> Self {
+        let n = m.w * m.h;
+        let mut dist = vec![255u8; n];
+        let mut near = vec![u32::MAX; n];
+        let mut q = std::collections::VecDeque::new();
+        for i in 0..n {
+            if m.is_land(i) {
+                dist[i] = 0;
+                near[i] = i as u32;
+                q.push_back(i);
+            }
+        }
+        while let Some(i) = q.pop_front() {
+            if dist[i] >= SIGN_MAX {
+                continue;
+            }
+            let (x, y) = (i % m.w, i / m.w);
+            for (a, bb) in nbrs8(x, y, m.w, m.h) {
+                let j = bb * m.w + a;
+                if dist[j] == 255 {
+                    dist[j] = dist[i] + 1;
+                    near[j] = near[i];
+                    q.push_back(j);
+                }
+            }
+        }
+        SeaSigns { dist, near }
+    }
+}
+
 /// A crossing below this many open-water cells is never reported as a record (straits).
 pub const LEG_RECORD_MIN: f32 = 3.0;
 
@@ -81,6 +144,22 @@ impl World {
             t |= TECH_JAR;
         }
         t
+    }
+
+    /// (inventions step 3) The sea-signs field, built on first use.
+    pub fn sea_signs(&self) -> &SeaSigns {
+        self.signs.get_or_init(|| SeaSigns::build(&self.map))
+    }
+
+    /// (inventions step 3) Band `b` learns something of the signs of land: pilotage moves
+    /// `gain` of the way to 1.
+    pub(crate) fn learn_pilot(b: &mut Band, gain: f32) {
+        b.pilot = (b.pilot + gain * (1.0 - b.pilot)).min(1.0);
+    }
+
+    /// (inventions step 3) Years band `b` keeps word of a far shore nobody has confirmed.
+    pub(crate) fn rumour_keep(b: &Band) -> f32 {
+        RUMOUR_YEARS as f32 * (1.0 + ROUTE_KEEP * b.pilot)
     }
 
     /// (inventions step 2) Drying racks: people with an edge and cord, where the air is dry or
@@ -200,6 +279,13 @@ impl World {
         ys.pitch_bands = self.bands.iter().filter(|b| b.d.kit.pitch != NONE).count() as u32;
         ys.jar_bands = self.bands.iter().filter(|b| b.d.kit.jar != NONE).count() as u32;
         let w = self.map.w;
+        let mut ps: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.pilot).collect();
+        ys.pilot_bands = self.bands.iter().filter(|b| b.pilot > 0.1).count() as u32;
+        if !ps.is_empty() {
+            ys.pilot_mean = ps.iter().sum::<f32>() / ps.len() as f32;
+            ps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            ys.pilot_p90 = ps[(ps.len() * 9 / 10).min(ps.len() - 1)];
+        }
         ys.dried_bands = self.bands.iter().filter(|b| self.dries_food(b, b.cell(w))).count() as u32;
         ys.cellar_bands = self.bands.iter().filter(|b| self.cold_cellar(b, b.cell(w))).count() as u32;
         let mut es: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| self.provisions(b, b.cell(w)).1).collect();

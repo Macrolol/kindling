@@ -337,6 +337,11 @@ pub struct YearStats {
     pub cellar_bands: u32,
     pub endurance_p50: f32,
     pub endurance_p90: f32,
+    /// (inventions step 3) bands with pilotage above 0.1, and the mean and 90th-percentile
+    /// pilotage of bands with boats
+    pub pilot_bands: u32,
+    pub pilot_mean: f32,
+    pub pilot_p90: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -418,6 +423,10 @@ counters! {
         voyages_provisioned,
         /// (inventions step 2) planned voyages longer than the food and water lasted
         past_endurance,
+        /// (inventions step 3) planned voyages that turned toward signs of land on the way
+        sign_voyages,
+        /// (inventions step 3) planned voyages steered for a far shore the band had word of
+        aimed_voyages,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -590,6 +599,10 @@ pub struct World {
     pub prof: Option<Box<Prof>>,
     #[serde(skip)]
     year_acc: YearStats,
+    /// (inventions step 3) per sea cell: steps to the nearest land and that land cell
+    /// (derived from the map on first use, not saved)
+    #[serde(skip)]
+    signs: std::sync::OnceLock<SeaSigns>,
 }
 
 /// attention every material gets regardless of place and need (see `attention`)
@@ -2070,6 +2083,12 @@ impl World {
     /// crossed. Without a known far shore the heading is pure chance; with one (`aim`, seen from
     /// the coast or heard of) they steer for it, roughly. Range grows with the boat.
     pub fn voyage(&self, b: &Band, rng: &mut Rng, aim: Option<u32>) -> Option<(usize, f32)> {
+        self.voyage_x(b, rng, aim).map(|v| (v.0, v.1))
+    }
+    /// ... (inventions step 3) and whether the crew turned toward signs of land on the way:
+    /// out on the water a band with pilotage reads land up to `PILOT_SIGNS` x pilot cells off
+    /// (another landmass than the one it left) and steers for it. Signs never add range.
+    pub fn voyage_x(&self, b: &Band, rng: &mut Rng, aim: Option<u32>) -> Option<(usize, f32, bool)> {
         let kit = &b.d.kit;
         let m = &self.map;
         if kit.boat_q <= 0.0 || !self.near_water(b.cell(m.w)) {
@@ -2087,10 +2106,15 @@ impl World {
             }
             None => rng.f32() * std::f32::consts::TAU,
         };
-        let (dx, dy) = (ang.cos(), ang.sin());
+        let (mut dx, mut dy) = (ang.cos(), ang.sin());
+        let (mut x0, mut y0) = (x0, y0);
         let step = 0.7f32;
         let mut sea = 0.0f32;
         let mut t = step;
+        let sign_r = PILOT_SIGNS * b.pilot;
+        let signs = if sign_r >= 1.0 { Some(self.sea_signs()) } else { None };
+        let own_lm = m.landmass_of(b.cell(m.w));
+        let mut steered = false;
         while t < range + 4.0 {
             let (px, py) = (x0 + dx * t, y0 + dy * t);
             if px < 0.0 || py < 0.0 || px >= m.w as f32 || py >= m.h as f32 {
@@ -2099,15 +2123,26 @@ impl World {
             let c = py as usize * m.w + px as usize;
             if m.is_land(c) {
                 if sea > 0.0 {
-                    return Some((c, sea));
+                    return Some((c, sea, steered));
                 }
-                if t > 2.5 {
+                if t > 2.5 && !steered {
                     return None; // headed inland: not a voyage
                 }
             } else {
                 sea += step;
                 if sea > range {
                     return None;
+                }
+                if let (false, Some(sg)) = (steered, signs) {
+                    let (d, n) = (sg.dist[c], sg.near[c]);
+                    if n != u32::MAX && (d as f32) <= sign_r && m.landmass_of(n as usize) != own_lm {
+                        // birds, clouds, swell: turn toward the land they point to, roughly
+                        let (tx, ty) = ((n as usize % m.w) as f32 + 0.5, (n as usize / m.w) as f32 + 0.5);
+                        let a = (ty - py).atan2(tx - px) + err * rng.gauss();
+                        (dx, dy) = (a.cos(), a.sin());
+                        (x0, y0, t) = (px, py, 0.0);
+                        steered = true;
+                    }
                 }
             }
             t += step;
@@ -2136,9 +2171,16 @@ impl World {
             fx.counters.past_endurance += 1;
         }
         let p = Self::sea_survival_x(Self::boat_safety(&b.d.kit), b.seacraft, fed, sea) * Self::endurance_factor(sea, endurance);
+        if b.far_shore.is_some() && self.rumour_age(b) > RUMOUR_YEARS {
+            b.d.sailed_tech |= TECH_ROUTE; // word kept only as remembered sailing directions
+        }
         if rng.chance(p) {
             // a crossing made is a lesson learned, (v9) the more so the longer it was
             Self::learn_sea(b, VOYAGE_LESSON + VOYAGE_LESSON_PER_CELL * sea.min(10.0));
+            // (inventions step 3) and days out of sight of land teach the signs of it
+            if sea >= PILOT_OUT {
+                Self::learn_pilot(b, PILOT_PER_CELL * sea.min(PILOT_CELLS_MAX));
+            }
             return 0;
         }
         // swamped within sight of land, many struggle ashore; far out, few do
@@ -2186,8 +2228,10 @@ impl World {
         let m = &self.map;
         let ci = b.cell(m.w);
         b.seacraft *= 0.998; // what is not practised is lost, generation by generation
-        // (v9) news nobody has confirmed for a lifetime or two is forgotten
-        if b.far_shore.is_some() && self.rumour_age(b) > RUMOUR_YEARS {
+        b.pilot *= PILOT_FADE;
+        // (v9) news nobody has confirmed for a lifetime or two is forgotten; (inventions step 3)
+        // pilots keep it longer, as sailing directions
+        if b.far_shore.is_some() && self.rumour_age(b) as f32 > Self::rumour_keep(b) {
             b.far_shore = None;
         }
         if !self.coastal(ci) {
@@ -2199,6 +2243,11 @@ impl World {
         if q > 0.0 && fish_share > 0.1 {
             // a life on the water: currents, weather signs, how far a boat can be pushed
             b.seacraft = (b.seacraft + 0.01 * fish_share * q * (1.0 - b.seacraft)).min(1.0);
+            // (inventions step 3) fishing grounds out of sight of land: birds, swells and cloud
+            // that show where the land is are the way home
+            if 1.0 + 3.0 * q + 3.0 * b.seacraft * q > PILOT_OUT {
+                Self::learn_pilot(b, PILOT_FISH * fish_share);
+            }
         }
         let xp = b.seacraft;
         let own_lm = m.landmass_of(ci);
@@ -2256,6 +2305,7 @@ impl World {
                 fx.push_event(EventKind::LostAtSea, b.id, party, ci as u32, NONE, u32::MAX);
             } else if let Some((c, sea)) = found {
                 Self::learn_sea(b, SCOUT_LESSON); // (v9) the party comes home wiser
+                Self::learn_pilot(b, PILOT_SCOUT); // (inventions step 3) and knows the signs
                 if sea >= 1.4 && self.map.landmass_of(c) != own_lm {
                     self.sight_shore(b, c);
                     fx.counters.scout_finds += 1;
@@ -2312,6 +2362,7 @@ impl World {
         if rng.chance(0.3 + 0.4 * q) {
             // they make it home and tell of what they saw
             fx.counters.drift_returns += 1;
+            Self::learn_pilot(b, PILOT_DRIFT); // (inventions step 3) and how they found the way
             if far_lm {
                 self.sight_shore(b, c);
             }
@@ -2345,6 +2396,7 @@ impl World {
             curiosity: b.curiosity,
             ambition: b.ambition,
             seacraft: b.seacraft,
+            pilot: b.pilot + PILOT_DRIFT * (1.0 - b.pilot),
             flame: b.flame && rng.chance(0.3),
             known,
             stock: b.stock.iter().map(|v| v * 0.3).collect(),
@@ -2399,6 +2451,8 @@ impl World {
         // hungry or crowded, or when they know of land out there; hard times make a poorer
         // landing acceptable
         let mut by_sea: Option<(usize, f32)> = None;
+        let mut by_signs = false;
+        let mut by_aim = false;
         if b.d.kit.boat_q > 0.0 {
             let push = self.push_out(b);
             let lure = if b.far_shore.is_some() {
@@ -2410,9 +2464,11 @@ impl World {
             let pv = 0.06 + 0.35 * push + lure;
             if rng.chance(pv) {
                 let aim = if rng.chance(0.7) { b.far_shore } else { None };
-                if let Some((c, sea)) = self.voyage(b, rng, aim) {
+                if let Some((c, sea, signs)) = self.voyage_x(b, rng, aim) {
                     cands.push((c, (1.15 + 0.06 * sea) * (1.0 - 0.3 * push)));
                     by_sea = Some((c, sea));
+                    by_signs = signs;
+                    by_aim = aim.is_some();
                 }
             }
         }
@@ -2432,7 +2488,16 @@ impl World {
                 if c == best {
                     b.d.sailed_from = Some(cur as u32);
                     fx.counters.voyages += 1;
+                    if by_signs {
+                        fx.counters.sign_voyages += 1;
+                    }
+                    if by_aim {
+                        fx.counters.aimed_voyages += 1;
+                    }
                     self.sea_toll(b, sea, rng, fx);
+                    if by_signs {
+                        b.d.sailed_tech |= TECH_PILOT;
+                    }
                     self.note_crossing(cur, b, fx);
                     self.forget_reached_shore(b);
                 }
@@ -2953,10 +3018,19 @@ impl World {
                 bands[dst].seacraft += SEA_TEACH_SHARE * gap;
             }
         }
+        // (inventions step 3) and the signs of land, the same way
+        let gap = bands[src].pilot - bands[dst].pilot;
+        if gap > 0.1 && bands[dst].d.kit.boat_q > 0.0 && self.coastal(bands[dst].cell(self.map.w)) {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            if rng.chance(if kin { 2.0 * SEA_TEACH_P } else { SEA_TEACH_P }) {
+                bands[dst].pilot += SEA_TEACH_SHARE * gap;
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
-        // only by people who could hope to get there (within twice their boats' range)
+        // only by people who could hope to get there (within twice their boats' range);
+        // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
         if let (None, Some(f)) = (bands[dst].far_shore, bands[src].far_shore) {
-            let reach = 2.0 * Self::boat_range(&bands[dst].d.kit, bands[dst].seacraft);
+            let reach = 2.0 * Self::boat_range(&bands[dst].d.kit, bands[dst].seacraft) * (1.0 + PILOT_TELL * bands[src].pilot);
             if dist_cells(bands[dst].cell(self.map.w), f as usize, self.map.w) <= reach && rng.chance(0.3) {
                 bands[dst].far_shore = Some(f);
                 bands[dst].far_shore_year = bands[src].far_shore_year;
@@ -3065,11 +3139,11 @@ impl World {
             if b.d.kit.boat_q > 0.0 && rng.chance(if quarrel { 0.8 } else { 0.5 }) {
                 let push = self.push_out(b);
                 let aim = if rng.chance(if quarrel { 0.9 } else { 0.7 }) { b.far_shore } else { None };
-                if let Some((c, sea)) = self.voyage(b, rng, aim) {
+                if let Some((c, sea, signs)) = self.voyage_x(b, rng, aim) {
                     let s = self.cell_score(b, c) * self.novelty_pull(b, c, p.split_size) / ((1.1 + 0.05 * sea) * (1.0 - 0.3 * push));
                     if s > best.1 {
                         best = (c, s);
-                        sailed = Some(sea);
+                        sailed = Some((sea, signs, aim.is_some()));
                     }
                 }
             }
@@ -3128,11 +3202,12 @@ impl World {
                 immune: b.immune,
                 sick: b.sick,
                 seacraft: b.seacraft,
+                pilot: b.pilot,
                 herbal: 0.9 * b.herbal,
                 ride: b.ride,
                 ..Default::default()
             };
-            if let Some(sea) = sailed {
+            if let Some((sea, signs, aimed)) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
                 d.d.kit.outrigger = b.d.kit.outrigger;
@@ -3148,7 +3223,16 @@ impl World {
                 d.d.sailed_from = Some(b.cell(w) as u32);
                 self.counters.voyages += 1;
                 let mut fx = Fx::default();
+                if signs {
+                    fx.counters.sign_voyages += 1;
+                }
+                if aimed {
+                    fx.counters.aimed_voyages += 1;
+                }
                 self.sea_toll(&mut d, sea, rng, &mut fx);
+                if signs {
+                    d.d.sailed_tech |= TECH_PILOT;
+                }
                 if d.pop >= 4 {
                     self.note_crossing(bands[k].cell(self.map.w), &mut d, &mut fx);
                 }

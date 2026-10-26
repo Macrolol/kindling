@@ -127,6 +127,23 @@ span, tallies are summed over it.
 - `voyages_provisioned` and the ledger's `provisioned` bit keep their meaning: food put by in
   full (store >= half a season's food per person, or a plank boat).
 
+### Pilotage and remembered routes (inventions step 3)
+
+- Band field `pilot` (0..1, additive: saved after `carry`, older rows load as 0): reading
+  signs of land out of sight of it. On the water a band steers toward land on another landmass
+  once it is within 10 x `pilot` cells (the `World::sea_signs` field: per sea cell, steps to and
+  cell of the nearest land, derived from the map, not saved). Signs never add range.
+- `metrics.csv` / `YearStats`: `pilot_bands` (bands with pilot > 0.1), `pilot_mean` /
+  `pilot_p90` (over bands with boats).
+- Counters: `aimed_voyages` (planned voyages steered for a far shore the band had word of) and
+  `sign_voyages` (planned voyages that turned toward signs of land on the way). In `counters`,
+  `summary.json` `sea.aimed_voyages` / `sea.sign_voyages` / `sea.pilot_bands` / `sea.pilot_mean` /
+  `sea.pilot_p90`, and a "pilotage" line (shares of voyages, per-seed pilot mean/p90) in the
+  multi-seed text report.
+- Crossing ledger: the `pilot` bit is set when the crossing crew turned toward signs; `route`
+  when the band held word of the far shore longer than an ordinary rumour lasts (50 years) -
+  pilots keep it up to 3x as long.
+
 ## What a save keeps (format v11)
 
 | what | resolution | kept |

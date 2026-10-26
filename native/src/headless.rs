@@ -313,6 +313,15 @@ pub fn run(a: &Args) {
                 100.0 * past as f32 / voy.max(1) as f32,
                 endu.join(", ")
             );
+            let aimed: u64 = sums.iter().map(|s| s.sea.aimed_voyages).sum();
+            let signs: u64 = sums.iter().map(|s| s.sea.sign_voyages).sum();
+            let pil: Vec<String> = sums.iter().map(|s| format!("s{} {:.2}/{:.2}", s.seed, s.sea.pilot_mean, s.sea.pilot_p90)).collect();
+            println!(
+                "  pilotage: aimed voyages {:.1}% | steered by signs {:.1}% | pilot mean/p90 {}",
+                100.0 * aimed as f32 / voy.max(1) as f32,
+                100.0 * signs as f32 / voy.max(1) as f32,
+                pil.join(", ")
+            );
         }
         {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();

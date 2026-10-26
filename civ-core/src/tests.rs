@@ -1067,8 +1067,9 @@ fn data_outputs_shape() {
 /// (inventions step 0) A v10 save written by the v10 build before the inventions work loads,
 /// gains the crossing-ledger fields at their defaults, and runs on. Step 0 ran it on exactly as
 /// the v10 build did; since step 1 (pitch, v11) the extra material shifts the craft-leaning
-/// normalisation, and since step 2 provisions and endurance change the sea toll and spoilage, so
-/// the checksum after 10 more years is this build's own.
+/// normalisation, since step 2 provisions and endurance change the sea toll and spoilage, and
+/// since step 3 pilotage learned on long legs turns crews toward signs of land, so the checksum
+/// after 10 more years is this build's own.
 #[test]
 fn v10_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v10_seed9_y150_64x40.civsave");
@@ -1081,6 +1082,7 @@ fn v10_fixture_loads_and_runs() {
         assert_eq!((b.stock.len(), b.origin.len(), b.craft.len()), (NMAT, NMAT, crate::band::CRAFT_LEN));
         assert_eq!(b.craft[Mat::Pitch as usize], 1.0);
         assert_eq!(b.stock[Mat::Pitch as usize], 0.0);
+        assert_eq!(b.pilot, 0.0); // (inventions step 3) an additive field: older rows load at 0
     }
     assert_eq!((w.tick, w.bands.len()), (600, 606));
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
@@ -1091,7 +1093,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x326367ff064150a);
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xe3580b52d7c543f7);
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1244,4 +1246,80 @@ fn provisions_and_endurance() {
     assert!(w.cold_cellar(&b, c));
     w.map.temp[c] = 10.0;
     assert!(!w.cold_cellar(&b, c));
+}
+
+/// (inventions step 3) Pilotage: signs of land turn a crew toward an island it would have
+/// sailed past, without adding range; it is learned, fades, and keeps word of a shore longer.
+#[test]
+fn pilotage_signs_and_routes() {
+    use crate::world::*;
+    let mut w = small();
+    let (mw, mh) = (w.map.w, w.map.h);
+    // a long coast on the west, open sea, and a small island 15 cells out
+    for y in 0..mh {
+        for x in 0..mw {
+            let i = y * mw + x;
+            let island = (24..27).contains(&x) && (24..27).contains(&y);
+            w.map.height[i] = if x < 10 || island { 0.2 } else { -0.5 };
+        }
+    }
+    w.map.label_landmasses();
+    let signs = w.sea_signs();
+    assert_eq!(signs.dist[25 * mw + 25], 0);
+    assert_eq!(signs.dist[25 * mw + 30], 4);
+    assert_eq!(w.map.landmass_of(signs.near[25 * mw + 30] as usize), w.map.landmass_of(25 * mw + 25));
+    assert_eq!(signs.dist[2 * mw + 60], 255); // far from any land
+
+    let mut b = w.bands[0].clone();
+    (b.x, b.y) = (9, 25);
+    b.ambition = 0.0;
+    b.seacraft = 1.0;
+    b.d.kit = crate::band::Kit::default();
+    b.d.kit.boat = item(Form::Boat, Mat::Wood);
+    b.d.kit.boat_q = 1.0;
+    let range = World::boat_range(&b.d.kit, b.seacraft);
+    let island = w.map.landmass_of(25 * mw + 25);
+    let trial = |pilot: f32| {
+        let mut bb = b.clone();
+        bb.pilot = pilot;
+        let mut rng = crate::rng::Rng::new(11);
+        let (mut found, mut steered) = (0, 0);
+        for _ in 0..4000 {
+            if let Some((c, sea, s)) = w.voyage_x(&bb, &mut rng, None) {
+                assert!(sea <= range + 1e-3, "signs add no range");
+                if w.map.landmass_of(c) == island {
+                    found += 1;
+                }
+                steered += s as u32;
+            }
+        }
+        (found, steered)
+    };
+    let (f0, s0) = trial(0.0);
+    let (f1, s1) = trial(1.0);
+    assert_eq!(s0, 0, "no pilotage, no signs");
+    assert!(s1 > 0 && f1 > 2 * f0.max(1), "pilots find the island more often: {f0} vs {f1}");
+
+    // learned toward 1, never past it; fades unused; keeps a far shore in mind longer
+    let mut p = b.clone();
+    p.pilot = 0.0;
+    World::learn_pilot(&mut p, PILOT_SCOUT);
+    assert!((p.pilot - PILOT_SCOUT).abs() < 1e-6);
+    for _ in 0..1000 {
+        World::learn_pilot(&mut p, 0.5);
+    }
+    assert!(p.pilot <= 1.0);
+    assert!((World::rumour_keep(&p) - RUMOUR_YEARS as f32 * (1.0 + ROUTE_KEEP)).abs() < 1e-3);
+    p.pilot = 0.0;
+    assert!((World::rumour_keep(&p) - RUMOUR_YEARS as f32).abs() < 1e-6);
+
+    // pilotage is saved with the band (binary and JSON)
+    let mut w = small();
+    w.bands[0].pilot = 0.37;
+    let bytes = w.save_bytes(None, "test", "now").unwrap();
+    let (w2, _, _) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(w2.bands[0].pilot, 0.37);
+    let json = w.save_json(None, "test", "now").unwrap();
+    let (w3, _, _) = World::load_bytes(json.as_bytes()).unwrap();
+    assert_eq!(w3.bands[0].pilot, 0.37);
 }

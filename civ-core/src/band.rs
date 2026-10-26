@@ -125,6 +125,12 @@ pub struct Band {
     // saved as `carry` (v5, additive: absent in older saves and beta saves, which start fresh)
     #[serde(rename = "carry", serialize_with = "ser_carry", deserialize_with = "de_carry")]
     pub d: Derived,
+    // ---- inventions (additive: appended after `carry` so older band rows load with defaults)
+    /// (inventions step 3) pilotage, 0..1: reading the signs of land out of sight of it (homing
+    /// birds, clouds piled over islands, swells bent by land, drifting weed). Learned out of
+    /// sight of land (long voyages, scouting, coming home from a drift), taught to seafaring
+    /// neighbours, inherited by daughters, fades when not used.
+    pub pilot: f32,
 }
 
 /// A standing exchange relationship with another band (grows with use, fades without).
