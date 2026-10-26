@@ -38,6 +38,8 @@ pub(crate) enum Op {
     TradeLine { from: u32, to: u32, d: i32, q: f32 },
     Conflict(u32, f32),
     Drift(Box<Band>, u32, u32),
+    /// (v10) a wedding, for the history store only
+    Married { a: u32, b: u32, la: u32, lb: u32, cell: u32 },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -247,6 +249,7 @@ impl World {
                         *f += v;
                     }
                 }
+                Op::Married { a, b, la, lb, cell } => self.note_wedding(a, b, la, lb, cell),
                 Op::Drift(mut nb, parent, c) => {
                     let id = self.next_id;
                     self.next_id += 1;

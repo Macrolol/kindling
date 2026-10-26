@@ -25,7 +25,7 @@ fn main() {
     macro_rules! f {
         ($($name:ident),*) => { $( rows.push((stringify!($name).to_string(), sz(&w.$name))); )* };
     }
-    f!(cfg, params, map, plants, game, fish, small, bands, reg, events, chronicle, firsts, history, settings_log, counters, item_bands, landfall, camped, landfalls, item_peak, item_lost, trade_flow, conflict_flow, camp, tend, dom, fert, crop, farm_starts);
+    f!(cfg, params, map, plants, game, fish, small, bands, reg, events, chronicle, firsts, history, settings_log, counters, item_bands, landfall, camped, landfalls, item_peak, item_lost, trade_flow, conflict_flow, camp, tend, dom, fert, crop, farm_starts, archive);
     rows.push(("cell_first".into(), sz(&w.cell_first.iter().collect::<Vec<_>>())));
     let total: usize = rows.iter().map(|r| r.1 .1).sum();
     rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));

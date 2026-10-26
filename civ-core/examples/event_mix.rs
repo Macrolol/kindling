@@ -6,7 +6,7 @@ fn main() {
     let p = std::env::args().nth(1).expect("save file");
     let w = civ_core::World::load_bytes(&std::fs::read(&p).unwrap()).expect("load").0;
     let mut by: BTreeMap<u8, (usize, u32, u32)> = BTreeMap::new();
-    for e in &w.events {
+    for e in w.events.iter() {
         let x = by.entry(e.kind).or_insert((0, u32::MAX, 0));
         x.0 += 1;
         x.1 = x.1.min(e.tick);

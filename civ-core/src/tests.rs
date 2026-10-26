@@ -965,3 +965,66 @@ fn counter_registry_covers_every_field() {
     assert_eq!(a.since(&c).values().iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>(),
         v.iter().zip(Counters::NAMES).filter(|(_, n)| **n != "max_fight_deaths").map(|(x, _)| *x).collect::<Vec<_>>());
 }
+
+/// The event log keeps each class in its own ring, and round-trips through both encodings.
+#[test]
+fn event_log_retention_and_round_trip() {
+    use crate::world::{Event, EventKind};
+    use crate::materials::NONE;
+    use crate::archive::{EventLog, CLASS_CONFLICT, CLASS_LIFE, CLASS_LORE, RING_CAPS};
+    let mut l = EventLog::default();
+    let ev = |tick: u32, kind: EventKind, band: u32| Event { tick, kind: kind as u8, band, other: band + 3, cell: 7, item: NONE, recipe: u32::MAX };
+    l.push(ev(0, EventKind::Split, 1));
+    l.push(ev(0, EventKind::Fight, 2));
+    for t in 0..(RING_CAPS[CLASS_LORE] as u32 + 500) {
+        l.push(ev(t, EventKind::Learned, t));
+    }
+    // a flood of lore never pushes out older fights or splits
+    assert_eq!(l.ring(CLASS_LORE).len(), RING_CAPS[CLASS_LORE]);
+    assert_eq!(l.ring(CLASS_LIFE).len(), 1);
+    assert_eq!(l.ring(CLASS_CONFLICT).len(), 1);
+    assert_eq!(l.reach()[CLASS_LORE], Some(500));
+    let r = l.recent(3, |_| true);
+    assert_eq!(r.iter().map(|e| e.tick).collect::<Vec<_>>(), vec![RING_CAPS[CLASS_LORE] as u32 + 497, RING_CAPS[CLASS_LORE] as u32 + 498, RING_CAPS[CLASS_LORE] as u32 + 499]);
+    assert_eq!(l.recent(5, |e| e.kind == EventKind::Fight as u8).len(), 1);
+    let all = l.all();
+    let blob = crate::codec::encode_events(&all);
+    assert_eq!(crate::codec::decode_events(&blob).unwrap(), all);
+    let j: EventLog = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+    assert_eq!(j.all(), all);
+}
+
+/// The history store: a frame a year, folded into decades once older than `RECENT_YEARS`;
+/// event counts in the frames add up to what was logged; the genealogy holds every founding.
+#[test]
+fn archive_frames_and_folding() {
+    use crate::world::{Counters, EventKind};
+    use crate::archive::{Archive, Frame, DECADE, RECENT_YEARS};
+    let mut a = Archive::default();
+    let mut c = Counters::default();
+    for y in 1..=257u32 {
+        c.splits += 2;
+        a.close_year(y, y * 4, &c, Frame::default());
+    }
+    // years 1-150 in 15 decades (whole decades older than 257-100 = 157), 151-257 yearly
+    let dec = a.frames.iter().filter(|f| f.span == DECADE).count();
+    let yearly = a.frames.iter().filter(|f| f.span == 1).count();
+    assert_eq!((dec, yearly), (15, 107), "{:?}", a.frames.iter().map(|f| (f.year, f.span)).collect::<Vec<_>>());
+    assert!(yearly as u32 >= RECENT_YEARS);
+    assert_eq!(a.frames.iter().map(|f| f.span).sum::<u32>(), 257);
+    assert_eq!(a.frames.iter().map(|f| f.counters.splits).sum::<u64>(), 2 * 257);
+    assert!(a.frames.windows(2).all(|p| p[0].year < p[1].year));
+
+    let mut w = small();
+    let founders = w.bands.len();
+    for _ in 0..160 {
+        w.step();
+    }
+    let fr = &w.archive.frames;
+    assert_eq!(fr.len() as usize, w.history.len());
+    let logged: u64 = fr.iter().map(|f| f.kinds[EventKind::Split as usize] as u64).sum::<u64>() + w.archive.tally.kinds.get(EventKind::Split as usize).copied().unwrap_or(0) as u64;
+    assert_eq!(logged, w.counters.splits as u64);
+    let founded = w.archive.genealogy.iter().filter(|e| e.kind == EventKind::Founded as u8).count();
+    assert!(founded >= founders, "{founded} < {founders}");
+    assert_eq!(fr.last().unwrap().lineages.iter().map(|r| r.2).sum::<u32>(), w.history.last().unwrap().pop);
+}

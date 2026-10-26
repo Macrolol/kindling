@@ -4,6 +4,7 @@
 //! stress) -> births / deaths -> practice / forgetting -> fire keeping -> experiments (invention) ->
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
+use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{make_kit, refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
 use crate::knowledge::*;
 use crate::map::*;
@@ -12,7 +13,7 @@ use crate::params::{Config, ParamChange, Params, StartCheck};
 use crate::physics::{self, Action, Ctx, Inputs};
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 mod cell_first;
 pub use cell_first::CellFirst;
@@ -25,6 +26,7 @@ pub mod farming;
 pub mod terrain;
 pub use farming::{crop_potential, graze_potential};
 
+/// Size of the old single event ring (formats 1-9); now `archive::RING_CAPS` per class.
 pub const EVENT_CAP: usize = 40_000;
 /// (v9) Years a rumour of a far shore lasts without anyone seeing that land again.
 pub const RUMOUR_YEARS: u32 = 50;
@@ -183,6 +185,9 @@ pub enum EventKind {
     FirstPlough,
     /// (v8) first band to ride its herd animals (major)
     FirstRiding,
+    /// (v10, history store only) band and other exchanged spouses (cell = band's); kept in
+    /// `Archive::marriages`, never in the event log
+    Married,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -191,9 +196,11 @@ impl EventKind {
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
-            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding,
-        ][(x as usize).min(33)]
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married,
+        ][(x as usize).min(Self::COUNT - 1)]
     }
+    /// number of kinds (the last one is `COUNT - 1`)
+    pub const COUNT: usize = 35;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -216,7 +223,7 @@ impl EventKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub tick: u32,
     pub kind: u8,
@@ -439,7 +446,9 @@ pub struct World {
     #[serde(with = "crate::codec::bands")]
     pub bands: Vec<Band>,
     pub reg: Registry,
-    pub events: VecDeque<Event>,
+    /// recent events, a ring per class (`archive::EventLog`; one list when serialized)
+    pub events: EventLog,
+    #[serde(with = "crate::codec::events")]
     pub chronicle: Vec<Event>,
     pub firsts: Vec<First>,
     /// item -> per cell: first tick a band in that cell could make it (sparse since format 6)
@@ -493,6 +502,8 @@ pub struct World {
     pub farm_starts: Vec<(u32, u32, u32)>,
     /// world firsts with no item of their own (bit 0: ard, bit 1: herding)
     pub farm_flags: u32,
+    /// (v10) the history store: tiered per-year frames, band genealogy, recent weddings
+    pub archive: Archive,
     /// crop potential per cell (derived from the map)
     #[serde(skip)]
     pub crop_pot: Vec<f32>,
@@ -696,6 +707,7 @@ impl World {
             w.bands.push(b);
         }
         w.rng_state = rng.0;
+        w.archive.begun = Some(0);
         w
     }
 
@@ -717,10 +729,15 @@ impl World {
         if kind.major() {
             self.chronicle.push(e);
         }
-        if self.events.len() >= EVENT_CAP {
-            self.events.pop_front();
-        }
-        self.events.push_back(e);
+        self.archive.note(&e);
+        self.events.push(e);
+    }
+
+    /// (v10) A wedding, for the history store only (see `Archive`).
+    pub(crate) fn note_wedding(&mut self, a: u32, b: u32, la: u32, lb: u32, cell: u32) {
+        let e = Event { tick: self.tick, kind: EventKind::Married as u8, band: a, other: b, cell, item: NONE, recipe: u32::MAX };
+        self.archive.note(&e);
+        self.archive.note_wedding_lineages(la, lb);
     }
 
     pub fn log_param_changes(&mut self, old: &Params) {
@@ -737,6 +754,11 @@ impl World {
     /// Rebuild transient state after loading.
     pub fn after_load(&mut self) {
         self.reg.rebuild_index();
+        // (v10) saves before the history store: archive from here on, counting from now
+        if self.archive.begun.is_none() {
+            self.archive.begun = Some(self.tick);
+            self.archive.last_counters = self.counters.clone();
+        }
         let n = self.map.w * self.map.h;
         // formats 1-5 kept the first-reach table dense
         for (it, v) in std::mem::take(&mut self.cell_first_dense) {
@@ -2686,6 +2708,7 @@ impl World {
             }
         }
         fx.counters.marriages += 1;
+        fx.ops.push(Op::Married { a: ia, b: ic, la: bands[a].lineage, lb: bands[c].lineage, cell: bands[a].cell(self.map.w) as u32 });
     }
 
     /// Two bands that meet swap what each has spare for what the other values more, pass food to
@@ -3270,6 +3293,42 @@ impl World {
             eff_lineages: crate::analysis::effective_number(lin.values().map(|&p| p as u64)),
             ..acc
         });
+        self.archive_year();
+    }
+
+    /// (v10) Close the year in the history store: per-lineage, per-landmass and grid snapshots,
+    /// the items' band counts, and this year's tallies (see `Archive`). Reads the world only.
+    fn archive_year(&mut self) {
+        let w = self.map.w;
+        let (gw, gh) = (self.map.w.max(1), self.map.h.max(1));
+        let mut lin: BTreeMap<u32, (u32, u32, std::collections::HashSet<usize>, u64)> = BTreeMap::new();
+        let mut reg: BTreeMap<u32, (u32, u32, u32, u64)> = BTreeMap::new();
+        let mut grid = vec![0u32; GRID * GRID];
+        for b in &self.bands {
+            let c = b.cell(w);
+            let l = lin.entry(b.lineage).or_default();
+            l.0 += 1;
+            l.1 += b.pop;
+            l.2.insert(c);
+            l.3 += b.known.len() as u64;
+            let r = reg.entry(self.map.landmass_of(c) as u32).or_default();
+            r.0 += 1;
+            r.1 += b.pop;
+            r.2 += (b.sow > 0.0) as u32;
+            r.3 += b.known.len() as u64;
+            let (gx, gy) = (b.x as usize * GRID / gw, b.y as usize * GRID / gh);
+            grid[gy.min(GRID - 1) * GRID + gx.min(GRID - 1)] += b.pop;
+        }
+        let f = Frame {
+            lineages: lin.into_iter().map(|(k, (n, p, cells, kn))| LineageRow(k, n, p, cells.len() as u32, kn as f32 / n.max(1) as f32)).collect(),
+            regions: reg.into_iter().map(|(k, (n, p, fa, kn))| RegionRow(k, n, p, fa, kn as f32 / n.max(1) as f32)).collect(),
+            grid,
+            lore: self.item_bands.iter().map(|(&it, &n)| LoreRow(it, n, 0, 0)).collect(),
+            ..Default::default()
+        };
+        let year = self.history.last().map_or(self.tick / 4, |y| y.year);
+        let counters = self.counters.clone();
+        self.archive.close_year(year, self.tick, &counters, f);
     }
 
     /// Deterministic hash of the simulation state (for regression checks).
@@ -3372,6 +3431,7 @@ impl World {
             }
             EventKind::FirstPlough => format!("Y{yr}: band {} at ({cx},{cy}) is the first to till with an ard drawn by oxen", e.band),
             EventKind::FirstRiding => format!("Y{yr}: band {} at ({cx},{cy}) is the first to ride its herd animals", e.band),
+            EventKind::Married => format!("Y{yr}: bands {} and {} exchanged spouses", e.band, e.other),
         }
     }
 }

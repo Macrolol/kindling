@@ -27,6 +27,13 @@ fn main() {
         *by.entry((e.tick / 400, e.kind)).or_default() += 1;
     }
     println!("history len {} years, chronicle {} entries, recent events {}", w.history.len(), w.chronicle.len(), w.events.len());
+    {
+        let reach = w.events.reach();
+        let rings: Vec<String> = (0..3).map(|c| format!("{} {} from Y{}", civ_core::archive::CLASS_NAMES[c], w.events.ring(c).len(), reach[c].map_or(-1, |t| (t / 4) as i64))).collect();
+        let a = &w.archive;
+        println!("event rings: {} | archive: {} frames ({} decadal), genealogy {} events, weddings kept {}, begun at Y{}",
+            rings.join(", "), a.frames.len(), a.frames.iter().filter(|f| f.span > 1).count(), a.genealogy.len(), a.marriages.len(), a.begun.map_or(-1, |t| (t / 4) as i64));
+    }
 
     println!("\n-- per century: pop mean/end | bands | fights | killed | killed %/yr | displaced | absorbed | tributes | avoided | confront | trades | partnerships(end) | inv | forgets | items_world(end) | items_mean(end) | max items");
     for ch in w.history.chunks(100) {

@@ -233,12 +233,16 @@ pub fn draw(ctx: &egui::Context, st: &mut UiState, w: &mut World, selected: Opti
             egui::ScrollArea::vertical().max_height(220.0).stick_to_bottom(true).show(ui, |ui| {
                 let evs: Vec<_> = match st.log_mode {
                     0 => w.chronicle.iter().copied().collect(),
-                    1 => w.events.iter().rev().take(400).rev().copied().collect(),
+                    1 => w.events.recent(400, |_| true),
                     _ => match selected {
                         Some(id) => {
                             {
-                                let mut v: Vec<_> = w.events.iter().rev().filter(|e| e.band == id || e.other == id).take(300).copied().collect();
-                                v.reverse();
+                                // the band's recent events, and before the rings' reach its
+                                // splits, merges etc. from the genealogy kept for ever
+                                let f = |e: &civ_core::world::Event| e.band == id || e.other == id;
+                                let reach = w.events.reach()[civ_core::archive::CLASS_LIFE].unwrap_or(u32::MAX);
+                                let mut v: Vec<_> = w.archive.genealogy.iter().filter(|e| e.tick < reach && f(e)).copied().collect();
+                                v.extend(w.events.recent(300, f));
                                 v
                             }
                         }

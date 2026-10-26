@@ -15,6 +15,7 @@
 //! keeping the old decoder: blobs are not migrated through JSON.
 use crate::band::Band;
 use crate::map::{Map, GEN_VERSION};
+use crate::world::Event;
 use serde::de::{Deserializer, Error as _, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 use std::cell::Cell;
@@ -534,4 +535,77 @@ pub fn ser_blob<S: Serializer>(b: &[u8], s: S) -> Result<S::Ok, S::Error> {
 }
 pub fn de_blob_pub<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
     de_blob(d)
+}
+
+// ---------------------------------------------------------------- event lists
+
+const EVENTS_V: u64 = 1;
+
+/// A list of events as columns: tick deltas, kinds, bands, `other` relative to the band (split
+/// daughters, learners' teachers and in-laws are often close in id), cells, items and recipes
+/// (+1, so the common "none" is 0). Also the planned wire form of the event feed.
+pub fn encode_events(ev: &[Event]) -> Vec<u8> {
+    let mut w = Wr::default();
+    w.u(EVENTS_V);
+    w.u(ev.len() as u64);
+    let mut cols: [Wr; 7] = Default::default();
+    let mut t = 0i64;
+    for e in ev {
+        cols[0].i(e.tick as i64 - t);
+        t = e.tick as i64;
+        cols[1].0.push(e.kind);
+        cols[2].u(e.band as u64);
+        cols[3].i(e.other as i64 - e.band as i64);
+        cols[4].u(e.cell as u64);
+        cols[5].u(e.item.wrapping_add(1) as u64);
+        cols[6].u(e.recipe.wrapping_add(1) as u64);
+    }
+    for c in cols {
+        w.bytes(&c.0);
+    }
+    w.0
+}
+
+pub fn decode_events(blob: &[u8]) -> Result<Vec<Event>, String> {
+    let mut r = Rd::new(blob);
+    if r.u()? != EVENTS_V {
+        return Err("event list layout is newer than this build".into());
+    }
+    let n = r.len(blob.len())?;
+    let mut cols = Vec::with_capacity(7);
+    for _ in 0..7 {
+        cols.push(Rd::new(r.bytes()?));
+    }
+    let mut out = Vec::with_capacity(n);
+    let mut t = 0i64;
+    for _ in 0..n {
+        t += cols[0].i()?;
+        let kind = cols[1].take(1)?[0];
+        let band = cols[2].u()? as u32;
+        let other = (band as i64 + cols[3].i()?) as u32;
+        let cell = cols[4].u()? as u32;
+        let item = (cols[5].u()? as u16).wrapping_sub(1);
+        let recipe = (cols[6].u()? as u32).wrapping_sub(1);
+        out.push(Event { tick: t as u32, kind, band, other, cell, item, recipe });
+    }
+    Ok(out)
+}
+
+/// `#[serde(with)]` for a `Vec<Event>` (the chronicle, the genealogy, ...).
+pub mod events {
+    use super::*;
+    pub fn serialize<S: Serializer>(v: &[Event], s: S) -> Result<S::Ok, S::Error> {
+        if s.is_human_readable() {
+            v.serialize(s)
+        } else {
+            Blob(&encode_events(v)).serialize(s)
+        }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Event>, D::Error> {
+        if d.is_human_readable() {
+            Vec::<Event>::deserialize(d)
+        } else {
+            decode_events(&de_blob(d)?).map_err(D::Error::custom)
+        }
+    }
 }
