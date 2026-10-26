@@ -16,6 +16,10 @@
 #   --config takes a JSON params file (Params::from_json_compat), not TOML.
 #   --save writes after every seed, so this workflow runs one process per seed when
 #   saves are requested, to keep one .civsave per seed.
+#   archive (default on): an `archive` job packs every output (tar + zstd -19, plus a
+#   run-manifest.json) into an asset of a public pre-release `run-<run id>` tagged at the
+#   simulated commit (never latest; v0.x releases untouched). .civsave files only with
+#   archive_saves. Only that job has contents: write. See docs/CI-ARCHIVES.md.
 #   --out DIR writes structured outputs per seed (DIR/seed-S/manifest.json, metrics.csv,
 #   summary.json, chronicle.ndjson, frames.ndjson; docs/DATA_SCHEMA.md). The summary job
 #   aggregates those (tools/collect_runs.py, tools/agg_results.py) and still keeps the text
@@ -90,6 +94,16 @@ on:
         required: false
         default: "150"
         type: string
+      archive:
+        description: "Publish all outputs as one compressed archive on a public pre-release run-<run id> (docs/CI-ARCHIVES.md)"
+        required: false
+        default: true
+        type: boolean
+      archive_saves:
+        description: "Include the .civsave files in that archive (needs save_civsave; CI-generated saves only)"
+        required: false
+        default: false
+        type: boolean
       runner:
         description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
         required: false
@@ -337,7 +351,7 @@ jobs:
             out/*.png
             out/*.civsave
             out/data/**
-          retention-days: 14
+          retention-days: 30
           if-no-files-found: warn
 
   summary:
@@ -416,4 +430,135 @@ jobs:
         with:
           name: summary
           path: combined/
-          retention-days: 14
+          retention-days: 30
+
+  archive:
+    # One strongly compressed archive of everything the run produced, kept as an asset of a
+    # public pre-release `run-<run id>` (tag on the tested commit). Never marked latest; the
+    # version releases (v0.x) are not touched. Only this job may write to the repository.
+    name: Archive to pre-release
+    needs: [plan, sim, summary]
+    if: always() && needs.plan.result == 'success' && inputs.archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      TAG: run-${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      ARCHIVE_SAVES: ${{ inputs.archive_saves }}
+      SIM_RESULT: ${{ needs.sim.result }}
+      INPUTS_JSON: ${{ toJSON(inputs) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: summary
+          path: artifacts/summary
+        continue-on-error: true
+
+      - name: Build archive
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q zstd; }
+          name="kindling-${TAG}"
+          mkdir -p "stage/${name}"
+          # per-seed jobs: reports, stderr, structured outputs (--out), screenshots, saves
+          for d in artifacts/results-*; do
+            [ -d "$d" ] || continue
+            dst="stage/${name}/jobs/$(basename "$d")"
+            mkdir -p "$dst"
+            if [ "$ARCHIVE_SAVES" = "true" ]; then
+              cp -r "$d"/. "$dst"/
+            else
+              tar -C "$d" --exclude='*.civsave' -cf - . | tar -C "$dst" -xf -
+            fi
+          done
+          # the combined summary (its data/ is a copy of the per-seed outputs above)
+          if [ -d artifacts/summary ]; then
+            mkdir -p "stage/${name}/summary"
+            tar -C artifacts/summary --exclude='./data' -cf - . | tar -C "stage/${name}/summary" -xf -
+          fi
+          started=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" -q .run_started_at || echo "")
+          ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          STARTED="$started" ENDED="$ended" NAME="$name" python3 - <<'PY'
+          import json, os
+          root = os.path.join("stage", os.environ["NAME"])
+          inputs = json.loads(os.environ["INPUTS_JSON"])
+          files = []
+          for dp, _, fs in os.walk(root):
+              for f in sorted(fs):
+                  p = os.path.join(dp, f)
+                  files.append({"path": os.path.relpath(p, root), "bytes": os.path.getsize(p)})
+          files.sort(key=lambda x: x["path"])
+          seeds = sorted({int(x["path"].split("seed-")[1].split("/")[0].split(".")[0])
+                          for x in files if "/seed-" in x["path"] and x["path"].split("seed-")[1][:1].isdigit()})
+          m = {
+              "kind": "kindling-ci-run-archive",
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")),
+              "run_url": os.environ["RUN_URL"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "ref_sha": os.environ["SHA"],
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "inputs": inputs,
+              "seeds": seeds,
+              "map": inputs.get("map") or "256x160 (default)",
+              "years": inputs.get("years"),
+              "sim_jobs": os.environ["SIM_RESULT"],
+              "saves_included": os.environ["ARCHIVE_SAVES"] == "true",
+              "started_at": os.environ["STARTED"] or None,
+              "archived_at": os.environ["ENDED"],
+              "total_bytes": sum(x["bytes"] for x in files),
+              "files": files,
+          }
+          json.dump(m, open(os.path.join(root, "run-manifest.json"), "w"), indent=1)
+          print(f"{len(files)} files, {m['total_bytes']/1e6:.1f} MB, seeds {seeds}")
+          PY
+          tar -C stage -cf - "$name" | zstd -19 -T0 --long=27 -q -o "${name}.tar.zst"
+          raw=$(du -sb "stage/${name}" | cut -f1)
+          packed=$(stat -c %s "${name}.tar.zst")
+          echo "archive ${name}.tar.zst: ${packed} bytes from ${raw} (ratio $(python3 -c "print(round(${raw}/${packed},2))"))" | tee -a "$GITHUB_STEP_SUMMARY"
+          mkdir -p assets
+          cp "stage/${name}/run-manifest.json" "assets/${name}-manifest.json"
+          # release assets are limited to 2 GiB: split bigger archives (cat the parts to rejoin)
+          if [ "$packed" -gt 2000000000 ]; then
+            split -b 1900M -d -a 2 "${name}.tar.zst" "assets/${name}.tar.zst.part"
+            rm "${name}.tar.zst"
+          else
+            mv "${name}.tar.zst" assets/
+          fi
+          (cd assets && sha256sum * > "${name}.sha256")
+          ls -l assets
+          echo "RAW_BYTES=${raw}" >> "$GITHUB_ENV"
+          echo "PACKED_BYTES=${packed}" >> "$GITHUB_ENV"
+
+      - name: Publish pre-release
+        run: |
+          set -euo pipefail
+          inp=$(python3 -c "import json,os; print('\n'.join(f'- {k}: \`{v}\`' for k, v in json.loads(os.environ['INPUTS_JSON']).items()))")
+          cat > notes.md <<EOF
+          Archived outputs of headless-sims run [${GITHUB_RUN_ID}](${RUN_URL}) on \`${SHA}\` (sim jobs: ${SIM_RESULT}).
+          Not a Kindling release.
+
+          Archive: $(python3 -c "print(f'{${PACKED_BYTES}/1e6:.1f} MB zstd -19 of {${RAW_BYTES}/1e6:.1f} MB')"); \`gh release download ${TAG} -R ${GITHUB_REPOSITORY}\`, see docs/CI-ARCHIVES.md.
+
+          Inputs:
+          ${inp}
+          EOF
+          sed -i 's/^          //' notes.md
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" assets/* -R "$GITHUB_REPOSITORY" --target "$SHA" --prerelease --latest=false \
+              --title "CI run ${GITHUB_RUN_ID}: seeds ${{ inputs.seeds }}, ${{ inputs.years }} y, map ${{ inputs.map || 'default' }}" \
+              --notes-file notes.md
+          fi
+          echo "release: ${{ github.server_url }}/${GITHUB_REPOSITORY}/releases/tag/${TAG}" | tee -a "$GITHUB_STEP_SUMMARY"

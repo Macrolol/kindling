@@ -41,6 +41,8 @@ kindling --headless --seeds 1..10 --years 500 [--map WxH] [--threads N] [--confi
 
 Screenshot mode: `kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-8]`.
 
+Batch runs go through the `headless-sims` Actions workflow. Each run's outputs are archived on a public pre-release `run-<run id>` (`gh release download run-<id>`); see [docs/CI-ARCHIVES.md](docs/CI-ARCHIVES.md). Archives are public, so never include user saves.
+
 ### Web (WebAssembly)
 ```sh
 rustup target add wasm32-unknown-unknown   # once
