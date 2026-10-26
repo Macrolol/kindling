@@ -90,11 +90,56 @@ struct Wire {
 
 impl Serialize for CellFirst {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if !s.is_human_readable() {
+            // format 10 binary: [layout 1, w, h, n, n cell gaps, n zigzag tick deltas] as varints
+            let mut b = crate::codec::Wr::default();
+            let cells: Vec<(usize, u32)> = self.iter().collect();
+            for v in [1, self.w as u64, self.h as u64, cells.len() as u64] {
+                b.u(v);
+            }
+            let mut pc = 0;
+            for &(c, _) in &cells {
+                b.u((c - pc) as u64);
+                pc = c;
+            }
+            let mut pt = 0i64;
+            for &(_, t) in &cells {
+                b.i(t as i64 - pt);
+                pt = t as i64;
+            }
+            return crate::codec::ser_blob(&b.0, s);
+        }
         Wire { w: self.w, h: self.h, cells: self.iter().map(|(c, t)| (c as u32, t)).collect() }.serialize(s)
     }
 }
 impl<'de> Deserialize<'de> for CellFirst {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        if !d.is_human_readable() {
+            use serde::de::Error;
+            let blob = crate::codec::de_blob_pub(d)?;
+            let mut r = crate::codec::Rd::new(&blob);
+            let mut go = || -> Result<CellFirst, String> {
+                if r.u()? != 1 {
+                    return Err("first-reach blob layout is newer than this build".into());
+                }
+                let (w, h) = (r.u()? as usize, r.u()? as usize);
+                let n = r.len(blob.len())?;
+                let mut cells = Vec::with_capacity(n);
+                let mut c = 0usize;
+                for _ in 0..n {
+                    c += r.u()? as usize;
+                    cells.push(c);
+                }
+                let mut cf = CellFirst::new(w, h);
+                let mut t = 0i64;
+                for c in cells {
+                    t += r.i()?;
+                    cf.set_first(c, t as u32);
+                }
+                Ok(cf)
+            };
+            return go().map_err(D::Error::custom);
+        }
         let wire = Wire::deserialize(d)?;
         let mut cf = CellFirst::new(wire.w, wire.h);
         for (c, t) in wire.cells {

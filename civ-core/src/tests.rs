@@ -880,3 +880,60 @@ fn summary_accounts_for_lost_items_and_landmasses() {
     assert!(s.islands_by_sea <= s.islands_reached);
     assert_eq!(s.island_hop_max.is_some(), s.islands_by_sea > 0 && w.landfalls.iter().any(|r| r.by_sea && r.gap != u32::MAX && (r.landmass as usize) < w.map.landmass_size.len() && w.map.landmass_size[r.landmass as usize] < w.map.continent_cells()));
 }
+
+/// Format 10 binary saves (compact blobs) hold exactly the same world as JSON, and the blobs
+/// survive a world with partners, teachers and inherited recipes.
+#[test]
+fn v10_binary_is_exact() {
+    let mut a = small();
+    for _ in 0..160 {
+        a.step();
+    }
+    assert!(a.bands.iter().any(|b| !b.partners.is_empty()), "test world should have partners");
+    let bytes = a.save_bytes(None, "t", "t").unwrap();
+    let (b, _, info) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(info.format_version, 10);
+    // (`after_load` recomputes the season's figures, so compare loaded worlds with each other)
+    let (c, _, _) = World::load_bytes(a.save_json(None, "t", "t").unwrap().as_bytes()).unwrap();
+    assert_eq!(c.save_json(None, "t", "t").unwrap(), b.save_json(None, "t", "t").unwrap());
+    assert_eq!(c.save_bytes(None, "t", "t").unwrap(), b.save_bytes(None, "t", "t").unwrap());
+    let (b2, _, _) = World::load_bytes(&b.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(b.save_json(None, "t", "t").unwrap(), b2.save_json(None, "t", "t").unwrap());
+    // a map that differs from the generated one is still stored exactly
+    let mut d = b.clone();
+    d.map.k_plants[5] += 0.25;
+    d.map.biome[7] ^= 3;
+    let (e, _, _) = World::load_bytes(&d.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(e.map.k_plants[5], d.map.k_plants[5]);
+    assert_eq!(e.map.biome[7], d.map.biome[7]);
+    assert_eq!(serde_json::to_string(&d.map).unwrap(), serde_json::to_string(&e.map).unwrap());
+}
+
+/// A v9 save (made by the v9 build) loads unchanged; checksums were computed from that build's
+/// JSON export of the fixture.
+#[test]
+fn v9_fixture_loads_exactly() {
+    let bytes = include_bytes!("../tests/fixtures/v9_seed9_y150_64x40.civsave");
+    let (w, _, info) = World::load_bytes(bytes).expect("v9 save loads");
+    assert_eq!(info.format_version, 9);
+    assert_eq!(w.state_hash(), 0x1845e2690330d59);
+    assert_eq!((w.tick, w.bands.len()), (600, 606));
+    assert_eq!(w.bands.iter().map(|b| b.known.len()).sum::<usize>(), 17622);
+    let mut s: u64 = 0;
+    for b in &w.bands {
+        for k in &b.known {
+            s = s.wrapping_mul(31).wrapping_add(k.skill.to_bits() as u64 + k.quality.to_bits() as u64 + k.from as u64 + k.since as u64);
+        }
+        for p in &b.partners {
+            s = s.wrapping_mul(31).wrapping_add(p.strength.to_bits() as u64 + p.married.to_bits() as u64 + p.id as u64);
+        }
+        for c in &b.craft {
+            s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
+        }
+    }
+    assert_eq!(s, 0x4a026ad8e2339cbe);
+    assert_eq!(w.cell_first.values().map(|c| c.iter().count()).sum::<usize>(), 24715);
+    // re-saved as v10 it is the same world
+    let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(w.save_json(None, "t", "t").unwrap(), w2.save_json(None, "t", "t").unwrap());
+}

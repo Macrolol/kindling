@@ -1,7 +1,8 @@
 //! Versioned, forward-compatible save format. See docs/SAVE_FORMAT.md before changing ANYTHING
 //! here or any type reachable from `World`.
 //!
-//! File = MAGIC_BYTES (8 bytes) + raw-deflate( MessagePack-with-named-fields( Envelope ) )
+//! File = MAGIC_BYTES (8 bytes) + raw-deflate( MessagePack-with-named-fields( Envelope ) ), with
+//!   the heavy parts as compact blobs since v10 (see `crate::codec`)
 //!   or  = UTF-8 JSON of the same Envelope (export / debugging; detected by leading '{').
 //!
 //! Rules: every saved struct is `#[serde(default)]` (missing fields load as defaults, unknown
@@ -14,12 +15,12 @@ use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 9;
+pub const FORMAT_VERSION: u32 = 10;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -225,6 +226,13 @@ fn v8_to_v9(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
     }
     Ok(v)
 }
+/// v9 -> v10 (compact binary saves, history store). Frozen: do not edit.
+/// Only the binary layout changed (`crate::codec`: bands as rows + columns, the map as its
+/// difference from the regenerated map, first-reach tables as varints); the logical (JSON) shape
+/// is the same. Everything new in v10 (`world.archive`, event retention) is additive.
+fn v9_to_v10(v: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(v)
+}
 /// The same as `v8_to_v9`, for saves decoded straight into the current schema.
 fn age_old_rumours(w: &mut World) {
     let heard = (w.tick / 4).saturating_sub(40).min(u16::MAX as u32) as u16;
@@ -369,13 +377,17 @@ impl World {
         } else {
             return Err("not a civ-sim save file".into());
         };
-        fn dec<T: serde::de::DeserializeOwned>(e: &Enc, b: &[u8]) -> Result<T, String> {
+        // binary saves before v10 hold the plain logical shape, which the `codec` types read in
+        // rmp's human-readable mode; v10+ binaries hold compact blobs
+        fn dec<T: serde::de::DeserializeOwned>(e: &Enc, b: &[u8], logical: bool) -> Result<T, String> {
             match e {
+                Enc::Mp(raw) if logical => T::deserialize(&mut rmp_serde::Deserializer::new(&raw[..]).with_human_readable()).map_err(|x| x.to_string()),
                 Enc::Mp(raw) => rmp_serde::from_slice(raw).map_err(|x| x.to_string()),
                 Enc::Json => serde_json::from_slice(b).map_err(|x| x.to_string()),
             }
         }
-        let h: Header = dec(&enc, b).map_err(|e| format!("header: {e}"))?;
+        let h: Header = dec(&enc, b, false).map_err(|e| format!("header: {e}"))?;
+        let logical = h.format_version < 10;
         if h.magic != MAGIC {
             return Err(format!("bad magic {:?}", h.magic));
         }
@@ -394,14 +406,15 @@ impl World {
         // v6 -> v7 only re-points a few recipes, done in place below for binaries, too
         // v7 -> v8 only lengthens per-material vectors, which `Band::fit_vectors` does on load
         // v8 -> v9 only dates the rumours already held, done in place below
-        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5 | 6 | 7 | 8) && matches!(enc, Enc::Mp(_)));
-        if matches!(h.format_version, 5 | 6 | 7 | 8) {
+        // v9 -> v10 changed only the binary layout, which `logical` covers
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5..=9) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5..=9) {
             info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {
-            dec::<Envelope<SaveState>>(&enc, b)?.payload
+            dec::<Envelope<SaveState>>(&enc, b, logical)?.payload
         } else if h.format_version < FORMAT_VERSION {
-            let env: Envelope<serde_json::Value> = dec(&enc, b)?;
+            let env: Envelope<serde_json::Value> = dec(&enc, b, true)?;
             info.migrated_from = Some(h.format_version);
             serde_json::from_value(migrate(env.payload, h.format_version)?).map_err(|e| e.to_string())?
         } else {
@@ -409,7 +422,7 @@ impl World {
                 "save is format v{} (newer than this build's v{FORMAT_VERSION}); loaded best-effort",
                 h.format_version
             ));
-            dec::<Envelope<SaveState>>(&enc, b)?.payload
+            dec::<Envelope<SaveState>>(&enc, b, false)?.payload
         };
         let mut w = state.world;
         if direct && h.format_version < 7 {

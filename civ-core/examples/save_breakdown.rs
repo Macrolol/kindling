@@ -16,6 +16,10 @@ fn main() {
     let path = std::env::args().nth(1).expect("save path");
     let bytes = std::fs::read(&path).unwrap();
     let (w, _, info) = World::load_bytes(&bytes).expect("load");
+    if std::env::var("V10").is_ok() {
+        v10_parts(&w);
+        return;
+    }
     println!("{path}: {:.1} MB on disk, format v{}, map {}x{}, {} bands, year {}", bytes.len() as f64 / 1e6, info.format_version, w.map.w, w.map.h, w.bands.len(), w.tick / 4);
     let mut rows: Vec<(String, (usize, usize))> = Vec::new();
     macro_rules! f {
@@ -59,4 +63,25 @@ fn main() {
     for (n, (r, c)) in &mr {
         println!("  {:<14} {:>10.2} {:>10.2}", n, *r as f64 / 1e6, *c as f64 / 1e6);
     }
+}
+
+/// Sizes of the v10 compact parts (`civ_core::codec`), section by section.
+#[allow(dead_code)]
+pub fn v10_parts(w: &civ_core::World) {
+    use std::io::Write;
+    let defl = |b: &[u8]| {
+        let mut e = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(6));
+        e.write_all(b).unwrap();
+        e.finish().unwrap().len() as f64 / 1e6
+    };
+    let blob = civ_core::codec::encode_bands(&w.bands).unwrap();
+    let mut r = civ_core::codec::Rd::new(&blob);
+    r.u().unwrap();
+    println!("-- v10 bands blob: {:.2} MB raw, {:.2} MB deflated", blob.len() as f64 / 1e6, defl(&blob));
+    for name in ["rows", "known", "partners", "craft"] {
+        let s = r.bytes().unwrap();
+        println!("  {name:<10} {:>8.2} {:>8.2}", s.len() as f64 / 1e6, defl(s));
+    }
+    let m = civ_core::codec::encode_map(&w.map).unwrap();
+    println!("-- v10 map blob: {:.2} MB raw, {:.2} MB deflated", m.len() as f64 / 1e6, defl(&m));
 }

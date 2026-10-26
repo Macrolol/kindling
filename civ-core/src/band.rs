@@ -58,6 +58,7 @@ pub struct Band {
     pub prestige: f32,
     /// keeps a captured fire alight
     pub flame: bool,
+    #[serde(with = "crate::codec::column")]
     pub known: Vec<Known>,
     /// carried raw materials (0..~1.5 per material)
     pub stock: Vec<f32>,
@@ -65,10 +66,12 @@ pub struct Band {
     /// where each carried material was first gathered (cell; u32::MAX = unknown)
     pub origin: Vec<u32>,
     /// exchange partners: bands this one trades with and visits
+    #[serde(with = "crate::codec::column")]
     pub partners: Vec<Partner>,
     /// craft tradition: how readily this band turns to each material (NMAT entries) and to each
     /// way of working (CRAFT_ACTS entries: shape, combine, heat). 1 = no leaning. Inherited with
     /// drift at splits, reinforced by what the band finds or learns, fades back slowly. (v3)
+    #[serde(with = "crate::codec::column")]
     pub craft: Vec<f32>,
     /// a far shore this band has seen, heard of, or reached (cell); None = none known (v3)
     pub far_shore: Option<u32>,

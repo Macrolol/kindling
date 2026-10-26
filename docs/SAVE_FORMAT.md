@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 9` (Kindling 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 10` (Kindling 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -119,5 +119,27 @@ Current: `FORMAT_VERSION = 9` (Kindling 0.9 development). v0.8.0 writes format 8
     saves run the migration. `migrated_from` reports 8.
   - Fixture `v8_0_seed4_y150_96x60.civsave` (written by the v0.8.0 code) is loaded by
     `v8_0_fixture_loads_and_runs`, which checks both routes agree.
+- **v10** (Kindling 0.9 development, compact binary saves). Migration `v9_to_v10` (identity):
+  - Only the **binary** layout changes; the logical (JSON) shape is the same as v9. MessagePack's
+    serde (de)serializer is not "human readable", and three parts of the world then go out as
+    byte blobs (`civ-core/src/codec.rs`), each starting with its own layout number:
+    - `world.bands`: the rows (every band field except the three below, as positional
+      MessagePack, so **new `Band` fields must be appended at the end** and default when missing),
+      then `known`, `partners` and `craft` as columns across all bands in their original order
+      (varint / zigzag deltas, f32s byte-shuffled and bit-exact);
+    - `world.map`: the bitwise XOR of every layer with `Map::generate(w, h, seed)` (all zeros
+      for an untouched map of the current generator; maps of an older `gen_version` are stored
+      against nothing, i.e. as they are);
+    - `world.cell_first_sparse[]`: each table as `[1, w, h, n, cell gaps.., zigzag tick deltas..]`.
+  - JSON saves and the JSON migration route keep the logical shape. Binary v5-v9 saves are decoded
+    directly in rmp's human-readable mode (`load_bytes(.., logical)`), which reads the old shape.
+  - Nothing is rounded: a world saved and loaded continues exactly as before (tests
+    `v10_binary_is_exact`, `save_round_trip_continues_identically`).
+  - A future change to a blob layout gets a new layout number and keeps the old decoder; blobs
+    are not migrated through JSON. To migrate a v10+ binary save through JSON, decode it with the
+    current reader and re-serialize it with `serde_json` (human readable = logical shape).
+  - Fixture `v9_seed9_y150_64x40.civsave` (written by the v9 code) is loaded by
+    `v9_fixture_loads_exactly`, which checks it against checksums taken from the v9 build.
+  - Typical effect: a 147 MB v9 save (800×800, 750 years, 68.7k bands) re-saves as 83 MB.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

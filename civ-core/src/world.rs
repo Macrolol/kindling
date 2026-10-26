@@ -388,6 +388,8 @@ pub struct LandfallRec {
 pub struct World {
     pub cfg: Config,
     pub params: Params,
+    /// (v10) binary saves store it as the difference from the regenerated map (`codec::map`)
+    #[serde(with = "crate::codec::map")]
     pub map: Map,
     pub tick: u32,
     pub rng_state: u64,
@@ -397,6 +399,8 @@ pub struct World {
     pub fish: Vec<f32>,
     /// small game (snared / trapped); empty in stage-1 saves, filled on load
     pub small: Vec<f32>,
+    /// (v10) binary saves store rows plus columns (`codec::bands`)
+    #[serde(with = "crate::codec::bands")]
     pub bands: Vec<Band>,
     pub reg: Registry,
     pub events: VecDeque<Event>,
