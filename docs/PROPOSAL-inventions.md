@@ -373,7 +373,7 @@ Results go to `docs/PROGRESS-inventions.md` (built and checked, like `PROGRESS-v
 | # | step | contents | pass check | effort | status |
 |---|---|---|---|---|---|
 | 0 | **Measure first** | new counters, YearStats fields, landfall leg and tech fields, event kinds (unused yet), report blocks. No behaviour change. Also fix a v10 fixture save. | report and save byte-identical to now apart from new columns; baselines (a)+(b) recorded | S–M | done (see PROGRESS) |
-| 1 | **Pitch and sealed jars** | material Pitch, form Jar, caulking upkeep, jar spoilage. Save v11 (stock 25→26, craft leaning inserted; same pattern as v7→v8). | (a) pop within ±10%, jars appear only after pottery; no crossing change | M | to do |
+| 1 | **Pitch and sealed jars** | material Pitch, form Jar, caulking upkeep, jar spoilage. Save v11 (stock 25→26, craft leaning inserted; same pattern as v7→v8). | (a) pop within ±10%, jars appear only after pottery; no crossing change | M | done (see PROGRESS) |
 | 2 | **Provisions and endurance** | continuous provisions; drying racks; cold cellars; endurance toll on long legs | (a) unchanged crossings; (b) no more than baseline yet (no reach to use it); lost-at-sea not up on short hops | M | to do |
 | 3 | **Pilotage and remembered routes** | `pilot` practice, sign sighting at sea, routes fade slower | (b) more aimed voyages and sightings; crossings 1→2–3 of 10; none before Y100 | M | to do |
 | 4 | **Sky lore** | `sky` practice from farming and night sailing; heading error; sowing bonus | (a) farm yield +≤5%; (b) crossings about 3–4 of 10 | M | to do |

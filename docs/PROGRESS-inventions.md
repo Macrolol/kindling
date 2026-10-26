@@ -28,7 +28,7 @@ Checks:
   `metrics.csv` is identical on all shared columns (behaviour unchanged); the v10 fixture
   loads and continues identically.
 
-## Step 1. Pitch and sealed jars (in progress)
+## Step 1. Pitch and sealed jars (done, 4b9e8b7)
 - New material `Pitch` (25: seal 9, no fuel value, never carried, made where it is used) and
   form `Jar` (25). Recipes (physics): heat wood + a fired pot over any fire (>= 350 C) gives
   pitch (p 0.2); combine a fired pot + pitch gives a sealed jar (p 0.25). Unfired or woven pots
@@ -45,6 +45,13 @@ Checks:
   normalisation, as in v8).
 - Local look, seed 3, 300 years, default map: pitch Y76, sealed jar Y124 (pottery first);
   by Y200 every band with pitch has jars (2091 bands).
+- Check (a), run [40416321312](https://github.com/Macrolol/kindling/actions/runs/40416321312),
+  `docs/results-inv-step1-seeds1-10-500y.txt`: total pop 1 163 523 (-2.3% on step 0), pass;
+  pitch Y60–Y210 and jars 34–109 years after it in every seed, never before pottery, pass;
+  continents crossed 4/10 (Y128, Y160 adrift, Y190, Y274; step 0 Y142, Y172, Y191, Y234), none
+  before Y100, pass. Mean items 69.2 (69.3).
+- Watch: deaths in fights up in all 10 seeds, 0.363 -> 0.409 %/y (+13%). Raids are lured by the
+  other band's store, and jars mean more stored food; emergent, not tuned.
 
 ## Step 2. Provisions and endurance (in progress)
 - Provisions are continuous: `fed` = store / (half a season's food per person), 0..1 (a plank
