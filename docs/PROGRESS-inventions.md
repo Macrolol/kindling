@@ -255,7 +255,7 @@ Checks:
 - Checkpoint: steps 0-5 milestone reached; step 6 not started (waiting for Michael).
 - Michael's answer (Oct 27): all three fixes approved as step 5b; then step 6 onward.
 
-## Step 5b: expeditions, mat sails, deep-water seamanship (in progress)
+## Step 5b: expeditions, mat sails, deep-water seamanship (done; (b) below target)
 
 - Added (all emergent; nothing for dugouts, canoes or plank boats without a ship except mat sails
   on plank hulls):
@@ -274,6 +274,21 @@ Checks:
   same range as linen on a plank hull, expedition reach only for stocked ship crews, ship legs
   out of sight of land teach more). All 46 civ-core tests pass. No save format change.
 - Local smoke (seeds 1-2, 500y): mat sails Y419/Y471; 4 expeditions, 152 deep-water ship legs.
+- Check (a), run 40478614457 (commit d74ae59), docs/results-inv-step5b-seeds1-10-500y.txt:
+  crossings 5/10 (Y118, Y179, Y205, Y270, Y476), none before Y100 (step 5: 4/10). The new one is
+  seed 5 at Y476 on an expedition ship (44-cell leg). War 0.401%/y, items 68.4, population
+  1 177 335. Expeditions 15, deep-water ship legs 539, mat sails in 8/10 seeds (Y289-Y484).
+- Check (b), run 40478624024, docs/results-inv-step5b-750y-800x800.txt: crossings **1/10**
+  (499246293 at Y673, plank boat + sail, not a ship; step 5 had it at Y692), none before Y100.
+  War 0.297%/y, items 75.2, population 7 053 596, disease 0.170%/y. Ships in 7 seeds, 417
+  expeditions, 57 296 deep-water ship legs, seacraft p90 0.53-0.66, pilot p90 0.09-0.18.
+- Reading: no overshoot (no pre-Y100 crossing, not 7+/10, (a) only +1), so no tuning under the
+  agreed rule. But (b) is below the 4-6/10 target. The binding limit is endurance: longest legs
+  top out at 44-46 cells, right at the endurance p90 of 46-47 (jars, ship x1.4 x (1+0.2q), ship
+  quality only 0.13-0.19), while the narrowest hops are 47 (297), 50 (295), 54 (301), 66 (294),
+  85-171 (292, 296, 299, 300). 295 and 301 never get plank boats or ships. Expeditions now sail
+  as far as their stores go, so more crossings need longer endurance (e.g. better ship quality
+  or new stores) or a different seed set / map - a design question for Michael.
 
 ## Step 6: iron in the fields (in progress)
 

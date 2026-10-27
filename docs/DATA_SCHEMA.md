@@ -226,9 +226,9 @@ span, tallies are summed over it.
 - `metrics.csv` / `YearStats`: `iron_farm_bands` (farming bands with iron tools),
   `opened_fields` (field cells with opened > 0.1), `forest_fields` (field cells in forest
   biomes), `wet_fields` (field cells with rain >= 0.75).
-- Counter `iron_clearing` (band-seasons that opened ground). `summary.json` `farm.first_iron_farm_year`
-  (first year with an iron-farming band, null if never), `farm.iron_farm_bands`,
-  `farm.opened_fields`, `farm.forest_fields`, `farm.wet_fields`, `farm.iron_clearing`; an
+- Counter `iron_clearing` (band-seasons that opened ground). `summary.json` `farming.first_iron_farm_year`
+  (first year with an iron-farming band, null if never), `farming.iron_farm_bands`,
+  `farming.opened_fields`, `farming.forest_fields`, `farming.wet_fields`, `farming.iron_clearing`; an
   "iron in the fields" line in the multi-seed text report.
 - No save format change (the new layer defaults to empty).
 
