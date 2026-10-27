@@ -1011,7 +1011,7 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   (wool shafts, tin tools, casting bronze, and so on). Copper and bronze are still hammered.
 - Checkpoint: step 11b done. Nothing is in progress.
 
-## Step 12: recipe realism (in progress)
+## Step 12: recipe realism (done, with 12b; guard rails fine; steel, ships, ale and gold rings slower at scale)
 
 - Approved by Michael (Oct 27) after the recipe review (`kindling-recipe-review.md`): fix all
   nine issues and clean old saves on load. Emergent, no dates; new forms and materials appended.
@@ -1152,3 +1152,69 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   4/10 first Y122 (none before Y100), prestige r100 0.285 (0.269; 0.195), run 917 s. Guard rails
   hold. Pitch is back to the 11b pace, iron and the boats are ahead of 11b; ale still waits on
   sealed jars plus grain and feasts, and gold rings are rarer (chance; the casting is unchanged).
+- 12b (b) results (run 40573003547, 4606ba0; docs/results-inv-step12b-750y-800x800.txt; 9 living
+  worlds, 499246298 dies out early as always), step 12 then step 11b in brackets: pitch 9/9 med
+  Y296 (9/9 Y410; 9/9 Y156); sealed jar 6/9 med Y332 (7/9 Y518; 9/9 Y208); wrought iron 7/9 med
+  Y302 (8/9 Y279; 8/9 Y312); forged iron tools 7/9 med Y305 (8/9 Y290; 7/9 Y405); steel 2/9 med
+  Y351 (7/9 Y310; 5/9 Y533); bronze metal 8/9 med Y399 (6/9 Y401; 5/9 Y585); cast bronze tools
+  4/9 med Y458 (4/9 Y623; 5/9 Y601); copper tools 8/9 med Y264 (9/9 Y258; 9/9 Y263); loom 9/9
+  med Y176 (9/9 Y204; -); cloth 9/9 med Y437 (9/9 Y433; -); cloth clothing 8/9 med Y569 (9/9
+  Y570; 9/9 Y483); any sail 6/9 med Y445 (7/9 Y432; 8/9 Y502); cloth sail 5/9 med Y633 (5/9
+  Y694; 5/9 Y542); plank boats 6/9 med Y403 (7/9 Y317; 7/9 Y451); ships 0/9 (1/9; 4/9); ale 3/9
+  med Y483 (2/9 Y640; 8/9 Y504); gold rings 5/9 med Y641 (6/9 Y337; 7/9 Y466). Pop 7,626,340
+  (7,808,933; 7,943,784), items 88.3 (91.8; 93.0), war 0.290%/y (0.293; 0.308), disease
+  0.190%/y (0.177; 0.203), crossings 1/10 first Y625 (Y646; Y658), none before Y100, prestige r100
+  0.271 (0.285; 0.272), run 9,275 s (8,902; 9,765).
+- Steel in (b) is a side effect of the 12b forge-hammer rule, read from the code, not tuned:
+  steel is made by heating a bar of wrought iron *alone* in the blown charcoal furnace (with
+  water for the quench), and since 12b a hot bar of iron always takes the band's hard hammer
+  when it has one, so the lone heat that makes steel now happens only in bands without a hard
+  hammer. Steel worlds fell from 7/9 to 2/9: 292 and 293 reached wrought iron in the same years
+  as in step 12 (Y280, Y451) but made no steel; 299 and 300 got iron later and no steel. (a) had no steel in step 12 or 12b, so it did not show there.
+- Other (b) changes are within the seed-to-seed spread of one 10-world run: pitch earlier than in
+  step 12 (Y296, was Y410) but still later than 11b (Y156); sealed jars back to 6/9; ale 3/9
+  (was 2/9; 8/9 in 11b) because it waits on sealed jars, grain and feasts at once; ships 0/9
+  (they need pitch, planks and a sail in one band); gold rings later (med Y641) with the
+  casting unchanged; plank boats a little later (Y403); seed 295 made no copper tool in 750 y.
+- Totals, step 11b -> step 12 -> step 12b, (a) seeds 1-10, 500 y, 256x160 and (b) seeds
+  499246292-301, 750 y, 800x800 ((b) counts over 9 living worlds):
+
+  | | (a) 11b | (a) 12 | (a) 12b | (b) 11b | (b) 12 | (b) 12b |
+  |---|---|---|---|---|---|---|
+  | pitch | 10/10 Y170 | 5/10 Y313 | 10/10 Y183 | 9/9 Y156 | 9/9 Y410 | 9/9 Y296 |
+  | sealed jar | 10/10 Y230 | 1/10 | 4/10 Y303 | 9/9 Y208 | 7/9 Y518 | 6/9 Y332 |
+  | wrought iron | 3/10 Y258 | 3/10 Y409 | 4/10 Y281 | 8/9 Y312 | 8/9 Y279 | 7/9 Y302 |
+  | forged iron tools | 2/10 | 0/10 | 4/10 Y288 | 7/9 Y405 | 8/9 Y290 | 7/9 Y305 |
+  | steel | 1/10 | 0/10 | 0/10 | 5/9 Y533 | 7/9 Y310 | 2/9 Y351 |
+  | bronze metal | 2/10 | 7/10 | 5/10 | 5/9 Y585 | 6/9 Y401 | 8/9 Y399 |
+  | cast bronze tools | 2/10 | 2/10 | 3/10 Y296 | 5/9 Y601 | 4/9 Y623 | 4/9 Y458 |
+  | copper tools | 9/10 Y258 | 10/10 Y254 | 10/10 Y216 | 9/9 Y263 | 9/9 Y258 | 8/9 Y264 |
+  | loom | - | 10/10 Y196 | 10/10 Y166 | - | 9/9 Y204 | 9/9 Y176 |
+  | cloth | - | 8/10 Y353 | 8/10 Y321 | - | 9/9 Y433 | 9/9 Y437 |
+  | cloth clothing | 5/10 | 3/10 | 3/10 | 9/9 Y483 | 9/9 Y570 | 8/9 Y569 |
+  | any sail | 4/10 | 2/10 | 6/10 Y355 | 8/9 Y502 | 7/9 Y432 | 6/9 Y445 |
+  | cloth sail | 0/10 | 0/10 | 2/10 | 5/9 Y542 | 5/9 Y694 | 5/9 Y633 |
+  | plank boats | 6/10 Y365 | 6/10 Y391 | 6/10 Y309 | 7/9 Y451 | 7/9 Y317 | 6/9 Y403 |
+  | ships | 1/10 | 0/10 | 1/10 | 4/9 Y532 | 1/9 | 0/9 |
+  | ale | 6/10 | 0/10 | 0/10 | 8/9 Y504 | 2/9 | 3/9 Y483 |
+  | gold rings | 5/10 | 4/10 | 2/10 | 7/9 Y466 | 6/9 Y337 | 5/9 Y641 |
+  | population | 1,159,192 | 1,132,162 | 1,163,855 | 7,943,784 | 7,808,933 | 7,626,340 |
+  | items (mean) | 74.0 | 70.5 | 74.7 | 93.0 | 91.8 | 88.3 |
+  | war %/y | 0.410 | 0.385 | 0.398 | 0.308 | 0.293 | 0.290 |
+  | disease %/y | 0.130 | 0.124 | 0.138 | 0.203 | 0.177 | 0.190 |
+  | crossings (first) | 5/10 Y112 | 4/10 Y136 | 4/10 Y122 | 1/10 Y658 | 1/10 Y646 | 1/10 Y625 |
+  | prestige r100 | 0.195 | 0.269 | 0.285 | 0.272 | 0.285 | 0.271 |
+  | run time (s, sum) | 795 | 915 | 917 | 9,765 | 8,902 | 9,275 |
+
+  (Years are medians of the world firsts; a count alone means too few worlds for a median that
+  says much.)
+- Guard rails (12b): no crossing before Y100 in either check; (b) 1/10 (under 7/10), (a) 4/10
+  (at most 6/10); war not doubling ((b) 0.290 vs 0.293 and 0.308; (a) 0.398 vs 0.385 and 0.410);
+  no population collapse ((b) -2.3% vs step 12 and -4.0% vs 11b, no living world down more than
+  10% vs step 12; (a) +2.8% vs step 12). All hold. No more tuning: the one 12b round is used.
+- Still slow or rarer than in 11b, left for Michael: steel at scale (the 12b hammer rule above);
+  ale (0/10 (a), 3/9 (b), was 6/10 and 8/9); sealed jars (4/10, 6/9; were 10/10, 9/9); ships
+  (1/10, 0/9; were 1/10, 4/9); gold rings (2/10, 5/9 and later; casting unchanged); pitch at
+  scale (med Y296, Y156 in 11b); cloth clothing in (a) (3/10, 5/10 in 11b).
+- Save format: 14 (step 12); 12b changed experiments only, no format change.
+- Checkpoint: step 12 (with 12b) done. Nothing is in progress.
