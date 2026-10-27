@@ -670,7 +670,7 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   population collapse (499246298 dies out at Y31, as in every step). No further tuning.
 - Checkpoint: step 10 done (goal missed, reported); step 11 (native gold) not started.
 
-## Step 10b: feasts and ornaments scale with band size (in progress)
+## Step 10b: feasts and ornaments scale with band size (done; prestige ~ size goal still missed, guard rails fine)
 
 - Plan (approved Oct 27, one more tuning round for step 10): (1) a feast is as big as its host:
   the flat cap of one season of the guest's need becomes one season of food for a crowd the
@@ -714,8 +714,47 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   disease 0.138 (0.130); prestige ~ size r last-100y mean 0.261 (0.186), range 0.11-0.41; Gini
   (100y) 0.479 (0.496); top band max from Y100 18.1% (same: seed 7 at Y121, a world of ~100
   bands); run 796 s total (903 s).
+- (b) seeds 499246292-301, 750 y, 800x800, run
+  [40528062469](https://github.com/Macrolol/kindling/actions/runs/40528062469)
+  (`docs/results-inv-step10b-750y-800x800.txt`), against step 10 (run 40514750187); prestige
+  figures over the 9 living worlds: **prestige ~ size r 0.264** last-100y mean (0.245; per seed
+  0.18-0.37, was 0.09-0.37), end 0.28 (0.26); by century 0.41 / 0.41 / 0.27 / 0.18 / 0.19 /
+  0.21 / 0.25 / 0.27 (step 10 0.39 / 0.41 / 0.27 / 0.17 / 0.17 / 0.19 / 0.23 / 0.25), from Y201
+  on 0.22 (0.21), no world at 0.4+. Gini end 0.636 (0.634), last 100 y 0.623 (0.617); top-10%
+  share 46.9% (47.5%); top band 0.045% at the end (0.050%), most from Y100 in a world of 100+
+  bands 8.5% (499246299 at Y107, same). Feasts 121.0M (118.8M), food given 225.0M
+  person-seasons (221.0M), food to the hungry 3,287,083 (3,079,803); ale in 8/10 worlds (7), first
+  Y421-Y662, 46.0M ale feasts (40.5M). Crossings 1/10 (499246293 at Y654; Y663), none before
+  Y100; war 0.308 %/yr (0.305); disease 0.192 (0.185); items 80.2 (78.8); population 7,792,409
+  (7,536,822, +3.4%); steel worlds 5 (2). Sim time 9764 s (9943 s; slowest seed 2335 s, 2695 s).
+- Totals, step 10 -> step 10b (prestige over living worlds):
 
-## Step 11: native gold (in progress)
+  | | (a) s10 | (a) s10b | (b) s10 | (b) s10b |
+  |---|---|---|---|---|
+  | prestige ~ size r (last 100 y; per seed) | 0.19 (0.07-0.34) | 0.26 (0.11-0.41) | 0.25 (0.09-0.37) | 0.26 (0.18-0.37) |
+  | r from Y201 on (worlds at 0.4+) | 0.23 (0/10) | 0.28 (2/10) | 0.21 (0/9) | 0.22 (0/9) |
+  | prestige Gini end (last 100 y) | 0.53 (0.50) | 0.51 (0.48) | 0.63 (0.62) | 0.64 (0.62) |
+  | top-10% share of prestige | 37% | 35% | 47% | 47% |
+  | top band share, end (most from Y100, 100+ bands) | 0.24% (8.7%) | 0.22% (8.7%) | 0.05% (8.5%) | 0.05% (8.5%) |
+  | feasts | 16.4M | 17.4M | 118.8M | 121.0M |
+  | food given at feasts (person-seasons) | 27.5M | 30.1M | 221.0M | 225.0M |
+  | food to the hungry | 272,859 | 301,742 | 3,079,803 | 3,287,083 |
+  | ale worlds | 2/10 | 2/10 | 7/10 | 8/10 |
+  | continent crossings (first) | 4/10 (Y126) | 4/10 (Y162) | 1/10 (Y663) | 1/10 (Y654) |
+  | war deaths % | 0.414 | 0.420 | 0.305 | 0.308 |
+  | disease % | 0.130 | 0.138 | 0.185 | 0.192 |
+  | population | 1,150,261 | 1,184,877 | 7,536,822 | 7,792,409 |
+  | run time sum (max seed) | 903 s (265) | 796 s (184) | 9943 s (2695) | 9764 s (2335) |
+
+- **Goal still missed: r 0.26 on (b) and (a), against 0.4-0.6, and it does not hold past Y200
+  (0.22 on (b), 0.28 on (a)).** The bigger feast cap and the size-scaled ornament standing moved
+  r by +0.02 on (b) and +0.07 on (a), as the local probes predicted (small bands, not big ones,
+  hold the surplus; see the probes above). No more tuning (as agreed); recorded and reported.
+- Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war +1% / +1.5%, no population
+  collapse (499246298 dies out at Y31, as in every step).
+- Checkpoint: step 10b done (goal missed, reported).
+
+## Step 11: native gold (done; guard rails fine)
 
 - Plan (approved Oct 27): gold as a rare optional map resource; old saves load, old maps get no
   gold unless regenerated; gold from its own random stream so every other map layer stays
@@ -749,4 +788,66 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   gold; 0.25% on average over the last 100 years). Run 165 s (189 s).
 - GitHub checks on commit 7032723, dispatched 11:28 EDT Oct 27: (a) run 40531284922
   https://github.com/Macrolol/kindling/actions/runs/40531284922, (b) run 40531289571
-  https://github.com/Macrolol/kindling/actions/runs/40531289571 (running).
+  https://github.com/Macrolol/kindling/actions/runs/40531289571 (both confirmed from their
+  manifests: (a) 256x160, seeds 1-10, 500 y; (b) 800x800, seeds 499246292-301, 750 y; both
+  commit 7032723, save format 13).
+- Map layers: on all 20 worlds the biome shares, islands, continents (count and cells) and home
+  landmass are the same as step 10b's, and the CI `cargo test` job (with
+  `gold_leaves_every_other_map_layer_identical`) passed. The runs themselves differ from Y1 on
+  (one more material changes the random draws), so step 11 is a new draw of each world rather
+  than step 10b plus gold; compare totals, not single seeds.
+- Check (a), run [40531284922](https://github.com/Macrolol/kindling/actions/runs/40531284922)
+  (`docs/results-inv-step11-seeds1-10-500y.txt`), against step 10b: gold on every map (36-76
+  cells); gold rings in 10/10 worlds, first Y4-Y252 (4, 22, 83, 152, 186, 193, 203, 234, 247,
+  252; seed 10's at Y4 and seed 8's at Y22 are very early); bands
+  wearing gold peak 36-792 per world (0-523 at Y500); gold wearers' prestige 1.10-2.45x the mean
+  (mean 1.51x, last 100 years). Prestige ~ size r 0.246 (0.261), from Y201 on 0.28 (0.28); Gini
+  end 0.500 (0.509), last 100 y 0.467 (0.479); top-10% 35.6% (34.9%); top band end 0.23%
+  (0.22%), most from Y100 in a world of 100+ bands 8.1% (seed 2 at Y100, before its gold).
+  Crossings 4/10 (Y132, Y168, Y212, Y258; 10b Y162, Y183, Y183, Y248), none before Y100; war
+  0.408 %/yr (0.420); disease 0.126 (0.138); items 68.9 (72.6); population 1,179,481 (1,184,877,
+  -0.5%; seed 10 99k -> 61k, seed 5 248k -> 289k); feasts 17.4M (same); ale worlds 4 (2). Sim
+  time 836 s (796 s; max seed 246 s, 184 s).
+- Check (b), run [40531289571](https://github.com/Macrolol/kindling/actions/runs/40531289571)
+  (`docs/results-inv-step11-750y-800x800.txt`): gold on every map (1,425-2,022 cells); gold
+  rings in all 9 living worlds, first Y38-Y339 (38, 111, 126, 128, 136, 161, 177, 252, 339);
+  bands wearing gold peak 43-3,504 per world (up to 3,504 at Y750, of 13k-86k bands); gold held
+  637-8,902; wearers' prestige 1.52x the mean (1.0-2.2x; 499246301 0.18x with 42 wearers).
+  Prestige ~ size r 0.268 (0.264; per seed 0.19-0.39), from Y201 on 0.23 (0.22); Gini end 0.629
+  (0.636), last 100 y 0.619 (0.623); top-10% 46.4% (46.9%); top band end 0.045% (same). Most
+  from Y100 in a world of 100+ bands: 24.7% (499246300 at Y100 with 114 bands, under 5% by Y120,
+  77 years before its first gold ring; 10b 8.5%): an early small-world effect like step 10's
+  seed 7, not a hub. Crossings 1/10 (499246293 at Y662; Y654), none before Y100; war 0.303 %/yr
+  (0.308); disease 0.194 (0.192); items 81.7 (80.2); population 7,721,425 (7,792,409, -0.9%);
+  feasts 132.3M (121.0M); ale worlds 9 (8); steel worlds 3 (5). Sim time 9605 s (9764 s; max
+  seed 2048 s, 2335 s).
+- Totals, step 10b -> step 11:
+
+  | | (a) s10b | (a) s11 | (b) s10b | (b) s11 |
+  |---|---|---|---|---|
+  | maps with gold (cells) | - | 10/10 (36-76) | - | 10/10 (1,425-2,022) |
+  | worlds with gold rings | - | 10/10 | - | 9/9 living |
+  | first gold ring | - | Y4-Y252 | - | Y38-Y339 |
+  | gold bands peak (per world) | - | 36-792 | - | 43-3,504 |
+  | gold wearers' prestige / mean | - | 1.51x | - | 1.52x |
+  | other map layers | - | same | - | same |
+  | prestige ~ size r (last 100 y) | 0.26 | 0.25 | 0.26 | 0.27 |
+  | prestige Gini end / top-10% | 0.51 / 35% | 0.50 / 36% | 0.64 / 47% | 0.63 / 46% |
+  | continent crossings (first) | 4/10 (Y162) | 4/10 (Y132) | 1/10 (Y654) | 1/10 (Y662) |
+  | war deaths % | 0.420 | 0.408 | 0.308 | 0.303 |
+  | disease % | 0.138 | 0.126 | 0.192 | 0.194 |
+  | items (mean, end) | 72.6 | 68.9 | 80.2 | 81.7 |
+  | population | 1,184,877 | 1,179,481 | 7,792,409 | 7,721,425 |
+  | run time sum (max seed) | 796 s (184) | 836 s (246) | 9764 s (2335) | 9605 s (2048) |
+
+- Reading: gold is a rare map resource (about 0.1-0.3% of cells) that nearly every world
+  finds and works; gold wearers stand about 1.5x the average, but the wearers are a few hundred
+  to a few thousand bands, so the spread of standing over a world does not move (the local smoke's
+  Gini rise was seed noise). Everything else is within run-to-run divergence of step 10b.
+- Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war down slightly, no population
+  collapse (499246298 dies out at Y31, as in every step). No tuning.
+- Web: the wasm build (`cargo build --release -p kindling --target wasm32-unknown-unknown`, the
+  build step of `./build-web.sh`) passes on this code, with one old warning (unused `frame` in
+  `native/src/main.rs`).
+- Checkpoint: step 11 done. All steps of the inventions plan (0-11, with 5b, 8b, 10b) are built
+  and checked; nothing is in progress.

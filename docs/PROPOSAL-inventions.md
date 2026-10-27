@@ -1,6 +1,6 @@
 # Proposal: new inventions (after iron and sail)
 
-Status: **accepted (Oct 26 2026), being built step by step.** Michael's answers to the open
+Status: **accepted (Oct 26 2026); all steps built and checked (Oct 27 2026).** Michael's answers to the open
 questions are in section 6 ("Decisions"); progress per step is in the step table (section 5)
 and in `docs/PROGRESS-inventions.md`. The proposal was written against `main` 2b7005c, the code
 that produced `docs/results-v10-750y-800x800.txt`.
@@ -385,7 +385,8 @@ Results go to `docs/PROGRESS-inventions.md` (built and checked, like `PROGRESS-v
 | 8b | **Close ties** (Michael approved) | yearly tie upkeep goes mostly to the strongest ties (trade strength + marriage + kinship), loose ties fade; no cap, no set number | food sharing, trades, metal trade and iron/steel recover toward step 7; partners uncapped and varied | S | done: food sharing about half of step 7, trades and distance near step 7, steel 4/10 on (b); guard rails fine |
 | 9 | **Charts** | records × pilotage keeps and teaches routes | (b) crossings still within 4–6/10 (charts must not push it to 9–10) | S | done: charts in 8/10 worlds on (b) (first Y447-Y706), 2/10 on (a); 343 routes taught on (b); crossings unchanged ((a) 4/10, (b) 1/10, none before Y100); war, disease, population same |
 | 10 | **Feasts and ale** | absolute-surplus prestige, ale | (b) prestige ~ size correlation rises (target 0.4–0.6); no single hub takes over | M | done; **goal missed**: r 0.25 on (b) (0.19 on (a)), 0.35-0.5 early, falls as ornaments spread; no hub (top band <1% from Y200), Gini 0.44 -> 0.63; feasts everywhere from Y22-66, ale in 7/10 (b) worlds from Y369; guard rails fine (see PROGRESS) |
-| 11 | **Native gold** | deposit, map generator v5, gold ornaments | (a)+(b) other map layers unchanged (gold placed from its own random stream); local prestige | M | to do |
+| 10b | **Feasts and ornaments scale with band size** (Michael approved) | feast cap and ornament standing grow with band size | (b) prestige ~ size r 0.4–0.6, holding past Y200; guard rails | S | done; **goal still missed**: r 0.26 on (b) (0.26 on (a)), 0.22 from Y201 on, no world at 0.4+; Gini and top band same; guard rails fine; no more tuning (see PROGRESS) |
+| 11 | **Native gold** | deposit, map generator v5, gold ornaments | (a)+(b) other map layers unchanged (gold placed from its own random stream); local prestige | M | done: gold on every map, gold rings in 10/10 (a) and 9/9 living (b) worlds (first Y4-Y339), wearers about 1.5× the mean prestige; biomes, islands and continents unchanged (the sim itself diverges from Y1); save format 13; guard rails fine |
 
 If a step overshoots the crossing target, tune that step's own strength rather than add a cap.
 The rough order matters: preservation first (it is useful on land too), then the sea chain,
@@ -444,6 +445,8 @@ long-crossing goal.
   (stock padded, craft leaning inserted, migration plus binary route, fixture test). New `Band`
   fields must be appended at the end of the struct (v10 positional band rows). A new
   `FORMAT_VERSION` (11) is needed once, at step 1; later additions are additive.
+  (As built: the format went to 13 by step 11, v11 through v13, each with a migration and fixture;
+  see `docs/SAVE_FORMAT.md`.)
 - **Web build:** all changes are in `civ-core` with no new dependencies, so the wasm build should
   be unaffected. `./build-web.sh` is checked every step.
 - **CI time.** The late-game check (b) is the expensive one, so it runs once per step and not for
