@@ -852,7 +852,7 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 - Checkpoint: step 11 done. All steps of the inventions plan (0-11, with 5b, 8b, 10b) are built
   and checked; nothing is in progress.
 
-## Step 11b: gold is cast, not cold-hammered (in progress)
+## Step 11b: gold is cast, not cold-hammered (done; guard rails fine)
 
 - Asked by Michael (Oct 27): gold rings should need smelting heat, a crucible and a mould, not a
   hammerstone and a nugget. The cold-hammered path goes entirely; raw gold is still noticed and
@@ -956,4 +956,57 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   fired pot) is now the bottleneck. Gold-wearer bands peak 9-236 (was 36-792), prestige over
   the mean 0.77-1.45 (mean 1.01; was 1.51). Guard rails: crossings 5/10 (<= 6), none before
   Y100; war 0.410%/y (s11 0.408); population 1,159,192 (s11 1,179,481).
+- (b) result (run 40551447315, 585dfc6, `docs/results-inv-step11b-750y-800x800.txt`). World
+  firsts (the first band anywhere); "ring s11" is step 11's cold-hammered ring:
 
+  | seed | ring s11 | fired mould | crucible | ring s11b | copper | charcoal | charcoal fire | gold bands end (peak) |
+  |---|---|---|---|---|---|---|---|---|
+  | 292 | Y125 | Y74 | Y344 | Y552 | Y224 | Y106 | Y141 | 125 (245) |
+  | 293 | Y110 | Y54 | Y212 | Y225 | Y190 | Y132 | Y144 | 214 (378) |
+  | 294 | Y38 | Y117 | Y234 | Y239 | Y186 | Y149 | Y176 | 505 (894) |
+  | 295 | Y136 | Y58 | Y372 | Y394 | Y245 | Y161 | Y195 | 46 (136) |
+  | 296 | Y251 | Y74 | Y457 | Y466 | Y251 | Y126 | Y160 | 189 (274) |
+  | 297 | Y160 | Y61 | Y482 | Y565 | Y259 | Y92 | Y124 | 91 (141) |
+  | 298 | - | - | - | - | - | - | - | dies out (as always) |
+  | 299 | Y128 | Y96 | Y473 | Y486 | Y205 | Y135 | Y148 | 538 (572) |
+  | 300 | Y176 | Y129 | Y217 | - | Y269 | Y180 | Y187 | 0 |
+  | 301 | Y338 | Y144 | - | - | Y381 | Y136 | Y238 | 0 |
+
+  Rings in 7/9 living worlds (was 9/9), first Y225-Y565 (was Y38-Y338), every one after the
+  world's first copper smelting (+36 to +327 years; in step 11, 8/9 came before it). 300 made a
+  crucible at Y217 but never cast in 750 years; 301 never made a crucible. Gold-wearer bands
+  peak 136-894 (was 43-3,504); wearers' prestige over the mean 0.79-2.18, mean 1.24 (1.52).
+- Order check (tool `after.py`, sections 6 and 6a of the (b) file): in both checks no first
+  ring comes before that world's charcoal, charcoal fire, a kiln, a fired mould or a crucible,
+  and every first ring was `heat fired clay mould + crucible of gold over charcoal fire in a
+  <stone-lined | clay-lined | fired-brick> kiln`. Only (a) seed 8 casts before its first copper
+  (22 years, in the same charcoal furnace, which already existed).
+- Totals, step 11 -> step 11b:
+
+  | | (a) s11 | (a) s11b | (b) s11 | (b) s11b |
+  |---|---|---|---|---|
+  | worlds with gold rings | 10/10 | 5/10 | 9/9 living | 7/9 living |
+  | first gold ring | Y4-Y247 | Y237-Y485 | Y38-Y338 | Y225-Y565 |
+  | ring before copper smelting | 7/10 | 1/5 | 8/9 | 0/7 |
+  | ring before any charcoal fire | 4/10 | 0 | 6/9 | 0 |
+  | gold bands peak (per world) | 36-792 | 9-236 | 43-3,504 | 136-894 |
+  | gold wearers' prestige / mean | 1.51x | 1.01x | 1.52x | 1.24x |
+  | prestige ~ size r (last 100 y) | 0.25 | 0.20 | 0.27 | 0.27 |
+  | prestige Gini end / top-10% | 0.50 / 36% | 0.53 / 37% | 0.63 / 46% | 0.63 / 47% |
+  | top band end | 0.23% | 0.25% | 0.045% | 0.049% |
+  | continent crossings (first) | 4/10 (Y132) | 5/10 (Y112) | 1/10 (Y662) | 1/10 (Y658) |
+  | war deaths % | 0.408 | 0.410 | 0.303 | 0.308 |
+  | disease % | 0.126 | 0.130 | 0.194 | 0.203 |
+  | population | 1,179,481 | 1,159,192 | 7,721,425 | 7,943,784 |
+
+- Reading: gold rings now come with the copper furnace, late and in fewer worlds; with fewer,
+  later wearers the prestige edge of gold shrinks (1.5x to 1.0-1.2x), and the spread of standing
+  over a world barely moves ((b) the same; (a) Gini 0.50 to 0.53, r 0.25 to 0.20, within the
+  seed-to-seed spread of a 10-world run). The crucible (raw gold meeting a fired pot in a band
+  that also runs a charcoal furnace) is now the slow step.
+- Guard rails: no crossing before Y100 in either check; (b) 1/10 (under 7/10), (a) 5/10 (at
+  most 6/10); war about the same (not doubling); population (b) +2.9%, (a) -1.7%, no collapse
+  (499246298 dies out at once, as in every step). No tuning.
+- Not done here (awaits Michael's decision): the other recipe fixes from the recipe review
+  (wool shafts, tin tools, casting bronze, and so on). Copper and bronze are still hammered.
+- Checkpoint: step 11b done. Nothing is in progress.
