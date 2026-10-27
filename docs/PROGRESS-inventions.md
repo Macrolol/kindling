@@ -290,7 +290,7 @@ Checks:
   as far as their stores go, so more crossings need longer endurance (e.g. better ship quality
   or new stores) or a different seed set / map - a design question for Michael.
 
-## Step 6: iron in the fields (in progress)
+## Step 6: iron in the fields (done)
 
 - Added: iron axes and edges open forest and heavy wet ground for farming (PROPOSAL 3.1).
   - New saved layer `opened` (0..1 per cell, defaults empty; no format bump) and derived
@@ -307,3 +307,14 @@ Checks:
 - Local smoke (seeds 1-2, 500y): iron reached ever in both but no band holds iron at Y500
   (stage now copper), so no iron farming yet; fields 5480/3649, forest 2149/1347, wet 599/384
   as baseline. Effects should show in the 750y (b) runs.
+- Check (a), run 40479800575 (commit 7b3f2c2), docs/results-inv-step6-seeds1-10-500y.txt:
+  crossings 5/10 (Y118, Y179, Y205, Y270, Y466), none before Y100. Iron farming only in seed 5
+  (from Y245) and seed 7 (Y404) within 500 years, so little change: war 0.400%/y, disease
+  0.122%/y, items 68.4, population 1 159 092 (5b: 1 177 335, seed 5 diverging), fields 33 377.
+- Check (b), run 40479809575, docs/results-inv-step6-750y-800x800.txt: iron farming in 8 of 9
+  surviving worlds (Y280-Y583). Field cells 215 990 vs 204 858 in 5b (+5%), 35 019 opened by
+  iron, 67 834 in forest and 19 958 on wet ground. Farmers +16%, population 7 648 642 (+8%).
+  Disease 0.183%/y (5b 0.170, +8%), war 0.297%/y (same), items 74.9. Crossings 1/10
+  (499246293 at Y670), none before Y100.
+- Reading: the step does what PROPOSAL 3.1 asked - more farmland in forest and wet worlds with
+  disease within reason - so no tuning.
