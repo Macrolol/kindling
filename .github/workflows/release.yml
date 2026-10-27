@@ -114,18 +114,23 @@ jobs:
   build:
     name: Build ${{ matrix.asset }}
     needs: prepare
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
+          # Linux on 22.04 so the binary needs only glibc 2.35
           - asset: kindling-linux-x86_64
             kind: linux
+            os: ubuntu-22.04
           - asset: kindling-windows-x86_64.exe
             kind: windows
+            # mimalloc v3 needs newer mingw-w64 headers than 22.04 ships
+            os: ubuntu-24.04
           - asset: kindling-web.zip
             kind: web
+            os: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -184,7 +189,7 @@ jobs:
           retention-days: 14
 
   release:
-    name: ${{ needs.prepare.outputs.dry_run == 'true' && 'Assemble notes (dry run, no release)' || 'Create draft release' }}
+    name: Checksums, notes and draft release
     needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
