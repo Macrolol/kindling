@@ -205,6 +205,14 @@ impl Map {
     pub fn biome_at(&self, i: usize) -> Biome {
         Biome::from_u8(self.biome[i])
     }
+    /// (inventions step 12) resinous wood (pine and birch: their knots, stumps and bark) at
+    /// hand: wooded cells of the cool lands and hills (taiga, temperate forest, wooded steppe
+    /// and tundra, mountains). Derived from the biome and wood layers, so every map has it and
+    /// no saved layer changes
+    pub fn resin_wood(&self, i: usize) -> bool {
+        use Biome::*;
+        self.k_wood[i] > 2.0 && matches!(self.biome_at(i), Taiga | TempForest | Mountain | Steppe | Tundra)
+    }
     /// latitude in degrees for row y (north at the top)
     pub fn lat(&self, y: usize) -> f32 {
         self.lat_n + (self.lat_s - self.lat_n) * y as f32 / (self.h.max(2) - 1) as f32

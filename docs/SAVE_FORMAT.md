@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 13` (Kindling 0.9 development, inventions). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 14` (Kindling 0.9 development, inventions). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -207,5 +207,24 @@ Current: `FORMAT_VERSION = 13` (Kindling 0.9 development, inventions). v0.8.0 wr
     hammerstone`) stays in the registry and with the bands that know it, so their rings stay;
     on load the registry marks it retired (derived, not saved) and it is never taught,
     absorbed or captured by another band (`legacy_cold_gold_rings_are_kept_not_taught`).
+- **v14** (inventions step 12: recipe realism). Migration `v13_to_v14`:
+  - Material 28 `ResinWood` (resinous wood: pine and birch, the only source of pitch) is
+    appended, so every item id is unchanged. Forms `Cloth` (id 30) and `Loom` (id 31) are
+    appended too (32 forms is the `ItemSet` limit).
+  - `bands[].stock` and `bands[].origin` grow from 28 to 29 entries (0.0 / `u32::MAX`);
+    `bands[].craft` gets a neutral 1.0 at index 28, before the three action leanings.
+  - Binary v13 saves are decoded directly and `Band::fit_vectors` pads the vectors on load;
+    JSON v13 saves go through `v13_to_v14`. Both give the same bands.
+  - The map is untouched: resinous wood is derived from the biome and wood layers
+    (`Map::resin_wood`), so old maps have it too.
+  - Recipe cleanup on load (every format, `World::clean_recipes` in `after_load`): a recipe
+    today's physics no longer allows is marked retired (derived, not saved) and dropped from
+    every band that knows it, so it is never used, taught, inherited or captured; the registry
+    keeps it (recipe ids are stable). Kits are re-derived from what is left. Exceptions: pitch
+    boiled from wood is re-pointed in place to resinous wood (same recipe id, same bands), and
+    the step 11 cold-gold ring recipe stays with its bands (step 11b). Idempotent.
+  - Fixture `v13_seed3_y350_96x60.civsave` (written by the step 11b build: seed 3, 96x60, run
+    350 years; its bands know tin knives, tin points and tin-tipped spears, and wood pitch) is
+    loaded by `v13_fixture_cleans_forbidden_recipes`, which also checks the JSON route.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

@@ -5,7 +5,7 @@
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
 
-pub const NMAT: usize = 28;
+pub const NMAT: usize = 29;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
 /// products of physics (charcoal, ceramic, metals).
 pub const NRAW: usize = 13;
@@ -60,6 +60,11 @@ pub enum Mat {
     /// Good for nothing but show, and (step 11b) only made into a ring by melting it in a
     /// crucible and pouring it into a mould
     Gold,
+    // inventions step 12: appended so every older index is unchanged
+    /// resinous wood: the resin-soaked knots, stumps and bark of pine and birch, found in the
+    /// conifer and birch woods of cool lands and hills. Heated in a closed pot it sweats out
+    /// pitch (wood tar); ordinary wood does not
+    ResinWood,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wood,
@@ -90,6 +95,7 @@ pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Pitch,
     Mat::Steel,
     Mat::Gold,
+    Mat::ResinWood,
 ];
 
 /// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
@@ -133,6 +139,10 @@ pub struct Props {
     pub seal: f32,
     /// (inventions step 11) worth for show beyond the work put in: rare, bright and lasting
     pub prized: f32,
+    /// (inventions step 12) woody: long straight grain that can be carved into a shaft
+    pub woody: f32,
+    /// (inventions step 12) resinous: gives pitch when heated in a closed pot
+    pub resin: f32,
 }
 
 const fn p(name: &'static str) -> Props {
@@ -157,11 +167,13 @@ const fn p(name: &'static str) -> Props {
         float: 0.0,
         seal: 0.0,
         prized: 0.0,
+        woody: 0.0,
+        resin: 0.0,
     }
 }
 
 pub static PROPS: [Props; NMAT] = [
-    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, float: 7.0, ..p("wood") },
+    Props { hard: 2.0, tough: 6.0, sharp: 2.0, workable: 7.0, fibrous: 4.0, fuel_t: 650.0, float: 7.0, woody: 8.0, ..p("wood") },
     Props { hard: 6.0, tough: 7.0, fracture: 3.5, sharp: 3.0, workable: 1.0, refractory: 4.0, ..p("stone") },
     Props { hard: 7.0, tough: 3.5, fracture: 9.0, sharp: 8.0, workable: 0.5, refractory: 3.0, ..p("flint") },
     Props { hard: 5.5, tough: 1.5, fracture: 10.0, sharp: 10.0, workable: 0.5, ..p("obsidian") },
@@ -192,6 +204,9 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 6.0, tough: 9.0, sharp: 9.0, malleable: 5.5, melt: 1450.0, ..p("steel") },
     // soft and too heavy-and-blunt for any tool; hammered cold into beads, sheet and wire
     Props { hard: 2.5, tough: 5.0, sharp: 1.0, malleable: 10.0, melt: 1064.0, prized: 1.0, ..p("gold") },
+    // knotty, gnarled and sticky: no good for a shaft (not `woody`), burns as wood does; its
+    // only use is pitch
+    Props { hard: 2.0, tough: 4.0, workable: 3.0, fuel_t: 650.0, float: 6.0, resin: 9.0, ..p("resinous wood") },
 ];
 
 impl Mat {
@@ -213,7 +228,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 30;
+pub const NFORM: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -285,6 +300,12 @@ pub enum Form {
     Mould,
     /// a fired-clay crucible charged with metal for melting (material = the metal)
     Crucible,
+    // inventions step 12
+    /// a woven length of cloth (material = the yarn's fibre: linen, wool)
+    Cloth,
+    /// a simple warp-weighted loom: an upright frame of poles, the warp hung from it and kept
+    /// taut by stone weights (material = the frame's wood)
+    Loom,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -317,6 +338,8 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Mark,
     Form::Mould,
     Form::Crucible,
+    Form::Cloth,
+    Form::Loom,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -389,7 +412,7 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n} fire"),
         },
         Form::Kiln => match m {
-            Mat::Ceramic => "fired-brick kiln".into(),
+            Mat::Ceramic => "sherd-lined kiln".into(),
             _ => format!("{n}-lined kiln"),
         },
         Form::Boat => match m {
@@ -406,7 +429,7 @@ pub fn item_name(i: Item) -> String {
         Form::Bellows => format!("{n} bellows"),
         Form::Bloom => format!("{n} bloom"),
         Form::Bow => match m {
-            Mat::Hide => "sinew-strung bow".into(),
+            Mat::Hide => "rawhide-strung bow".into(),
             _ => format!("bow ({n} string)"),
         },
         Form::Shield => format!("{n} shield"),
@@ -457,6 +480,15 @@ pub fn item_name(i: Item) -> String {
             _ => format!("{n} mould"),
         },
         Form::Crucible => format!("crucible of {n}"),
+        Form::Cloth => match m {
+            Mat::Flax => "linen cloth".into(),
+            Mat::Wool => "woollen cloth".into(),
+            _ => format!("{n} cloth"),
+        },
+        Form::Loom => match m {
+            Mat::Wood => "warp-weighted loom".into(),
+            _ => format!("{n} loom"),
+        },
     }
 }
 

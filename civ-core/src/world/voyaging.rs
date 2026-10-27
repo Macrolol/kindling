@@ -302,9 +302,10 @@ impl World {
 
     /// (v8) Whether a band can use its sail: people who know the sea well enough to use the wind
     /// (seacraft above 0.4); (inventions step 5b) a mat sail only on a plank hull or a ship, since
-    /// a dugout or canoe cannot carry a mast and a heavy mat.
+    /// a dugout or canoe cannot carry a mast and a heavy mat; (inventions step 12) and so for
+    /// every sail: a mast is stepped only in a plank hull or a ship.
     pub fn sail_usable(k: &Kit, xp: f32) -> bool {
-        k.sail != NONE && xp > 0.4 && (!Self::mat_sail(k.sail) || k.plank != NONE || k.ship != NONE)
+        k.sail != NONE && xp > 0.4 && (k.plank != NONE || k.ship != NONE)
     }
 
     /// (inventions step 5b) How far a planned expedition can go: a ship crew whose stores feed

@@ -1178,7 +1178,7 @@ fn sea_extras(w: &World) -> SeaSummary {
         seacraft_p50: quantile(&mut xp, 0.5),
         seacraft_p90: quantile(&mut xp, 0.9),
         seacraft_max: xp.last().copied().unwrap_or(0.0),
-        sail_bands: boats.iter().filter(|b| b.d.kit.sail != NONE && b.seacraft > 0.4).count() as u32,
+        sail_bands: boats.iter().filter(|b| World::sail_usable(&b.d.kit, b.seacraft)).count() as u32,
         rumour_share: held.len() as f32 / n,
         rumour_in_reach_share: reach as f32 / n,
         range_p90: quantile(&mut range, 0.9),

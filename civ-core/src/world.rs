@@ -1036,6 +1036,9 @@ impl World {
                 }
             }
         }
+        // (inventions step 12) recipes the rules no longer allow go, before toolkits and kits
+        // are derived again from what is left
+        self.clean_recipes();
         // derived toolkits so a freshly loaded (paused) world can be inspected
         // and the season's figures (food, stress, cold...), which are not saved: recompute them
         // from the loaded world so the inspector and stats are right before the first step
@@ -1047,6 +1050,51 @@ impl World {
             ec.apply(&mut b.d);
         }
         self.bands = bands;
+    }
+
+    /// (inventions step 12) Save cleanup on load. Recipes learned under older, laxer rules
+    /// that physics no longer allows (a wool or hide shaft, a tin knife or point, cold-hammered
+    /// bronze, iron or steel, a sail of clothing on a canoe, clothing sewn from raw fibre, bronze
+    /// fired from the bare metals, a hammered obsidian pendant...) are dropped from every band
+    /// that knows them; the registry keeps them (recipe ids are stable) marked retired, so they
+    /// are never taught, inherited or captured. Pitch boiled from wood is the one recipe carried
+    /// over: it becomes the same recipe with resinous wood (the know-how is the same; the band
+    /// needs pine or birch at hand to use it). The cold-gold ring recipe of step 11 stays with
+    /// the bands that know it (step 11b). Kits are then re-derived from the toolkit that is left
+    /// (`refresh_toolkit`, below in `after_load`). Idempotent: a second pass changes nothing.
+    /// Returns (recipes repointed, known entries dropped).
+    pub fn clean_recipes(&mut self) -> (usize, usize) {
+        let wood = item(Form::Raw, Mat::Wood);
+        let resin = item(Form::Raw, Mat::ResinWood);
+        let pitch = item(Form::Raw, Mat::Pitch);
+        let mut repointed = 0;
+        for k in 0..self.reg.recipes.len() {
+            let r = &self.reg.recipes[k];
+            if r.action != Action::Heat as u8 || r.output != pitch || !r.inputs[..2].contains(&wood) || !is_retired(r) {
+                continue;
+            }
+            let mut inp = r.inputs;
+            for x in inp[..2].iter_mut() {
+                if *x == wood {
+                    *x = resin;
+                }
+            }
+            let inp = physics::canonical(Action::Heat, inp);
+            let r2 = Recipe { inputs: inp, ..r.clone() };
+            if self.reg.find(Action::Heat, &inp).is_none() && !is_retired(&r2) {
+                self.reg.recipes[k] = r2;
+                repointed += 1;
+            }
+        }
+        self.reg.rebuild_index();
+        let reg = &self.reg;
+        let mut dropped = 0;
+        for b in &mut self.bands {
+            let before = b.known.len();
+            b.known.retain(|kn| !reg.retired(kn.recipe) || is_legacy_gold(&reg.recipes[kn.recipe as usize]));
+            dropped += before - b.known.len();
+        }
+        (repointed, dropped)
     }
 
     // ------------------------------------------------------------------ step
@@ -1360,6 +1408,10 @@ impl World {
         }
         if m.k_fibre[i] > 2.0 || st(Mat::Fibre) {
             s.add(raw(Mat::Fibre));
+        }
+        // (inventions step 12) pine and birch, for pitch
+        if m.resin_wood(i) || st(Mat::ResinWood) {
+            s.add(raw(Mat::ResinWood));
         }
         for (d, mm) in DEPOSITS {
             if m.has(i, d) || st(mm) {
@@ -1718,6 +1770,13 @@ impl World {
             b.stock[Mat::Fibre as usize] = b.stock[Mat::Fibre as usize].max(0.6);
             b.origin[Mat::Fibre as usize] = ci as u32;
         }
+        // (inventions step 12) resinous wood is gathered where pine and birch grow, and a band
+        // that boils pitch keeps more of it by
+        if self.map.resin_wood(ci) {
+            let mi = Mat::ResinWood as usize;
+            b.stock[mi] = b.stock[mi].max(if needed & (1 << mi) != 0 { 1.0 } else { 0.3 });
+            b.origin[mi] = ci as u32;
+        }
         for mi in [Mat::Hide as usize, Mat::Bone as usize] {
             if hunted > 1.0 {
                 b.origin[mi] = ci as u32;
@@ -1745,6 +1804,7 @@ impl World {
             }
             let present = match mm {
                 Mat::Wood => self.map.k_wood[ci] > 2.0,
+                Mat::ResinWood => self.map.resin_wood(ci),
                 Mat::Fibre => self.map.k_fibre[ci] > 2.0,
                 Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel | Mat::Salt => b.d.tk.producible.has(raw(mm)),
                 Mat::Brine => false,
@@ -2046,7 +2106,15 @@ impl World {
                     let keeps = if matches!(m, Mat::Fibre | Mat::Hide | Mat::Bone) { 0.3 } else if m.is_food() || m.props().fuel_t > 0.0 { 1.0 } else { 1.5 };
                     // a slaggy bloom fresh from the furnace begs to go straight back in the fire
                     // (inventions step 11b) and so does a crucible charged with metal to melt
-                    let unfinished = if matches!(form(i), Form::Bloom | Form::Crucible) { 8.0 } else { 1.0 };
+                    // (inventions step 12) and a bar or blade of iron or steel, which is only
+                    // worked hot
+                    let unfinished = if matches!(form(i), Form::Bloom | Form::Crucible) {
+                        8.0
+                    } else if matches!(form(i), Form::Raw | Form::Edge) && physics::hot_worked(m) {
+                        4.0
+                    } else {
+                        1.0
+                    };
                     att[m as usize].sqrt() * keeps * unfinished
                 })
                 .collect();
@@ -2076,6 +2144,8 @@ impl World {
                 Form::Shaft => 1.0 + 0.5 * sh(1) + sh(3),
                 Form::Cord => 1.0 + 0.5 * sh(3) + sh(2) + 0.3 * NEED_FORM * cold,
                 Form::Vessel => 1.0 + 0.5 * NEED_FORM * store,
+                // (inventions step 12) the cold reach for the loom and its cloth, as for needles
+                Form::Loom | Form::Cloth => 1.0 + NEED_FORM * 0.5 * cold,
                 _ => 1.0,
             }
         };
@@ -2091,7 +2161,8 @@ impl World {
             }
             // a bloom is reworked in the furnace it came out of, in its hottest fire
             // (inventions step 11b) and so is a charged crucible
-            let hot = |i: Item| i != NONE && matches!(form(i), Form::Bloom | Form::Crucible);
+            // (inventions step 12) and so is iron or steel to be forged
+            let hot = |i: Item| i != NONE && (matches!(form(i), Form::Bloom | Form::Crucible) || (matches!(form(i), Form::Raw | Form::Edge) && physics::hot_worked(mat(i))));
             let smithing = hot(t1) || hot(t2);
             let k = if !kilns.is_empty() && (smithing || rng.chance(0.6)) { pick(rng, &kilns) } else { NONE };
             // the fire: a band that knows a hotter fire (charcoal) mostly banks that one for
@@ -2104,6 +2175,14 @@ impl World {
             // a band with bellows works them into a hot charcoal furnace
             let mut t2 = t2;
             // (inventions step 11b) metal melting in a crucible wants somewhere to be poured
+            // (inventions step 12) molten copper (or tin) in a crucible invites the other metal
+            // stirred in: bronze
+            if t2 == NONE && form(t1) == Form::Crucible && matches!(mat(t1), Mat::Copper | Mat::Tin) && rng.chance(0.5) {
+                let partner = raw(if mat(t1) == Mat::Copper { Mat::Tin } else { Mat::Copper });
+                if pool.contains(&partner) {
+                    t2 = partner;
+                }
+            }
             if t2 == NONE && form(t1) == Form::Crucible && rng.chance(0.5) {
                 // a fired mould before a raw clay one: a mould that has already been through the
                 // fire is the one that takes the pour (fixes the 11b first run, which always
@@ -2115,7 +2194,9 @@ impl World {
                 }
             }
             // a hot spongy lump from the furnace invites a blow with the hammer stone
-            if t2 == NONE && form(t1) == Form::Bloom && rng.chance(0.5) {
+            // (inventions step 12) so does a bar or blade of iron or steel at white heat
+            let forgeable = matches!(form(t1), Form::Raw | Form::Edge) && physics::hot_worked(mat(t1));
+            if t2 == NONE && (form(t1) == Form::Bloom || forgeable) && rng.chance(0.5) {
                 if let Some(hm) = pool.iter().copied().find(|&i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0) {
                     t2 = hm;
                 }

@@ -1034,3 +1034,34 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   learned forbidden recipes: tin knife (1150 bands), tin point, tin-tipped spear (518 bands),
   hide net made with a tin point, clay token marked with a tin point, a cold-hammered iron
   knife (in the registry), wood + pot -> pitch (all bands).
+- Sub-step 12.1 (rules, cleanup, tests) done:
+  - New material: resinous wood (pine, birch; appended, mat 28). Found where there is real
+    woodland in taiga, temperate forest, mountain, steppe and tundra cells. Pitch now needs it
+    (plus a fired pot); plain wood gives no pitch.
+  - New forms (appended; 32 is the most an item set holds): cloth (30) and loom (31). A simple
+    warp-weighted loom is a wooden shaft, cord and a stone weight; cloth is a loom plus linen or
+    wool yarn, and the cloth takes the yarn's fibre. Garments are cloth sewn with cord and a point.
+  - Sails: water + plank hull or ship + a shaft (mast) + cloth. A sail is usable only by a band
+    that also has plank hulls or ships (`sail_usable`), in voyaging and in the analysis bands.
+  - Shafts only from woody material; spears only on a wooden shaft. Tin makes no edge, point,
+    needle or nail (metal must be at least as hard as copper). Copper is cold-hammered and gold
+    is already cast; bronze tools are cast (any castable metal melts in the crucible; crucible +
+    fired mould gives an edge for hard metals, an ornament for prized ones). Iron and steel are
+    hot-forged: raw or edge + a hard hammer at forge heat. Two raw metals with no ore make
+    nothing, except a copper or tin crucible with the partner metal at copper-melting heat and a
+    reducing fire, which makes bronze. Obsidian pendants are ground on stone. Display names:
+    "rawhide-strung bow", "sherd-lined kiln".
+  - Experiments now try what the new routes need: forge heat for iron and steel, the hammer for
+    any forgeable metal, the partner metal for a crucible, and looms and cloth where it is cold.
+  - Save format 14 (stock and origin grow to 29, craft gets resinous wood at 1.0; the map is
+    untouched). On every load `clean_recipes` points the old wood-pitch recipe at resinous wood
+    (same recipe id, so bands keep it), retires every recipe the physics no longer allow (never
+    taught again; the step 11 cold-gold rings are kept as before) and drops them from the bands;
+    kits are then re-derived. Test `v13_fixture_cleans_forbidden_recipes` loads the 11b fixture
+    and checks it (tin blades retired and gone from every kit, pitch kept, idempotent, stable
+    over re-saves). The first re-save differs slightly from the loaded file in season figures
+    (upkeep) because those were recomputed from the cleaned kits; later re-saves are identical.
+  - New tests: `recipe_realism_rules` (all nine fixes), `resin_wood_on_the_map`. Existing tests
+    updated for the new rules and appended positions. The v10 run-on hash changes (new physics).
+  - All workspace tests pass; the wasm build is fine.
+- Next: local smoke run, then the (a) and (b) runs.

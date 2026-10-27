@@ -131,9 +131,21 @@ pub struct Registry {
     #[serde(skip)]
     retired: Vec<bool>,
 }
-/// (inventions step 11b) a recipe from an older save that today's physics would not allow: a
-/// gold nugget beaten into a ring with a hammerstone (gold is now cast; see `physics::heat`)
+/// A recipe from an older save that today's physics would not allow: (inventions step 11b) a
+/// gold nugget beaten into a ring with a hammerstone (gold is now cast; see `physics::heat`);
+/// (inventions step 12) anything the recipe-realism rules forbid (a wool shaft, a tin knife,
+/// cold-hammered bronze or iron, a sail of clothing...). Judged by physics itself: the recipe is
+/// retired when its inputs no longer give its output, at the water's edge or away from it.
 pub fn is_retired(r: &Recipe) -> bool {
+    let a = Action::from_u8(r.action);
+    ![false, true].iter().any(|&water| {
+        crate::physics::apply(a, &r.inputs, &crate::physics::Ctx { dryness: 0.5, water }).is_some_and(|o| o.out == r.output)
+    })
+}
+/// (inventions step 11b) the one retired recipe bands keep from an old save: cold-hammered gold
+/// rings (their rings stay; the recipe is never taught). Every other retired recipe is dropped
+/// on load (`World::clean_recipes`)
+pub fn is_legacy_gold(r: &Recipe) -> bool {
     r.action == Action::Shape as u8 && r.inputs[0] == item(Form::Raw, Mat::Gold)
 }
 impl Registry {

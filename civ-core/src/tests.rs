@@ -679,7 +679,15 @@ fn outriggers_sails_and_plank_boats() {
     let comb = |inp, c: &Ctx| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), c).map(|o| o.out);
     assert_eq!(comb([boat, shaft, cord, NONE], &wet), Some(item(Form::Outrigger, Mat::Wood)));
     assert_eq!(comb([boat, shaft, cord, NONE], &dry), None);
-    assert_eq!(comb([boat, shaft, item(Form::Garment, Mat::Flax), NONE], &wet), Some(item(Form::Sail, Mat::Flax)));
+    // (inventions step 12) a sail is cloth on a mast stepped in a plank hull: not clothing, and
+    // not on a dugout
+    let plank = item(Form::Plank, Mat::Wood);
+    let linen = item(Form::Cloth, Mat::Flax);
+    assert_eq!(comb([boat, shaft, item(Form::Garment, Mat::Flax), NONE], &wet), None);
+    assert_eq!(comb([boat, shaft, linen, NONE], &wet), None);
+    assert_eq!(comb([plank, shaft, item(Form::Garment, Mat::Flax), NONE], &wet), None);
+    assert_eq!(comb([plank, shaft, linen, NONE], &wet), Some(item(Form::Sail, Mat::Flax)));
+    assert_eq!(comb([plank, shaft, linen, NONE], &dry), None);
     // planks need a metal axe; a stone axe only hollows a dugout
     let shape = |t, tool| physics::apply(Action::Shape, &physics::canonical(Action::Shape, [t, tool, NONE, NONE]), &wet).map(|o| o.out);
     assert_eq!(shape(item(Form::Raw, Mat::Wood), item(Form::Axe, Mat::Bronze)), Some(item(Form::Plank, Mat::Wood)));
@@ -690,10 +698,18 @@ fn outriggers_sails_and_plank_boats() {
     let k0 = crate::band::make_kit(&s);
     s.add(item(Form::Outrigger, Mat::Wood));
     s.add(item(Form::Sail, Mat::Flax));
+    s.add(plank);
     let k1 = crate::band::make_kit(&s);
     assert!(World::boat_safety(&k1) > World::boat_safety(&k0));
     assert!(World::boat_range(&k1, 0.5) > 1.5 * World::boat_range(&k0, 0.5));
-    assert_eq!(World::boat_range(&k1, 0.2), World::boat_range(&k0, 0.2));
+    let mut k1b = k1.clone();
+    k1b.sail = NONE;
+    assert_eq!(World::boat_range(&k1, 0.2), World::boat_range(&k1b, 0.2));
+    // (inventions step 12) no sail on a dugout, whatever it is woven or sewn of
+    let mut k2 = k1.clone();
+    k2.plank = NONE;
+    k2.ship = NONE;
+    assert!(!World::sail_usable(&k2, 0.9) && World::sail_usable(&k1, 0.9));
 }
 
 #[test]
@@ -706,7 +722,9 @@ fn frames_ornaments_and_medicine() {
     assert_eq!(comb([item(Form::Vessel, Mat::Fibre), shaft, cord, NONE]), Some(item(Form::Frame, Mat::Fibre)));
     assert_eq!(comb([item(Form::Vessel, Mat::Hide), shaft, cord, NONE]), Some(item(Form::Bellows, Mat::Hide)));
     let shape = |t| physics::apply(Action::Shape, &physics::canonical(Action::Shape, [t, item(Form::Hammer, Mat::Stone), NONE, NONE]), &dry).map(|o| o.out);
-    assert_eq!(shape(item(Form::Point, Mat::Tin)), Some(item(Form::Ornament, Mat::Tin)));
+    // (inventions step 12) soft tin makes no point to beat into a pendant; copper and bone do
+    assert_eq!(shape(item(Form::Point, Mat::Tin)), None);
+    assert_eq!(shape(item(Form::Point, Mat::Copper)), Some(item(Form::Ornament, Mat::Copper)));
     assert_eq!(shape(item(Form::Point, Mat::Flint)), None);
     // herbal lore and wariness load as zero from older saves
     let b = crate::band::Band::default();
@@ -930,10 +948,11 @@ fn v9_fixture_loads_exactly() {
         for p in &b.partners {
             s = s.wrapping_mul(31).wrapping_add(p.strength.to_bits() as u64 + p.married.to_bits() as u64 + p.id as u64);
         }
-        // (v11 inserts the neutral pitch leaning, v12 the steel one, v13 the gold one; the v9
+        // (v11 inserts the neutral pitch leaning, v12 the steel one, v13 the gold one, v14 the
+        // resinous-wood one; the v9
         // leanings must be unchanged around them)
         for (i, c) in b.craft.iter().enumerate() {
-            if i != Mat::Pitch as usize && i != Mat::Steel as usize && i != Mat::Gold as usize {
+            if i != Mat::Pitch as usize && i != Mat::Steel as usize && i != Mat::Gold as usize && i != Mat::ResinWood as usize {
                 s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
             }
         }
@@ -1098,7 +1117,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa3f97d0b3c2fb7f7); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material) and step 11b (moulds and crucibles; gold is cast)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xc7d4b528dafc4f49); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast) and step 12 (recipe realism)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1139,10 +1158,12 @@ fn longest_crossing_sets_the_record() {
 #[test]
 fn pitch_and_sealed_jars() {
     let ctx = Ctx { dryness: 0.5, water: false };
-    let wood = item(Form::Raw, Mat::Wood);
+    // (inventions step 12) pitch is sweated only from resinous wood (pine, birch)
+    let wood = item(Form::Raw, Mat::ResinWood);
     let pitch = item(Form::Raw, Mat::Pitch);
     let pot = item(Form::Vessel, Mat::Ceramic);
     let fire = item(Form::Fire, Mat::Wood);
+    assert_eq!(physics::apply(Action::Heat, &physics::canonical(Action::Heat, [item(Form::Raw, Mat::Wood), pot, fire, NONE]), &ctx).map(|o| o.out), None);
     let heat = |inp| physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx).map(|o| o.out);
     let comb = |inp| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &ctx).map(|o| o.out);
     assert_eq!(heat([wood, pot, fire, NONE]), Some(pitch));
@@ -1462,7 +1483,7 @@ fn ships_recipe_and_reach() {
     assert_ne!(comb([plank, pitch, item(Form::Point, Mat::Flint), NONE], true), Some(ship));
     assert_ne!(comb([plank, item(Form::Raw, Mat::Wood), nail, NONE], true), Some(ship));
     assert_eq!(item_name(ship), "nailed plank ship");
-    assert_eq!(ALL_FORMS[NFORM - 4], Form::Ship); // (step 11b: mould and crucible after it)
+    assert_eq!(ALL_FORMS[NFORM - 6], Form::Ship); // (step 11b: mould and crucible after it; step 12: cloth and loom)
     assert!(valid_item(ship));
 
     // the kit: a ship is a plank hull, no sounder
@@ -1733,17 +1754,20 @@ fn steel_recipe_kit_and_weapons() {
     assert_eq!(heat([raw(Mat::Iron), bel, item(Form::Fire, Mat::Wood), clay], true).map(|o| o.out), None);
     // the old iron recipes are untouched
     assert_eq!(heat([raw(Mat::IronOre), bel, ch, clay], true).map(|o| o.out), Some(item(Form::Bloom, Mat::Iron)));
-    // shaped hot with a hammerstone into a knife, drawn into a point, hafted
+    // (inventions step 12) forged hot with a hammerstone into a knife, drawn into a point,
+    // hafted; never beaten cold
     let ctx = Ctx { dryness: 0.5, water: false };
     let ham = item(Form::Hammer, Mat::Stone);
     let edge = item(Form::Edge, Mat::Steel);
-    assert_eq!(physics::apply(Action::Shape, &[steel, ham, NONE, NONE], &ctx).map(|o| o.out), Some(edge));
-    assert_eq!(physics::apply(Action::Shape, &[edge, ham, NONE, NONE], &ctx).map(|o| o.out), Some(item(Form::Point, Mat::Steel)));
+    assert_eq!(physics::apply(Action::Shape, &[steel, ham, NONE, NONE], &ctx).map(|o| o.out), None);
+    assert_eq!(physics::apply(Action::Shape, &[edge, ham, NONE, NONE], &ctx).map(|o| o.out), None);
+    assert_eq!(heat([steel, ham, ch, clay], false).map(|o| o.out), Some(edge));
+    assert_eq!(heat([edge, ham, ch, clay], false).map(|o| o.out), Some(item(Form::Point, Mat::Steel)));
     assert_eq!(item_name(steel), "steel bar");
     assert_eq!(item_name(edge), "steel knife");
     assert!(Mat::Steel.is_metal() && valid_item(steel));
     assert_eq!(ALL_MATS[Mat::Steel as usize], Mat::Steel);
-    assert_eq!(ALL_MATS[NMAT - 1], Mat::Gold); // (step 11) gold appended after steel
+    assert_eq!(ALL_MATS[NMAT - 2], Mat::Gold); // (step 11) gold appended after steel; (step 12) resinous wood after it
     assert!(crate::world::TRADE_MATS.contains(&Mat::Steel));
     // keener than iron or bronze, about as tough
     assert!(cut_q(Mat::Steel) > cut_q(Mat::Bronze) + 0.1);
@@ -1840,7 +1864,7 @@ fn tallies_and_tokens() {
     assert_eq!(item_name(item(Form::Mark, Mat::Bone)), "notched bone tally");
     assert_eq!(item_name(token), "clay token");
     assert_eq!(item_name(item(Form::Mark, Mat::Ceramic)), "fired clay token");
-    assert_eq!(ALL_FORMS[NFORM - 3], Form::Mark); // (step 11b: mould and crucible after it)
+    assert_eq!(ALL_FORMS[NFORM - 5], Form::Mark); // (step 11b: mould and crucible after it; step 12: cloth and loom)
     assert!(valid_item(tally) && valid_item(token));
     // the kit
     let mut s = ItemSet::default();
@@ -2354,7 +2378,10 @@ fn gold_ring_needs_smelting_crucible_and_mould() {
     assert_eq!(comb(nugget, pot), Some(crucible));
     assert_eq!(comb(nugget, item(Form::Vessel, Mat::Clay)), None);
     assert_eq!(comb(nugget, item(Form::Vessel, Mat::Fibre)), None);
-    assert_eq!(comb(item(Form::Raw, Mat::Copper), pot), None, "only the prized metal is cast here");
+    // (inventions step 12) copper, tin and bronze melt in it too (bronze tools are cast), but
+    // not iron, which no crucible fire here melts
+    assert_eq!(comb(item(Form::Raw, Mat::Copper), pot), Some(item(Form::Crucible, Mat::Copper)));
+    assert_eq!(comb(item(Form::Raw, Mat::Iron), pot), None);
     // the cast: crucible + fired mould in a closed charcoal furnace
     assert_eq!(heat(crucible, mould, charcoal, clay_kiln), Some(ring));
     assert_eq!(heat(crucible, mould, charcoal, stone_kiln), Some(ring));
@@ -2369,7 +2396,7 @@ fn gold_ring_needs_smelting_crucible_and_mould() {
     assert_eq!(heat(item(Form::Raw, Mat::CopperOre), NONE, charcoal, clay_kiln), Some(item(Form::Raw, Mat::Copper)));
     assert_eq!(heat(item(Form::Raw, Mat::CopperOre), NONE, wood_fire, clay_kiln), None);
     assert_eq!((item_name(wet_mould), item_name(mould), item_name(crucible)), ("clay mould".into(), "fired clay mould".into(), "crucible of gold".into()));
-    assert_eq!((ALL_FORMS[NFORM - 2], ALL_FORMS[NFORM - 1]), (Form::Mould, Form::Crucible));
+    assert_eq!((ALL_FORMS[NFORM - 4], ALL_FORMS[NFORM - 3]), (Form::Mould, Form::Crucible)); // (step 12: cloth and loom after them)
     assert!(NFORM <= 32, "ItemSet has room for 32 forms");
     assert!(valid_item(mould) && valid_item(crucible));
     // through the toolkit: a band that knows the whole chain has a ring where gold lies, and
@@ -2476,5 +2503,240 @@ fn print_map_hashes() {
     for (w, h, s) in [(256usize, 160usize, 1u64), (256, 160, 7), (200, 120, 499246292)] {
         let m = crate::map::Map::generate(w, h, s);
         println!("MAPHASH {w}x{h} seed {s}: {:#x}", map_hash_sans_gold(&m));
+    }
+}
+
+/// (inventions step 12) Recipe realism: each impossible path gives nothing, each real one works.
+#[test]
+fn recipe_realism_rules() {
+    let dry = Ctx { dryness: 0.5, water: false };
+    let wet = Ctx { dryness: 0.5, water: true };
+    let at = |a: Action, inp: [Item; 4], c: &Ctx| physics::apply(a, &physics::canonical(a, inp), c).map(|o| o.out);
+    let shape = |t: Item, tool: Item| at(Action::Shape, [t, tool, NONE, NONE], &dry);
+    let comb = |inp: [Item; 4]| at(Action::Combine, inp, &wet);
+    let comb_dry = |inp: [Item; 4]| at(Action::Combine, inp, &dry);
+    let heat = |inp: [Item; 4]| at(Action::Heat, inp, &dry);
+    let (raw, edge, point) = (|m| item(Form::Raw, m), |m| item(Form::Edge, m), |m| item(Form::Point, m));
+    let flint = edge(Mat::Flint);
+    let ham = item(Form::Hammer, Mat::Stone);
+    let stone = raw(Mat::Stone);
+    let cord = item(Form::Cord, Mat::Fibre);
+    let wshaft = item(Form::Shaft, Mat::Wood);
+    let (charcoal, wood_fire) = (item(Form::Fire, Mat::Charcoal), item(Form::Fire, Mat::Wood));
+    let (clay_kiln, stone_kiln) = (item(Form::Kiln, Mat::Clay), item(Form::Kiln, Mat::Stone));
+    let pot = item(Form::Vessel, Mat::Ceramic);
+    let mould = item(Form::Mould, Mat::Ceramic);
+
+    // 1. only woody material makes a shaft; only a wooden shaft makes a spear
+    assert_eq!(shape(raw(Mat::Wood), flint), Some(wshaft));
+    for m in [Mat::Wool, Mat::Flax, Mat::Fibre, Mat::Hide] {
+        assert_ne!(shape(raw(m), flint).map(form), Some(Form::Shaft), "{m:?} carved");
+        let s = item(Form::Shaft, m);
+        assert_eq!(shape(s, flint), None, "{m:?} shaft sharpened");
+        assert_eq!(comb_dry([s, point(Mat::Flint), cord, NONE]), None, "{m:?} shaft hafted");
+        assert_eq!(comb_dry([s, flint, cord, NONE]), None);
+    }
+    assert_eq!(shape(wshaft, flint), Some(item(Form::Spear, Mat::Wood)));
+    assert_eq!(comb_dry([wshaft, point(Mat::Flint), cord, NONE]), Some(item(Form::Spear, Mat::Flint)));
+    assert_eq!(comb_dry([wshaft, flint, cord, NONE]), Some(item(Form::Axe, Mat::Flint)));
+
+    // 2. copper is beaten cold; bronze is cast; iron and steel are forged hot
+    assert_eq!(shape(raw(Mat::Copper), ham), Some(edge(Mat::Copper)));
+    assert_eq!(shape(edge(Mat::Copper), ham), Some(point(Mat::Copper)));
+    for m in [Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Steel, Mat::Gold] {
+        assert_eq!(shape(raw(m), ham), None, "{m:?} cold-hammered");
+        assert_eq!(shape(edge(m), ham), None, "{m:?} edge cold-drawn");
+    }
+    let bronze_cr = item(Form::Crucible, Mat::Bronze);
+    assert_eq!(comb_dry([raw(Mat::Bronze), pot, NONE, NONE]), Some(bronze_cr));
+    assert_eq!(heat([bronze_cr, mould, charcoal, clay_kiln]), Some(edge(Mat::Bronze)));
+    assert_eq!(heat([bronze_cr, mould, wood_fire, clay_kiln]), None, "a wood fire does not melt bronze");
+    assert_eq!(heat([bronze_cr, mould, charcoal, NONE]), None, "nor an open fire");
+    assert_eq!(heat([bronze_cr, item(Form::Mould, Mat::Clay), charcoal, clay_kiln]), None, "an unfired mould");
+    assert_eq!(shape(edge(Mat::Bronze), stone), Some(point(Mat::Bronze)), "ground on a grindstone");
+    assert_eq!(shape(edge(Mat::Bronze), raw(Mat::Clay)), None);
+    for m in [Mat::Iron, Mat::Steel] {
+        assert_eq!(heat([raw(m), ham, charcoal, clay_kiln]), Some(edge(m)), "{m:?} forged");
+        assert_eq!(heat([edge(m), ham, charcoal, clay_kiln]), Some(point(m)));
+        assert_eq!(heat([raw(m), ham, charcoal, NONE]), None, "{m:?}: a bare charcoal fire is not forging heat");
+        assert_eq!(heat([raw(m), ham, wood_fire, clay_kiln]), None);
+        assert_eq!(heat([raw(m), item(Form::Hammer, Mat::Bone), charcoal, clay_kiln]), None);
+        assert_eq!(comb_dry([raw(m), pot, NONE, NONE]), None, "{m:?} is not melted");
+    }
+    // 3. tin makes no edge, point, needle or nail
+    let tin_cr = item(Form::Crucible, Mat::Tin);
+    assert_eq!(comb_dry([raw(Mat::Tin), pot, NONE, NONE]), Some(tin_cr));
+    assert_eq!(heat([tin_cr, mould, charcoal, clay_kiln]), None);
+    assert_eq!(shape(edge(Mat::Tin), stone), None);
+    let tin_pt = point(Mat::Tin);
+    assert_eq!(comb_dry([wshaft, tin_pt, cord, NONE]), None, "no tin-tipped spear");
+    assert_eq!(comb_dry([wshaft, edge(Mat::Tin), cord, NONE]), None, "no tin axe");
+    assert_eq!(shape(cord, tin_pt), None, "no netting with a tin needle");
+    assert_eq!(shape(raw(Mat::Clay), tin_pt), None, "no token pressed with tin");
+    assert_eq!(comb_dry([raw(Mat::Hide), cord, tin_pt, NONE]), None, "no sewing with tin");
+    let plank = item(Form::Plank, Mat::Wood);
+    let pitch = raw(Mat::Pitch);
+    assert_eq!(comb([plank, pitch, tin_pt, NONE]), None, "no tin nails");
+    assert_eq!(comb([plank, pitch, point(Mat::Bone), NONE]), None, "nails are metal");
+    assert_eq!(comb([plank, pitch, point(Mat::Copper), NONE]), Some(item(Form::Ship, Mat::Wood)));
+    assert_eq!(comb([plank, pitch, point(Mat::Bronze), NONE]), Some(item(Form::Ship, Mat::Wood)));
+    assert_eq!(shape(cord, point(Mat::Bone)), Some(item(Form::Net, Mat::Fibre)));
+    assert_eq!(shape(cord, wshaft), Some(item(Form::Net, Mat::Fibre)));
+    assert_eq!(comb_dry([raw(Mat::Hide), cord, point(Mat::Bone), NONE]), Some(item(Form::Garment, Mat::Hide)));
+
+    // 4. bronze from the metals: melted together in a crucible at copper-melting heat
+    let cu_cr = item(Form::Crucible, Mat::Copper);
+    assert_eq!(comb_dry([raw(Mat::Copper), pot, NONE, NONE]), Some(cu_cr));
+    assert_eq!(heat([cu_cr, raw(Mat::Tin), charcoal, stone_kiln]), Some(raw(Mat::Bronze)));
+    assert_eq!(heat([tin_cr, raw(Mat::Copper), charcoal, clay_kiln]), Some(raw(Mat::Bronze)));
+    assert_eq!(heat([cu_cr, raw(Mat::Tin), wood_fire, clay_kiln]), None, "not in a wood fire");
+    assert_eq!(heat([cu_cr, raw(Mat::Tin), charcoal, NONE]), None, "not in an open fire");
+    assert_eq!(heat([raw(Mat::Copper), raw(Mat::Tin), charcoal, clay_kiln]), None, "the bare metals in a kiln");
+    assert_eq!(heat([raw(Mat::Copper), raw(Mat::Tin), wood_fire, clay_kiln]), None);
+    assert_eq!(heat([cu_cr, mould, charcoal, stone_kiln]), Some(edge(Mat::Copper)), "copper casts too");
+    // the ore route is unchanged
+    assert_eq!(heat([raw(Mat::CopperOre), raw(Mat::TinOre), charcoal, clay_kiln]), Some(raw(Mat::Bronze)));
+    assert_eq!(heat([raw(Mat::Copper), raw(Mat::TinOre), charcoal, clay_kiln]), Some(raw(Mat::Bronze)));
+
+    // 5. sails come from cloth, on a plank hull or a ship
+    let linen = item(Form::Cloth, Mat::Flax);
+    let ship = item(Form::Ship, Mat::Wood);
+    let boat = item(Form::Boat, Mat::Wood);
+    assert_eq!(comb([plank, wshaft, linen, NONE]), Some(item(Form::Sail, Mat::Flax)));
+    assert_eq!(comb([ship, wshaft, item(Form::Cloth, Mat::Wool), NONE]), Some(item(Form::Sail, Mat::Wool)));
+    assert_eq!(comb([boat, wshaft, linen, NONE]), None, "no mast in a dugout");
+    assert_eq!(comb([item(Form::Boat, Mat::Hide), wshaft, linen, NONE]), None);
+    assert_eq!(comb([plank, wshaft, item(Form::Garment, Mat::Flax), NONE]), None, "clothing is no sail");
+    assert_eq!(comb([plank, wshaft, item(Form::Garment, Mat::Hide), NONE]), None);
+    let mut s = ItemSet::default();
+    s.add(boat);
+    s.add(item(Form::Sail, Mat::Wool));
+    assert!(!World::sail_usable(&crate::band::make_kit(&s), 0.9), "a cloth sail on a dugout is no use");
+    s.add(plank);
+    assert!(World::sail_usable(&crate::band::make_kit(&s), 0.9));
+
+    // 6. cloth: same-fibre yarn on a loom
+    let loom = item(Form::Loom, Mat::Wood);
+    assert_eq!(comb_dry([wshaft, cord, stone, NONE]), Some(loom));
+    assert_eq!(comb_dry([item(Form::Shaft, Mat::Wool), cord, stone, NONE]), None);
+    for m in [Mat::Flax, Mat::Wool] {
+        let yarn = item(Form::Cord, m);
+        assert_eq!(shape(raw(m), NONE), Some(yarn), "{m:?} spun");
+        assert_eq!(comb_dry([loom, yarn, NONE, NONE]), Some(item(Form::Cloth, m)));
+        assert_eq!(comb_dry([item(Form::Cloth, m), cord, point(Mat::Bone), NONE]), Some(item(Form::Garment, m)));
+        assert_eq!(comb_dry([raw(m), cord, point(Mat::Bone), NONE]), None, "raw {m:?} is not cloth");
+    }
+    assert_eq!(comb_dry([loom, item(Form::Cord, Mat::Hide), NONE, NONE]), None, "thongs are not yarn");
+    assert_eq!(comb_dry([item(Form::Cloth, Mat::Flax), cord, tin_pt, NONE]), None);
+
+    // 7. obsidian pendants are ground, not hammered
+    assert_eq!(shape(point(Mat::Obsidian), ham), None);
+    assert_eq!(shape(point(Mat::Obsidian), stone), Some(item(Form::Ornament, Mat::Obsidian)));
+    assert_eq!(shape(point(Mat::Bone), ham), Some(item(Form::Ornament, Mat::Bone)));
+
+    // 8. names
+    assert_eq!(item_name(item(Form::Bow, Mat::Hide)), "rawhide-strung bow");
+    assert_eq!(item_name(item(Form::Kiln, Mat::Ceramic)), "sherd-lined kiln");
+    assert_eq!(item_name(linen), "linen cloth");
+    assert_eq!(item_name(item(Form::Cloth, Mat::Wool)), "woollen cloth");
+    assert_eq!(item_name(loom), "warp-weighted loom");
+    assert_eq!(item_name(raw(Mat::ResinWood)), "resinous wood");
+    assert_eq!((ALL_FORMS[NFORM - 2], ALL_FORMS[NFORM - 1]), (Form::Cloth, Form::Loom));
+    assert_eq!(ALL_MATS[NMAT - 1], Mat::ResinWood);
+    assert!(valid_item(loom) && valid_item(linen) && valid_item(raw(Mat::ResinWood)));
+
+    // 9. pitch only from resinous wood
+    assert_eq!(heat([raw(Mat::ResinWood), pot, wood_fire, NONE]), Some(pitch));
+    assert_eq!(heat([raw(Mat::Wood), pot, wood_fire, NONE]), None);
+    assert_eq!(heat([raw(Mat::ResinWood), item(Form::Vessel, Mat::Clay), wood_fire, NONE]), None);
+    // resinous wood is no shaft, hull or fuel upgrade
+    assert_ne!(shape(raw(Mat::ResinWood), flint).map(form), Some(Form::Shaft));
+    assert_eq!(shape(raw(Mat::ResinWood), NONE).map(form), None);
+}
+
+/// (inventions step 12) Resinous wood grows on the cool wooded lands and hills, not in tropical
+/// forest, desert or the sea; every big map has some.
+#[test]
+fn resin_wood_on_the_map() {
+    use crate::map::Biome;
+    let w = World::new(Config { seed: 3, map_w: 96, map_h: 60, ..Default::default() }, Params::default());
+    let m = &w.map;
+    let n = m.w * m.h;
+    let cells: Vec<usize> = (0..n).filter(|&i| m.resin_wood(i)).collect();
+    assert!(!cells.is_empty());
+    for &i in &cells {
+        assert!(m.k_wood[i] > 2.0);
+        assert!(!matches!(m.biome_at(i), Biome::TropForest | Biome::Desert | Biome::Ocean | Biome::Ice | Biome::Savanna | Biome::Grassland));
+    }
+    let wooded = (0..n).filter(|&i| m.k_wood[i] > 2.0).count();
+    assert!(cells.len() < wooded, "not every wood is resinous");
+}
+
+/// (inventions step 12, v14) A v13 save written by the step 11b build: its bands know tin knives,
+/// tin points and tin-tipped spears and boil pitch from plain wood. On load the forbidden recipes
+/// are retired and dropped, wood pitch is re-pointed to resinous wood, kits are re-derived, the
+/// vectors grow by one, and the JSON route matches.
+#[test]
+fn v13_fixture_cleans_forbidden_recipes() {
+    let bytes = include_bytes!("../tests/fixtures/v13_seed3_y350_96x60.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v13 save loads");
+    assert_eq!(info.format_version, 13);
+    assert_eq!(info.migrated_from, Some(13));
+    let tin_edge = item(Form::Edge, Mat::Tin);
+    let tin_pt = item(Form::Point, Mat::Tin);
+    let tin_spear = item(Form::Spear, Mat::Tin);
+    let find = |w: &World, out: Item| (0..w.reg.recipes.len() as u32).filter(|&r| w.reg.recipes[r as usize].output == out).collect::<Vec<_>>();
+    let forbidden: Vec<u32> = [tin_edge, tin_pt, tin_spear].iter().flat_map(|&o| find(&w, o)).collect();
+    assert!(!forbidden.is_empty(), "the fixture has tin blades");
+    for &r in &forbidden {
+        assert!(w.reg.retired(r), "recipe {r} retired");
+        assert!(w.bands.iter().all(|b| !b.knows(r)), "recipe {r} dropped");
+    }
+    // every recipe still known is allowed (bar the step 11 cold-gold rings)
+    for b in &w.bands {
+        for k in &b.known {
+            assert!(!w.reg.retired(k.recipe) || crate::knowledge::is_legacy_gold(&w.reg.recipes[k.recipe as usize]));
+        }
+        for it in b.d.tk.avail.iter() {
+            assert!(it != tin_edge && it != tin_pt && it != tin_spear, "kit re-derived");
+        }
+        assert_eq!((b.stock.len(), b.origin.len(), b.craft.len()), (NMAT, NMAT, crate::band::CRAFT_LEN));
+        assert_eq!(b.craft[Mat::ResinWood as usize], 1.0);
+    }
+    // wood pitch is now resinous-wood pitch, the same recipe for the same bands
+    let pitch = find(&w, item(Form::Raw, Mat::Pitch));
+    assert!(!pitch.is_empty());
+    let mut kept = 0;
+    for &r in &pitch {
+        let rc = &w.reg.recipes[r as usize];
+        assert!(!rc.inputs.contains(&item(Form::Raw, Mat::Wood)));
+        if rc.inputs.contains(&item(Form::Raw, Mat::ResinWood)) {
+            assert!(!w.reg.retired(r));
+            kept += w.bands.iter().filter(|b| b.knows(r)).count();
+        }
+    }
+    assert!(kept > 0, "bands keep their pitch know-how");
+    // idempotent, and stable over re-saves (the season figures recomputed on the first load
+    // come from the cleaned kits, so they settle after it: compare the second and third loads)
+    let known: usize = w.bands.iter().map(|b| b.known.len()).sum();
+    assert_eq!(w.clean_recipes(), (0, 0));
+    let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(w2.bands.iter().map(|b| b.known.len()).sum::<usize>(), known);
+    let (w3, _, _) = World::load_bytes(&w2.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(w2.save_json(None, "t", "t").unwrap(), w3.save_json(None, "t", "t").unwrap());
+    // the JSON route: a v13 band row goes through v13_to_v14
+    let mut v: serde_json::Value = serde_json::to_value(&w.bands[0]).unwrap();
+    let craft_v14 = v["craft"].clone();
+    v["stock"].as_array_mut().unwrap().pop();
+    v["origin"].as_array_mut().unwrap().pop();
+    v["craft"].as_array_mut().unwrap().remove(Mat::ResinWood as usize);
+    let m = crate::save::migrate(serde_json::json!({ "world": { "bands": [v] } }), 13).unwrap();
+    let b = &m["world"]["bands"][0];
+    assert_eq!(b["stock"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["origin"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["craft"], craft_v14);
+    // and it runs on
+    for _ in 0..8 {
+        w.step();
     }
 }

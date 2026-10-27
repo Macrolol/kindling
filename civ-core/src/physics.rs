@@ -86,6 +86,44 @@ fn is_metal(m: Mat) -> bool {
     m.props().malleable >= 5.0
 }
 
+/// (inventions step 12) the hardness of copper: the softest metal that takes and holds a working
+/// edge or point (tin and gold are too soft for a blade, an awl, a needle or a nail)
+pub const EDGE_HARD: f32 = 3.0;
+/// (inventions step 12) a metal soft and ductile enough to be beaten into a blade cold, with a
+/// hammerstone (copper). Bronze is cast, iron and steel are forged hot
+pub fn cold_workable(m: Mat) -> bool {
+    let p = m.props();
+    p.malleable >= 8.0 && p.hard >= EDGE_HARD && p.prized <= 0.0
+}
+/// (inventions step 12) a metal that melts in a charcoal furnace (below forging heat), so it can
+/// be melted in a crucible and cast: copper, tin, bronze, gold. Iron and steel never melt there
+pub fn castable(m: Mat) -> bool {
+    is_metal(m) && m.props().melt > 0.0 && m.props().melt < FORGE_T
+}
+/// (inventions step 12) a metal worked only hot, at the forge (iron, steel)
+pub fn hot_worked(m: Mat) -> bool {
+    is_metal(m) && m.props().melt >= FORGE_T
+}
+/// (inventions step 12) only woody stuff (wood) has the long straight grain of a shaft
+pub fn woody(m: Mat) -> bool {
+    m.props().woody >= 5.0
+}
+/// (inventions step 12) a point that can pierce hide, carry a spear or serve as a nail: hard
+/// enough (no tin or gold points; there are none anyway, this is a second guard)
+fn point_ok(i: Item) -> bool {
+    form(i) == Form::Point && mat(i).props().hard >= EDGE_HARD
+}
+/// (inventions step 12) a loose hard, tough stone used as a grindstone (a raw cobble, not a tool)
+fn grindstone(i: Item) -> bool {
+    form(i) == Form::Raw && mat(i).props().hard >= 5.0 && mat(i).props().tough >= 5.0
+}
+/// (inventions step 12) a fibre that spins into a yarn strong and fine enough to weave into
+/// cloth (flax, wool; not brittle wild plant fibre, not hide)
+fn cloth_fibre(m: Mat) -> bool {
+    let p = m.props();
+    m != Mat::Hide && p.fibrous >= 8.0 && p.tough >= 4.0 && p.food < 1.0
+}
+
 fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
     if t == NONE {
         return None;
@@ -102,9 +140,11 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             if tm == Mat::Gold {
                 return None;
             }
-            // metals: hammer into a blade (cold working) with a harder hammerstone
+            // metals: hammer into a blade (cold working) with a harder hammerstone. (inventions
+            // step 12) only a soft, ductile metal as hard as copper: tin is too soft to hold an
+            // edge, bronze is cast, iron and steel are forged hot (see `heat`)
             if is_metal(tm) {
-                if of == Form::Hammer && op.hard >= tp.hard {
+                if cold_workable(tm) && of == Form::Hammer && op.hard >= tp.hard {
                     return o(item(Form::Edge, tm), 0.5);
                 }
                 return None;
@@ -143,7 +183,9 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             }
             // carve with an edge harder than the material
             if of == Form::Edge && tp.workable >= 4.0 && op.hard > tp.hard + 1.0 {
-                if tp.fibrous >= 3.0 && tp.food < 1.0 {
+                // (inventions step 12) a shaft only from wood: wool, flax, fibre or hide carved
+                // with a blade give no handle
+                if woody(tm) && tp.food < 1.0 {
                     return o(item(Form::Shaft, tm), 0.3 + 0.6 * cut_q(om));
                 }
                 if tp.hard >= 3.0 {
@@ -158,15 +200,21 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             }
             // (inventions step 8) press a lump of soft clay with a point: a token that stands for
             // a thing counted
-            if of == Form::Point && tp.plastic >= 6.0 {
+            if point_ok(tool) && tp.plastic >= 6.0 {
                 return o(item(Form::Mark, tm), 0.3);
             }
             None
         }
         Form::Edge => {
-            // metals: draw an edge out into a point with a hammer
-            if is_metal(tm) && of == Form::Hammer && op.hard >= tp.hard {
+            // metals: draw an edge out into a point with a hammer (cold: copper only; iron and
+            // steel are drawn out hot, see `heat`)
+            if cold_workable(tm) && of == Form::Hammer && op.hard >= tp.hard {
                 return o(item(Form::Point, tm), 0.5);
+            }
+            // (inventions step 12) a cast blade of bronze (or copper) ground to a point on a
+            // grindstone: an awl, a pin, a nail
+            if castable(tm) && tp.hard >= EDGE_HARD && grindstone(tool) {
+                return o(item(Form::Point, tm), 0.3);
             }
             // pressure flaking: press a fine flaking stone with a softer, tough tool
             if tp.fracture >= 5.0 && !hands && op.hard < tp.hard && op.tough >= 4.0 && op.hard >= 3.0 {
@@ -176,14 +224,20 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
         }
         Form::Point => {
             // (v8) a bone or soft metal point hammered and ground into a bead or pin, kept for show
-            if of == Form::Hammer && matches!(tm, Mat::Bone | Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Obsidian) {
+            // (inventions step 12: no tin, which makes no point; obsidian is not hammered)
+            if of == Form::Hammer && matches!(tm, Mat::Bone | Mat::Copper | Mat::Bronze) {
                 return o(item(Form::Ornament, tm), 0.2);
+            }
+            // (inventions step 12) an obsidian point ground and polished on a grindstone: a
+            // pendant (a blow with a hammer only shatters it)
+            if tm == Mat::Obsidian && grindstone(tool) {
+                return o(item(Form::Ornament, tm), 0.15);
             }
             None
         }
         Form::Cord => {
             // knot cord into an open mesh over a gauge stick / with a netting needle
-            if !hands && (of == Form::Shaft || of == Form::Point) && tp.fibrous >= 5.0 {
+            if !hands && ((of == Form::Shaft && woody(om)) || point_ok(tool)) && tp.fibrous >= 5.0 {
                 let p = if of == Form::Point { 0.25 } else { 0.15 };
                 return o(item(Form::Net, tm), p);
             }
@@ -198,8 +252,8 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
             if of == Form::Cord && tm == Mat::Wood && tp.tough >= 5.0 && op.tough >= 4.0 && op.fibrous >= 5.0 {
                 return o(item(Form::Bow, om), 0.03 + 0.01 * op.tough);
             }
-            // sharpen the end of a shaft with an edge: a simple spear
-            if of == Form::Edge && op.hard > tp.hard + 1.0 && tp.workable >= 4.0 {
+            // sharpen the end of a shaft with an edge: a simple spear (a wooden shaft only)
+            if of == Form::Edge && woody(tm) && op.hard > tp.hard + 1.0 && tp.workable >= 4.0 {
                 return o(item(Form::Spear, tm), 0.3 + 0.5 * cut_q(om));
             }
             None
@@ -217,6 +271,15 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     let find = |f: Form| items.iter().copied().find(|&i| form(i) == f);
     let count = |f: Form| items.iter().filter(|&&i| form(i) == f).count();
     let raw = |m: Mat| items.contains(&item(Form::Raw, m));
+    // (inventions step 12) every frame, haft, mast and stick below is a wooden shaft; a "shaft"
+    // of anything else (none can be made now) holds nothing together
+    if items.iter().any(|&i| form(i) == Form::Shaft && !woody(mat(i))) {
+        return None;
+    }
+    // (inventions step 12) a point that is to pierce, tip or fasten must be hard enough
+    if items.iter().any(|&i| form(i) == Form::Point && !point_ok(i)) {
+        return None;
+    }
     // hafting: a shaft + a head + a binding cord
     if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
         if let Some(pt) = find(Form::Point) {
@@ -241,9 +304,11 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
         let bt = find(Form::Boat)?;
         return o(item(Form::Outrigger, mat(bt)), 0.04);
     }
-    // (v8) woven cloth hung from a mast stepped in a boat: a sail
-    if ctx.water && n == 3 && count(Form::Boat) == 1 && count(Form::Shaft) == 1 {
-        if let Some(cl) = items.iter().copied().find(|&i| form(i) == Form::Garment && matches!(mat(i), Mat::Flax | Mat::Wool)) {
+    // (v8) woven cloth hung from a mast: a sail. (inventions step 12) made of cloth, not of
+    // clothing, and stepped only in a plank hull or a ship: a dugout or canoe carries no mast
+    // (like the mat sail below; see `sail_usable`)
+    if ctx.water && n == 3 && count(Form::Plank) + count(Form::Ship) == 1 && count(Form::Shaft) == 1 {
+        if let Some(cl) = items.iter().copied().find(|&i| form(i) == Form::Cloth && cloth_fibre(mat(i))) {
             return o(item(Form::Sail, mat(cl)), 0.05);
         }
     }
@@ -257,6 +322,18 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
         if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {
             return o(item(Form::Shield, mat(sk)), 0.06);
+        }
+    }
+    // (inventions step 12) an upright frame of poles with the warp hung from it, held taut by
+    // stone weights tied on with cord: a warp-weighted loom
+    if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 && raw(Mat::Stone) {
+        return o(item(Form::Loom, mat(find(Form::Shaft)?)), 0.08);
+    }
+    // (inventions step 12) yarn spun from a long, strong fibre and woven on a loom: cloth of
+    // that fibre
+    if n == 2 && count(Form::Loom) == 1 {
+        if let Some(y) = items.iter().copied().find(|&i| form(i) == Form::Cord && cloth_fibre(mat(i))) {
+            return o(item(Form::Cloth, mat(y)), 0.2);
         }
     }
     // a springy stick with a cord noose: a snare
@@ -285,14 +362,15 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     // (inventions step 5) at the water, a plank hull fastened with metal nails or rivets and
     // its seams paid with pitch: a ship (copper, bronze or iron points serve as the nails)
     if ctx.water && n == 3 && count(Form::Plank) == 1 && raw(Mat::Pitch) {
-        if items.iter().any(|&i| form(i) == Form::Point && is_metal(mat(i))) {
+        if items.iter().any(|&i| point_ok(i) && is_metal(mat(i))) {
             return o(item(Form::Ship, mat(find(Form::Plank)?)), 0.2);
         }
     }
     // (inventions step 11b) a prized soft metal (gold) put into a fired pot that stands great
-    // heat (a crucible) for melting down
+    // heat (a crucible) for melting down; (inventions step 12) any metal that melts in the
+    // charcoal furnace: copper, tin, bronze, gold
     if n == 2 {
-        if let Some(m) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().prized > 0.0 && is_metal(mat(i))) {
+        if let Some(m) = items.iter().copied().find(|&i| form(i) == Form::Raw && castable(mat(i))) {
             if let Some(pot) = items.iter().copied().find(|&i| i != m && form(i) == Form::Vessel) {
                 let pp = mat(pot).props();
                 if pp.refractory >= 8.0 && pp.fires_to.is_none() {
@@ -318,13 +396,10 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     if n == 3 && raw(Mat::Hide) && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         return o(item(Form::Garment, Mat::Hide), 0.35);
     }
-    // weaving / sewing cloth: a long, strong, inedible fibre (flax, wool; not brittle wild
-    // plant fibre, which only makes cord) + thread + a needle
+    // sewing cloth: woven cloth (linen, wool) + thread + a needle. (inventions step 12) cloth
+    // first has to be spun and woven (see the loom above); raw fibre is not clothing
     if n == 3 && count(Form::Cord) == 1 && count(Form::Point) == 1 {
-        if let Some(fb) = items.iter().copied().find(|&i| {
-            let p = mat(i).props();
-            form(i) == Form::Raw && mat(i) != Mat::Hide && p.fibrous >= 8.0 && p.tough >= 4.0 && p.food < 1.0
-        }) {
+        if let Some(fb) = items.iter().copied().find(|&i| form(i) == Form::Cloth && cloth_fibre(mat(i))) {
             return o(item(Form::Garment, mat(fb)), 0.25);
         }
     }
@@ -417,20 +492,51 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             }
             return None;
         }
-        // (inventions) wood heated slowly in a closed pot, starved of air, sweats out its tar
-        // (about 350-450 C: any wood fire is hot enough)
-        let (wd, pot) = if t1 == item(Form::Raw, Mat::Wood) { (t1, t2) } else { (t2, t1) };
-        if wd == item(Form::Raw, Mat::Wood) && form(pot) == Form::Vessel && mat(pot) == Mat::Ceramic {
+        // (inventions) resinous wood heated slowly in a closed pot, starved of air, sweats out
+        // its tar (about 350-450 C: any wood fire is hot enough). (inventions step 12) only
+        // resinous wood (pine, birch): ordinary wood gives no pitch
+        let resinous = |i: Item| form(i) == Form::Raw && mat(i).props().resin >= 5.0;
+        let (wd, pot) = if resinous(t1) { (t1, t2) } else { (t2, t1) };
+        if resinous(wd) && form(pot) == Form::Vessel && mat(pot) == Mat::Ceramic {
             return if temp >= PITCH_T { o(item(Form::Raw, Mat::Pitch), 0.2) } else { None };
         }
         // (inventions step 11b) casting: a charged crucible in a closed furnace hot enough to
         // melt its metal (gold 1064 C: a charcoal fire in a kiln, the furnace that smelts
         // copper), poured into a fired mould: a ring. Never in an open fire
+        // (inventions step 12) a blade cast of bronze or copper; molten tin makes nothing that
+        // holds an edge
         let (cr, md) = if form(t1) == Form::Crucible { (t1, t2) } else { (t2, t1) };
         if form(cr) == Form::Crucible {
-            let mp = mat(md).props();
-            if form(md) == Form::Mould && mp.refractory >= 8.0 && mp.fires_to.is_none() && reducing && temp >= mat(cr).props().melt {
-                return o(item(Form::Ornament, mat(cr)), 0.25);
+            let (cm, mp) = (mat(cr), mat(md).props());
+            if form(md) == Form::Mould && mp.refractory >= 8.0 && mp.fires_to.is_none() && reducing && temp >= cm.props().melt {
+                if cm.props().prized > 0.0 {
+                    return o(item(Form::Ornament, cm), 0.25);
+                }
+                if cm.props().hard >= EDGE_HARD {
+                    return o(item(Form::Edge, cm), 0.25);
+                }
+                return None;
+            }
+            // (inventions step 12) bronze from the metals: tin stirred into copper molten in a
+            // crucible (or copper into tin), in a closed charcoal furnace hot enough to melt
+            // copper
+            let other = if cr == t1 { t2 } else { t1 };
+            let pair = (cm, mat(other));
+            if form(other) == Form::Raw && matches!(pair, (Mat::Copper, Mat::Tin) | (Mat::Tin, Mat::Copper)) {
+                if reducing && temp >= Mat::Copper.props().melt {
+                    return o(item(Form::Raw, Mat::Bronze), 0.3);
+                }
+            }
+            return None;
+        }
+        // (inventions step 12) iron and steel are forged hot: a bar heated in the forge to
+        // white heat and beaten out on a stone into a blade, or a blade drawn out into a point.
+        // Never cold, and never melted (they do not melt in any furnace here)
+        let (mt, hm) = if form(t2) == Form::Hammer { (t1, t2) } else { (t2, t1) };
+        if form(hm) == Form::Hammer && matches!(form(mt), Form::Raw | Form::Edge) && hot_worked(mat(mt)) {
+            if mat(hm).props().hard >= 5.0 && temp >= FORGE_T {
+                let to = if form(mt) == Form::Raw { Form::Edge } else { Form::Point };
+                return o(item(to, mat(mt)), 0.10);
             }
             return None;
         }
@@ -492,9 +598,13 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
         || metal_or_ore(b, Mat::Copper, Mat::CopperOre) && metal_or_ore(a, Mat::Tin, Mat::TinOre);
     if cu {
         let ores = [a, b].iter().any(|m| m.props().reduces_to.is_some());
-        let need = if ores { Mat::CopperOre.props().reduce_t } else { Mat::Bronze.props().melt };
-        if temp >= need && (!ores || reducing) {
-            return o(item(Form::Raw, Mat::Bronze), if ores { 0.08 } else { 0.4 });
+        // (inventions step 12) the two metals are no longer just fired together in a kiln: they
+        // have to be melted together in a crucible (above). Co-smelting ores is unchanged
+        if !ores {
+            return None;
+        }
+        if reducing && temp >= Mat::CopperOre.props().reduce_t {
+            return o(item(Form::Raw, Mat::Bronze), 0.08);
         }
     }
     None
