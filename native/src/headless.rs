@@ -342,6 +342,22 @@ pub fn run(a: &Args) {
                 100.0 * shipv as f32 / voy.max(1) as f32,
                 ship.join(", ")
             );
+            let expv: u64 = sums.iter().map(|s| s.sea.expeditions).sum();
+            let deep: u64 = sums.iter().map(|s| s.sea.deep_water_legs).sum();
+            let mats: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let y = s.sea.first_mat_sail_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!("s{} {}/{}", s.seed, s.sea.mat_sail_bands, y)
+                })
+                .collect();
+            println!(
+                "  expeditions: {} ({:.1}% of voyages), deep-water ship legs {} | mat-sail bands/first mat sail {}",
+                expv,
+                100.0 * expv as f32 / voy.max(1) as f32,
+                deep,
+                mats.join(", ")
+            );
         }
         {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();

@@ -77,7 +77,7 @@ Additive fields, no schema change:
 - `summary.crossings[]`: every landmass first reached over open water, in order:
   `{year, landmass, continent, from, leg, gap, tech}`. `tech` lists names from
   `civ_core::world::TECH_NAMES`: `outrigger`, `sail`, `plank`, `provisioned`, `ship`, `jar`,
-  `pilot`, `sky`, `route`, `adrift` (bits reserved for later steps stay unset until then).
+  `pilot`, `sky`, `route`, `expedition` (step 5b), `adrift` (bits reserved for later steps stay unset until then).
 - `world.landfalls[]` in saves: `leg`, `tech` (bitmask), default 0.
 - event kind `LongestCrossing` (id 35, major): a crossing to another landmass over more open
   water than any before it (at least 3 cells). `band` came ashore at `x, y` on landmass
@@ -184,6 +184,32 @@ span, tallies are summed over it.
 - Event kind `FirstShip` (id 36, major): the first time a band in a ship (not adrift) comes
   ashore on another landmass; `other` = landmass, `item` = the ship, `recipe` = leg in cells.
 - Crossing ledger: the `ship` bit (`TECH_SHIP`, 1<<4) is set when the crossing crew had a ship.
+
+### Expeditions, mat sails and deep-water seamanship (inventions step 5b)
+
+- Planned expeditions: on a planned voyage (a band moving, or a daughter band setting out; not
+  scouting, flight or drift) a crew with a ship, stores for everyone (store >= half the people)
+  and food that keeps (`preserved` >= 0.8: salt, dried, grain, jars or cheese) sails as far as
+  its endurance, if that is more than its usual reach (boat range x e^(0.25 ambition)). Boats
+  without a ship are unchanged.
+- Mat sails: recipe (combine, by the water only) a plank boat or ship + a shaft + a woven
+  basket (plant-fibre matting) makes a "woven mat sail" (`Sail` of `Fibre`, item 21*32+Fibre),
+  success 0.05. A sail is usable only with seacraft > 0.4 and, for a mat sail, only with a
+  plank hull or ship in the kit (`World::sail_usable`); on a dugout or canoe it does nothing.
+  The kit keeps a cloth sail before a mat one.
+- Deep-water seamanship: a ship crew that comes through a leg of `sea` >= 6 cells (out of
+  sight of land) gains seacraft `0.004 x (sea - 6)` of the way to 1 on top of the usual lesson,
+  and pilotage `2 x 0.003 x sea` (the whole leg, instead of 0.003 per cell up to 25 cells).
+  Sky lore is learnt as before (it still needs pilotage to read).
+- Counters `expeditions` (planned voyages past the usual reach on expedition stores),
+  `deep_water_legs` (ship legs >= 6 cells survived). `metrics.csv` / `YearStats`:
+  `mat_sail_bands`. `summary.json`: `sea.expeditions`, `sea.deep_water_legs`,
+  `sea.mat_sail_bands`, `sea.first_mat_sail_year` (null if never); an "expeditions" line in the
+  multi-seed text report.
+- Crossing ledger: the `expedition` bit (`TECH_EXPEDITION`, 1<<9) is set on crossings made on
+  expedition range. `tech` names now include `expedition`.
+- No save format change: no new saved band fields; counters and year stats default to 0 in
+  older saves.
 
 ## What a save keeps (format v11)
 

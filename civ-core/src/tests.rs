@@ -1522,3 +1522,96 @@ fn ships_recipe_and_reach() {
         assert_eq!(EventKind::from_u8(EventKind::FirstShip as u8) as u8, EventKind::FirstShip as u8);
     }
 }
+
+#[test]
+fn expeditions_mat_sails_and_deep_water() {
+    use crate::world::*;
+    let plank = item(Form::Plank, Mat::Wood);
+    let ship = item(Form::Ship, Mat::Wood);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let basket = item(Form::Vessel, Mat::Fibre);
+    let mat_sail = item(Form::Sail, Mat::Fibre);
+    let linen = item(Form::Sail, Mat::Flax);
+    let comb = |inp, water| {
+        let ctx = Ctx { dryness: 0.5, water };
+        physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &ctx).map(|o| o.out)
+    };
+    // (2) mat sails: plaited matting on a mast in a plank hull or a ship, by the water only
+    assert_eq!(comb([plank, shaft, basket, NONE], true), Some(mat_sail));
+    assert_eq!(comb([basket, ship, shaft, NONE], true), Some(mat_sail));
+    assert_ne!(comb([plank, shaft, basket, NONE], false), Some(mat_sail));
+    assert_ne!(comb([item(Form::Boat, Mat::Wood), shaft, basket, NONE], true), Some(mat_sail));
+    assert_eq!(item_name(mat_sail), "woven mat sail");
+    // a cloth sail is kept before a mat one
+    let mut s = ItemSet::default();
+    for it in [item(Form::Boat, Mat::Wood), mat_sail, linen] {
+        s.add(it);
+    }
+    assert_eq!(crate::band::make_kit(&s).sail, linen);
+    // a mat sail does nothing for a dugout, but drives a plank hull like cloth
+    let mut s = ItemSet::default();
+    for it in [item(Form::Boat, Mat::Wood), mat_sail] {
+        s.add(it);
+    }
+    let dug = crate::band::make_kit(&s);
+    assert_eq!(dug.sail, mat_sail);
+    assert!(!World::sail_usable(&dug, 0.8));
+    let mut bare = dug.clone();
+    bare.sail = NONE;
+    assert_eq!(World::boat_range(&dug, 0.8), World::boat_range(&bare, 0.8));
+    s.add(plank);
+    let pk = crate::band::make_kit(&s);
+    assert!(World::sail_usable(&pk, 0.8));
+    assert!(!World::sail_usable(&pk, 0.3));
+    let mut pk_linen = pk.clone();
+    pk_linen.sail = linen;
+    assert_eq!(World::boat_range(&pk, 0.8), World::boat_range(&pk_linen, 0.8));
+    assert!(World::voyage_tech(&{
+        let mut b = small().bands[0].clone();
+        b.d.kit = dug.clone();
+        b.seacraft = 0.8;
+        b
+    }, false) & TECH_SAIL == 0);
+
+    // (1) planned expeditions: only a ship crew with stores for all and food that keeps
+    let w = small();
+    let mut b = w.bands[0].clone();
+    let c = b.cell(w.map.w);
+    let mut k = pk.clone();
+    k.ship = ship;
+    k.ship_q = 0.5;
+    b.d.kit = k.clone();
+    b.seacraft = 0.3;
+    b.ambition = 0.0;
+    b.store = b.pop as f32; // a full season's food for everyone
+    b.stock[Mat::Salt as usize] = 1.0; // salted, it keeps
+    let e = w.provisions(&b, c).1;
+    assert_eq!(w.expedition_reach(&b), Some(e));
+    assert!(w.planned_reach(&b) >= w.usual_reach(&b));
+    assert!((w.planned_reach(&b) - e.max(w.usual_reach(&b))).abs() < 1e-5);
+    assert!(e > w.usual_reach(&b), "a stocked ship outlasts its usual reach: {e} vs {}", w.usual_reach(&b));
+    let mut hungry = b.clone();
+    hungry.store = 0.1 * hungry.pop as f32;
+    assert_eq!(w.expedition_reach(&hungry), None);
+    assert_eq!(w.planned_reach(&hungry), w.usual_reach(&hungry));
+    let mut boat = b.clone();
+    boat.d.kit.ship = NONE;
+    assert_eq!(w.expedition_reach(&boat), None);
+    assert_eq!(tech_names(TECH_EXPEDITION), vec!["expedition"]);
+
+    // (3) deep-water seamanship: a ship leg out of sight of land teaches more than a small boat's
+    let mut a = b.clone();
+    a.pilot = 0.1;
+    a.seacraft = 0.5;
+    let mut p = a.clone();
+    p.d.kit.ship = NONE;
+    assert!(World::sea_lessons(&mut a, 30.0));
+    assert!(!World::sea_lessons(&mut p, 30.0));
+    assert!(a.seacraft > p.seacraft && a.pilot > p.pilot);
+    // within sight of land, a ship is no school
+    let (mut a2, mut p2) = (b.clone(), b.clone());
+    p2.d.kit.ship = NONE;
+    assert!(!World::sea_lessons(&mut a2, 4.0));
+    World::sea_lessons(&mut p2, 4.0);
+    assert_eq!((a2.seacraft, a2.pilot), (p2.seacraft, p2.pilot));
+}

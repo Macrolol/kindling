@@ -18,9 +18,12 @@ pub const TECH_JAR: u16 = 1 << 5;
 pub const TECH_PILOT: u16 = 1 << 6;
 pub const TECH_SKY: u16 = 1 << 7;
 pub const TECH_ROUTE: u16 = 1 << 8;
+/// (inventions step 5b) a planned expedition: a ship crew with stores for the trip that sailed
+/// past the boat's usual range, as far as its food and water would take it
+pub const TECH_EXPEDITION: u16 = 1 << 9;
 /// blown there by a storm while fishing, not a planned voyage
 pub const TECH_ADRIFT: u16 = 1 << 15;
-pub const TECH_NAMES: [(u16, &str); 10] = [
+pub const TECH_NAMES: [(u16, &str); 11] = [
     (TECH_OUTRIGGER, "outrigger"),
     (TECH_SAIL, "sail"),
     (TECH_PLANK, "plank"),
@@ -30,6 +33,7 @@ pub const TECH_NAMES: [(u16, &str); 10] = [
     (TECH_PILOT, "pilot"),
     (TECH_SKY, "sky"),
     (TECH_ROUTE, "route"),
+    (TECH_EXPEDITION, "expedition"),
     (TECH_ADRIFT, "adrift"),
 ];
 
@@ -59,6 +63,16 @@ pub const SHIP_ENDURANCE: f32 = 1.4;
 pub const SHIP_QUALITY: f32 = 0.2;
 /// (inventions step 5) range multiplier of a ship under a usable sail
 pub const SHIP_RANGE: f32 = 1.25;
+/// (inventions step 5b) Planned expeditions: a ship crew whose stores feed everyone aboard for
+/// the trip (store >= half the people) and whose food keeps this well (`preserved`) can push on
+/// as far as its food and water last (its endurance), not just as far as it would row or sail
+/// on an ordinary move.
+pub const EXPEDITION_PRESERVED: f32 = 0.8;
+/// (inventions step 5b) Deep-water seamanship: each open-water cell a ship crew sails past
+/// `PILOT_OUT` (out of sight of land) teaches this much seacraft...
+pub const DEEP_SEA_LESSON: f32 = 0.004;
+/// ...and pilotage is learnt this many times as fast as in a small boat, over the whole leg.
+pub const DEEP_PILOT: f32 = 2.0;
 /// Drying racks cut spoilage of fresh food (meat and fish) by this share; cold cellars too.
 pub const RACK_KEEP: f32 = 0.25;
 pub const CELLAR_KEEP: f32 = 0.3;
@@ -160,7 +174,7 @@ impl World {
         if k.outrigger != NONE {
             t |= TECH_OUTRIGGER;
         }
-        if k.sail != NONE && b.seacraft > 0.4 {
+        if Self::sail_usable(k, b.seacraft) {
             t |= TECH_SAIL;
         }
         if k.plank != NONE {
@@ -265,6 +279,32 @@ impl World {
         (fed, e * Self::ship_endurance(k))
     }
 
+    /// (inventions step 5b) Whether a sail is woven matting of plant fibre rather than cloth.
+    pub fn mat_sail(sail: Item) -> bool {
+        sail != NONE && mat(sail) == Mat::Fibre
+    }
+
+    /// (v8) Whether a band can use its sail: people who know the sea well enough to use the wind
+    /// (seacraft above 0.4); (inventions step 5b) a mat sail only on a plank hull or a ship, since
+    /// a dugout or canoe cannot carry a mast and a heavy mat.
+    pub fn sail_usable(k: &Kit, xp: f32) -> bool {
+        k.sail != NONE && xp > 0.4 && (!Self::mat_sail(k.sail) || k.plank != NONE || k.ship != NONE)
+    }
+
+    /// (inventions step 5b) How far a planned expedition can go: a ship crew whose stores feed
+    /// everyone aboard (store >= half the people) with food that keeps (`EXPEDITION_PRESERVED`)
+    /// sails as far as its food and water last. `None` for anyone else.
+    pub(crate) fn expedition_reach(&self, b: &Band) -> Option<f32> {
+        if b.d.kit.ship == NONE || b.store < 0.5 * b.pop.max(1) as f32 {
+            return None;
+        }
+        let home = b.cell(self.map.w);
+        if self.preserved(b, home) < EXPEDITION_PRESERVED {
+            return None;
+        }
+        Some(self.provisions(b, home).1)
+    }
+
     /// (inventions step 5) A ship's hold carries a bigger party's food and water: endurance x
     /// `SHIP_ENDURANCE`, and a well-built one (recipe quality q) x (1 + `SHIP_QUALITY` x q) more.
     pub fn ship_endurance(k: &Kit) -> f32 {
@@ -333,20 +373,24 @@ impl World {
     /// (inventions step 0) The seafaring columns of this year's `YearStats`.
     pub(crate) fn sea_year_stats(&self, ys: &mut YearStats) {
         let mut xs: Vec<f32> = Vec::new();
-        let (mut sail, mut rumour) = (0u32, 0u32);
+        let (mut sail, mut rumour, mut mat_sail) = (0u32, 0u32, 0u32);
         for b in &self.bands {
             if b.far_shore.is_some() {
                 rumour += 1;
             }
             if b.d.kit.boat_q > 0.0 {
                 xs.push(b.seacraft);
-                if b.d.kit.sail != NONE && b.seacraft > 0.4 {
+                if Self::sail_usable(&b.d.kit, b.seacraft) {
                     sail += 1;
+                }
+                if b.d.kit.sail != NONE && Self::mat_sail(b.d.kit.sail) {
+                    mat_sail += 1;
                 }
             }
         }
         ys.boat_bands = xs.len() as u32;
         ys.sail_bands = sail;
+        ys.mat_sail_bands = mat_sail;
         ys.rumour_share = if self.bands.is_empty() { 0.0 } else { rumour as f32 / self.bands.len() as f32 };
         if !xs.is_empty() {
             ys.seacraft_mean = xs.iter().sum::<f32>() / xs.len() as f32;

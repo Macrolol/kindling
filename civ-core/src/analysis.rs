@@ -353,6 +353,13 @@ pub struct SeaSummary {
     pub ship_bands: u32,
     pub ship_q_mean: f32,
     pub first_ship_year: Option<f32>,
+    /// (inventions step 5b) planned expeditions (well-provisioned ship crews past the usual
+    /// range), ship legs out of sight of land made alive, bands with a mat sail at the end, and
+    /// the year a mat sail was first made (null = never)
+    pub expeditions: u64,
+    pub deep_water_legs: u64,
+    pub mat_sail_bands: u32,
+    pub first_mat_sail_year: Option<f32>,
 }
 
 /// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
@@ -809,6 +816,16 @@ pub fn summarize(w: &World) -> Summary {
             ship_bands: w.history.last().map_or(0, |y| y.ship_bands),
             ship_q_mean: w.history.last().map_or(0.0, |y| y.ship_q_mean),
             first_ship_year: w.chronicle.iter().find(|e| e.kind == crate::world::EventKind::FirstShip as u8).map(|e| e.tick as f32 / 4.0),
+            expeditions: w.counters.expeditions,
+            deep_water_legs: w.counters.deep_water_legs,
+            mat_sail_bands: w.history.last().map_or(0, |y| y.mat_sail_bands),
+            first_mat_sail_year: {
+                let ms = crate::materials::item(crate::materials::Form::Sail, crate::materials::Mat::Fibre);
+                w.chronicle
+                    .iter()
+                    .find(|e| e.kind == crate::world::EventKind::FirstInvention as u8 && e.item == ms)
+                    .map(|e| e.tick as f32 / 4.0)
+            },
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }

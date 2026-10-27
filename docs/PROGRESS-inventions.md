@@ -253,3 +253,24 @@ Checks:
     also need metal axes for plank boats first. Reaching 4-6/10 may mean accepting the top of that
     or reviewing the (b) seed set and map generator with Michael.
 - Checkpoint: steps 0-5 milestone reached; step 6 not started (waiting for Michael).
+- Michael's answer (Oct 27): all three fixes approved as step 5b; then step 6 onward.
+
+## Step 5b: expeditions, mat sails, deep-water seamanship (in progress)
+
+- Added (all emergent; nothing for dugouts, canoes or plank boats without a ship except mat sails
+  on plank hulls):
+  1. Planned expeditions: on a planned move or daughter voyage, a ship crew with stores for all
+     (store >= half the people) and food that keeps (preserved >= 0.8) sails as far as its
+     endurance (about 36 cells with skins, 45-54 with jars) when that is beyond its usual reach.
+     Scouting, flight and drift keep the usual reach. Counter `expeditions`, ledger bit
+     `expedition`.
+  2. Mat sails: plank boat or ship + shaft + woven basket by the water makes a "woven mat sail"
+     (p 0.05); usable only with a plank hull or ship (`sail_usable`), kept after a cloth sail.
+     YearStats `mat_sail_bands`, summary `first_mat_sail_year`.
+  3. Deep-water seamanship: ship legs >= 6 cells teach seacraft 0.004 per cell past 6 and
+     pilotage at twice the per-cell rate over the whole leg (no 25-cell limit). Counter
+     `deep_water_legs`.
+- Tests: `expeditions_mat_sails_and_deep_water` (recipe, kit preference, no use on a dugout,
+  same range as linen on a plank hull, expedition reach only for stocked ship crews, ship legs
+  out of sight of land teach more). All 46 civ-core tests pass. No save format change.
+- Local smoke (seeds 1-2, 500y): mat sails Y419/Y471; 4 expeditions, 152 deep-water ship legs.

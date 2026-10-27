@@ -232,6 +232,12 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Sail, mat(cl)), 0.05);
         }
     }
+    // (inventions step 5b) plaited plant-fibre matting (the basket-maker's weave, opened out)
+    // hung from a mast stepped in a plank hull or a ship: a mat sail. Only a big hull carries a
+    // mast and a heavy mat; a dugout or canoe cannot (no recipe, and no use: `sail_usable`).
+    if ctx.water && n == 3 && count(Form::Plank) + count(Form::Ship) == 1 && count(Form::Shaft) == 1 && items.contains(&item(Form::Vessel, Mat::Fibre)) {
+        return o(item(Form::Sail, Mat::Fibre), 0.05);
+    }
     // (v8) away from the water, the same hide, frame and lashing make a shield, not a boat
     if n == 3 && count(Form::Shaft) == 1 && count(Form::Cord) == 1 {
         if let Some(sk) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().seal >= 5.0 && mat(i).props().tough >= 5.0) {

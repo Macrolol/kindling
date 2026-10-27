@@ -617,7 +617,8 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Bow => upd(14, score(m.props().tough + 1.0, m), &mut k.bow),
             Form::Shield => upd(15, score(m.props().tough + 1.0, m), &mut k.shield),
             Form::Outrigger => upd(16, score(boat_q(m), m), &mut k.outrigger),
-            Form::Sail => upd(17, m.props().tough + 1.0, &mut k.sail),
+            // (inventions step 5b) a cloth sail is kept before a mat one: it serves any hull
+            Form::Sail => upd(17, m.props().tough + if m == Mat::Fibre { 0.0 } else { 10.0 }, &mut k.sail),
             Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
             Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
