@@ -476,6 +476,25 @@ impl Band {
         }
         self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded, married: 0.0 });
     }
+    /// (inventions step 8b) The yearly fade of this band's ties. `kin[i]` is its kinship with
+    /// `partners[i]`. Care (`TIE_CARE`, more with records) is shared out by what each tie
+    /// already means, `w` = trade strength + marriage + kinship: a tie gets `care * w / sum(w^2)`
+    /// of full upkeep (at most all of it), so a band's strongest ties are kept up and its many
+    /// loose ones fade quickly towards `LOOSE_KEEP` a year. Marriage ties fade on their own
+    /// clock; ties under 0.05 (and not married) are left for the caller to drop.
+    pub fn fade_ties(&mut self, kin: &[f32]) {
+        use crate::world::{LOOSE_KEEP, MARRIAGE_FADE, RECORDS_SPAN, RECORDS_TIE, TIE_CARE};
+        let care = TIE_CARE * (1.0 + RECORDS_SPAN * self.records);
+        let full = 0.8 + RECORDS_TIE * self.records;
+        let wt = |p: &Partner, k: f32| p.strength + p.married + k;
+        let s2: f32 = self.partners.iter().zip(kin.iter().chain(std::iter::repeat(&0.0))).map(|(p, &k)| wt(p, k).powi(2)).sum();
+        for (i, p) in self.partners.iter_mut().enumerate() {
+            let k = kin.get(i).copied().unwrap_or(0.0);
+            let c = if s2 > 0.0 { (care * wt(p, k) / s2).min(1.0) } else { 1.0 };
+            p.strength *= LOOSE_KEEP + (full - LOOSE_KEEP) * c;
+            p.married *= MARRIAGE_FADE;
+        }
+    }
     /// Grudge this band holds against `o`: in full against that band, a little against its people.
     pub fn grudge_vs(&self, o: &Band) -> f32 {
         let mut g = 0.0f32;

@@ -119,6 +119,10 @@ pub struct RecordsSummary {
     pub partners_mean: f32,
     pub partners_max: u32,
     pub partners_mean_peak: f32,
+    /// (inventions step 8b) close ties (trade strength 0.3 or more) per band at the end: mean
+    /// and most
+    pub close_ties_mean: f32,
+    pub close_ties_max: u32,
 }
 
 /// (inventions step 7) Steel, and the weapons fights are fought with.
@@ -811,6 +815,8 @@ pub fn summarize(w: &World) -> Summary {
             partners_mean: last.map_or(0.0, |h| h.partners_mean),
             partners_max: last.map_or(0, |h| h.partners_max),
             partners_mean_peak: w.history.iter().map(|h| h.partners_mean).fold(0.0, f32::max),
+            close_ties_mean: last.map_or(0.0, |h| h.close_ties_mean),
+            close_ties_max: last.map_or(0, |h| h.close_ties_max),
         }
     };
     let lineages = {

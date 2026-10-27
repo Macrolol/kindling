@@ -439,7 +439,7 @@ pub fn run(a: &Args) {
                     let g = &s.records;
                     let y = g.first_records_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
                     format!(
-                        "s{} {y} {}m {}b({}) u{} c{:.0}% p{:.1}/{}",
+                        "s{} {y} {}m {}b({}) u{} c{:.0}% p{:.1}/{} k{:.1}/{}",
                         s.seed,
                         g.mark_bands,
                         g.records_bands,
@@ -447,12 +447,14 @@ pub fn run(a: &Args) {
                         g.marks_used,
                         100.0 * g.records_where_counting,
                         g.partners_mean,
-                        g.partners_max
+                        g.partners_max,
+                        g.close_ties_mean,
+                        g.close_ties_max
                     )
                 })
                 .collect();
             println!(
-                "  records (first year, bands with a mark, record-keeping bands at end (peak), seasons a mark was used, share of record keepers with something to count, partners per band mean/max): {}",
+                "  records (first year, bands with a mark, record-keeping bands at end (peak), seasons a mark was used, share of record keepers with something to count, partners per band mean/max, close ties per band mean/max): {}",
                 rc.join(", ")
             );
             let pop_sum: u32 = tp;

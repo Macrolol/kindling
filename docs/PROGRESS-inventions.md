@@ -411,3 +411,47 @@ Checks:
     unwanted, the levers are the spread penalty (`TIE_SPAN` 2, the squared exponent) or the
     0.3 tie strength that counts as close for food sharing (kin of 0.2+ already count).
 - Checkpoint: step 8 done; step 9 (charts) not started.
+
+## Step 8b: close ties (Michael approved; in progress)
+
+Fix for step 8's side effects (weak ties, food sharing -90%, less metal trade). Real people keep
+a few close ties and many loose ones, so a band's yearly tie upkeep now goes mostly to the ties
+that already mean most.
+
+- Design (`Band::fade_ties`, yearly in `year_stats`): a care budget `TIE_CARE` x (1 +
+  `RECORDS_SPAN` 0.5 x records) is shared out by each tie's weight `w` = trade strength +
+  marriage tie + kinship with that partner (a parallel kinship pass). A tie gets
+  `care x w / sum(w^2)` of full upkeep (at most 1); its strength is multiplied by `LOOSE_KEEP`
+  + (`full` - `LOOSE_KEEP`) x that share, `full` = 0.8 + 0.1 x records (as in step 8). So strong
+  ties reinforce themselves, loose ones fade towards `LOOSE_KEEP` a year but survive a couple of
+  years, and a band with few ties keeps them all up. No cap and no set number of close ties;
+  records widen the budget. Replaces step 8's `keep^(spread^2)` rule (`TIE_SPAN` removed).
+  `CLOSE_TIE` 0.3 (unchanged value) is now a named constant.
+- New YearStats `close_ties_mean`, `close_ties_max` (ties of 0.3+ per band after the fade), in
+  metrics.csv, summary `records.close_ties_*` and the headless records line (`k<mean>/<max>`).
+  No save format bump (trailing serde-default fields; DATA_SCHEMA.md updated).
+- Test `close_ties_get_the_care` (few ties kept at x0.8; 2 strong among 30 loose: strong kept,
+  loose fade but stay at least `LOOSE_KEEP`, all 32 kept; kin and marriage raise care; records
+  widen it; YearStats and summary match a recount). v10 run-on hash updated. All civ-core
+  tests pass (52, 1 ignored; 53 with `--features parallel`).
+- Local smoke (seeds 1-2, 500y), first attempt `TIE_CARE` 2, `LOOSE_KEEP` 0.4, against the
+  same seeds in step 7 / step 8 check (a):
+
+  | | step 7 | step 8 | 8b first (2 / 0.4) | 8b tuned (4 / 0.3) |
+  |---|---|---|---|---|
+  | food shared s1 / s2 | 20,566 / 49,945 | 1,929 / 2,207 | 7,530 / 13,270 | 10,478 / 20,406 |
+  | trades s1 / s2 (M) | 14.2 / 13.6 | 11.1 / 8.6 | 13.5 / 12.2 | 12.9 / 12.4 |
+  | mean trade distance | 1.94 / 2.13 | 1.31 / 1.44 | 1.74 / 1.90 | 1.75 / 1.89 |
+  | close ties per band mean/max | - | - | 1.1/5, 1.1/5 | 2.1/8, 2.3/7 |
+  | partners per band mean/max | 7.7 of 8 | 21.8/61, 22.5/62 | 29.2/74, 30.8/64 | 29.6/68, 30.5/67 |
+  | population s1 / s2 | 116,466 / 136,564 | 118,285 / 136,213 | 121,878 / 123,053 | 116,282 / 119,870 |
+  | run time s1 / s2 (local) | 58.6 / 54.3 s | 67.9 / 54.9 s | 82.4 / 62.0 s | 77.5 / 68.8 s |
+
+  (Step 7/8 columns from the GitHub check (a) summaries for seeds 1-2; local smoke population
+  for those versions was 253k / 243k summed, so seed-level population is noisy.)
+- Tuning (the one allowed round): the first attempt left only about one close tie per band and
+  food sharing at about a quarter to a third of step 7, so it clearly missed. Raised `TIE_CARE`
+  2 -> 4 (a band keeps up about four ties in full, the size of a "support clique" of close
+  ties) and lowered `LOOSE_KEEP` 0.4 -> 0.3 so the larger budget does not keep extra loose ties
+  alive. Close ties doubled (about 2.2 per band, max 8), food sharing up a further 40-50%
+  (now about half of step 7), trades and trade distance back near step 7; partners unchanged.

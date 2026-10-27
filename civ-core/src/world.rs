@@ -59,10 +59,18 @@ pub const RECORDS_FADE: f32 = 0.97;
 pub const RECORDS_SPOIL: f32 = 0.05;
 pub const RECORDS_FORGET: f32 = 0.25;
 pub const RECORDS_TIE: f32 = 0.1;
-/// (inventions step 8) trade ties a band keeps up at full care; past that, every tie fades
-/// faster with the square of how thinly care is spread (records widen it by `RECORDS_SPAN`)
-pub const TIE_SPAN: f32 = 2.0;
+/// (inventions step 8b) close ties. A band's yearly care for its ties is a budget of
+/// `TIE_CARE` (widened by `RECORDS_SPAN` x records), shared out by how much each tie already
+/// means (trade strength + marriage + kinship): a tie's share of full upkeep is
+/// `TIE_CARE * w / sum(w^2)`, at most 1, so strong ties are kept up in full and reinforce
+/// themselves, while loose ones get little care and fade towards `LOOSE_KEEP` a year (they
+/// survive a year or two unless used). No cap and no set number of close ties.
+pub const TIE_CARE: f32 = 4.0;
 pub const RECORDS_SPAN: f32 = 0.5;
+pub const LOOSE_KEEP: f32 = 0.3;
+/// (inventions step 8b) a trade tie this strong counts as close: food for the hungry and
+/// gifts pass along it (as between kin)
+pub const CLOSE_TIE: f32 = 0.3;
 /// (inventions step 8) what is worth keeping count of: a store of at least this many seasons'
 /// food, at least `RECORDS_PARTNERS` partners with ties of `RECORDS_PARTNER_TIE` or more, a
 /// herd, or tribute owed or owing (`Band::owed` above 0.2)
@@ -402,6 +410,10 @@ pub struct YearStats {
     pub records_mean: f32,
     pub partners_mean: f32,
     pub partners_max: u32,
+    /// (inventions step 8b) close ties (trade strength `CLOSE_TIE` or more, after the yearly
+    /// fade) per band: mean and most
+    pub close_ties_mean: f32,
+    pub close_ties_max: u32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -3062,7 +3074,7 @@ impl World {
         }
         let kin = bands[a].kinship(&bands[c], tick) >= 0.2;
         let pstr = bands[a].partner(bands[c].id).map(|p| p.strength).unwrap_or(0.0);
-        let close = kin || pstr >= 0.3;
+        let close = kin || pstr >= CLOSE_TIE;
         // best good each side could pass the other, and what it is worth to both
         let best = |from: &Band, to: &Band| -> Option<(usize, f32, f32)> {
             let mut bst: Option<(usize, f32, f32)> = None;
@@ -3591,17 +3603,33 @@ impl World {
         let mut links = 0u32;
         let (mut gd, mut gn, mut gmax) = (0.0f32, 0u32, 0.0f32);
         let w = self.map.w;
-        for b in &mut self.bands {
-            // (inventions step 8) ties that are written down are kept up longer; and a band can
-            // only keep up so many: past `TIE_SPAN` (more with records) every tie fades faster,
-            // more so the thinner its care is spread. No fixed cap.
-            let span = TIE_SPAN * (1.0 + RECORDS_SPAN * b.records);
-            let spread = (b.partners.len() as f32 / span).max(1.0);
-            let keep = (0.8 + RECORDS_TIE * b.records).powf(spread * spread);
-            for p in &mut b.partners {
-                p.strength *= keep;
-                p.married *= MARRIAGE_FADE;
+        // (inventions step 8b) kinship of every band with each of its partners, for the care
+        // each tie gets (flat, in partner order)
+        let kin: Vec<f32> = {
+            let idx: crate::knowledge::FastMap<u32, usize> = self.bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+            let (bands, tick, idx) = (&self.bands, self.tick, &idx);
+            let of = move |b: &'_ Band| b.partners.iter().map(move |p| idx.get(&p.id).map_or(0.0, |&j| b.kinship(&bands[j], tick))).collect::<Vec<f32>>();
+            #[cfg(feature = "parallel")]
+            {
+                use rayon::prelude::*;
+                bands.par_iter().flat_map_iter(of).collect()
             }
+            #[cfg(not(feature = "parallel"))]
+            {
+                bands.iter().flat_map(of).collect()
+            }
+        };
+        let mut ki = 0usize;
+        let (mut close_sum, mut close_max) = (0u64, 0u32);
+        for b in &mut self.bands {
+            // (inventions step 8b) care goes mostly to the ties that already mean most (see
+            // `TIE_CARE`); records widen the budget and slow the fade of kept-up ties
+            let n = b.partners.len();
+            b.fade_ties(&kin[ki..ki + n]);
+            ki += n;
+            let nc = b.partners.iter().filter(|p| p.strength >= CLOSE_TIE).count() as u32;
+            close_sum += nc as u64;
+            close_max = close_max.max(nc);
             // (v9) marriage ties outlast trade
             b.partners.retain(|p| (p.strength >= 0.05 || p.married >= 0.05) && ids.contains(&p.id));
             links += b.partners.len() as u32;
@@ -3730,6 +3758,8 @@ impl World {
             records_mean: (rec_sum / nb.max(1) as f64) as f32,
             partners_mean: np_sum as f32 / nb.max(1) as f32,
             partners_max: np_max,
+            close_ties_mean: close_sum as f32 / nb.max(1) as f32,
+            close_ties_max: close_max,
             opened_fields,
             forest_fields,
             wet_fields,

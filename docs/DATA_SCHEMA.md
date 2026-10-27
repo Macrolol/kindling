@@ -265,9 +265,8 @@ span, tallies are summed over it.
     forgotten 25% more slowly, trade ties fade 0.9 a year instead of 0.8 and the band keeps
     up 1.5x as many. Records spread by teaching to bands that have something to count.
   - `owed` (0..1): tribute paid or taken sets it to 1 on both sides; fades 0.95 a season.
-- The 8-partner cap is gone. Ties fade yearly by `keep^(spread^2)` where `keep` = 0.8 (+0.1 x
-  records) and `spread` = partners / (`TIE_SPAN` = 2 x (1 + 0.5 x records)), at least 1; ties
-  under 0.05 (and not married) are dropped. No fixed limit.
+- The 8-partner cap is gone. (Step 8 faded every tie by `keep^(spread^2)`; replaced in step 8b,
+  below.)
 - An unused mark (nothing to count) is not practised, so it can be forgotten like any idle item.
 - Event `FirstRecords` (kind 37, major): the first band with records >= 0.3 (item = its mark).
 - Counter `marks_used` (band-seasons a band kept count with its mark).
@@ -277,6 +276,22 @@ span, tallies are summed over it.
   `records_bands`, `records_bands_peak`, `records_mean`, `marks_used`, `counting_bands`,
   `records_where_counting`, `partners_mean`, `partners_max`, `partners_mean_peak`; a "records"
   line in the multi-seed text report.
+
+## Inventions step 8b: close ties (no format bump)
+
+- Tie upkeep (`Band::fade_ties`, yearly): a band's care budget is `TIE_CARE` = 4 x (1 +
+  `RECORDS_SPAN` 0.5 x records). Each tie's weight is `w` = trade strength + marriage tie +
+  kinship with that partner; it gets `TIE_CARE x w / sum(w^2)` of full upkeep (at most 1).
+  Strength is multiplied by `LOOSE_KEEP` (0.3) + (`full` - 0.3) x that share, `full` = 0.8 +
+  0.1 x records. So a band with few ties keeps them all up (x0.8), and one with many keeps up
+  its strongest and lets loose ones fade towards x0.3 a year. Ties under 0.05 (and not married)
+  are dropped. No cap and no set number of close ties.
+- `CLOSE_TIE` = 0.3: a trade tie this strong counts as close (food for the hungry and gifts
+  pass along it, as between kin of 0.2+), unchanged in value.
+- `metrics.csv` / `YearStats`: `close_ties_mean`, `close_ties_max` (ties of `CLOSE_TIE` or more
+  per band after the yearly fade).
+- `summary.json` `records.`: `close_ties_mean`, `close_ties_max`; the headless "records" line
+  adds `k<mean>/<max>`.
 
 ## What a save keeps (format v12)
 

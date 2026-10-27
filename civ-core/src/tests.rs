@@ -1096,7 +1096,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xc5fb539244dd576); // run-on changed by step 8 (records, no partner cap)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x7c0d813d648ee0ca); // run-on changed by step 8 (records, no partner cap) and step 8b (close ties)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1945,4 +1945,65 @@ fn records_fade_event_and_save() {
     assert!(w4.bands.iter().all(|b| b.records == 0.0 && b.owed == 0.0));
     let s = crate::analysis::summarize(&w2);
     assert_eq!(s.records.marks_used, w2.counters.marks_used);
+}
+
+/// (inventions step 8b) Care for ties goes mostly to the ties that already mean most: a band
+/// with few ties keeps them all up; one with many keeps its strongest (trade, marriage or kin)
+/// and lets loose ones fade towards `LOOSE_KEEP`; records widen the care. No cap.
+#[test]
+fn close_ties_get_the_care() {
+    use crate::world::*;
+    let w = small();
+    let mut b = w.bands[0].clone();
+    b.records = 0.0;
+    b.partners.clear();
+    // a couple of ties: both kept up in full
+    b.bond(1, 0.6, 0.0, 0);
+    b.bond(2, 0.2, 0.0, 0);
+    let mut t = b.clone();
+    t.fade_ties(&[0.0, 0.0]);
+    assert!((t.partners[0].strength - 0.6 * 0.8).abs() < 1e-5);
+    assert!((t.partners[1].strength - 0.2 * 0.8).abs() < 1e-5);
+    // two strong ties among thirty loose ones: the strong are kept up far better
+    let mut m = b.clone();
+    m.partners.clear();
+    m.bond(1, 0.9, 0.0, 0);
+    m.bond(2, 0.8, 0.0, 0);
+    for k in 0..30u32 {
+        m.bond(100 + k, 0.1, 0.0, 0);
+    }
+    let before: Vec<f32> = m.partners.iter().map(|p| p.strength).collect();
+    let kin = vec![0.0; m.partners.len()];
+    let mut t = m.clone();
+    t.fade_ties(&kin);
+    let keep: Vec<f32> = t.partners.iter().zip(&before).map(|(p, s)| p.strength / s).collect();
+    assert!(keep[0] > 0.75 && keep[1] > 0.75, "strong ties kept up: {keep:?}");
+    assert!(keep[2] < 0.5 && keep[2] >= LOOSE_KEEP - 1e-5, "loose ties fade: {}", keep[2]);
+    assert!(t.partners[0].strength >= CLOSE_TIE);
+    assert_eq!(t.partners.len(), 32, "nothing is cut, no cap");
+    // kinship and marriage earn care too
+    let mut kin2 = kin.clone();
+    kin2[5] = 0.5;
+    let mut t2 = m.clone();
+    t2.partners[6].married = 0.5;
+    t2.fade_ties(&kin2);
+    assert!(t2.partners[5].strength > t.partners[5].strength);
+    assert!(t2.partners[6].strength > t.partners[6].strength);
+    // records widen the care, so more is kept up
+    let mut r = m.clone();
+    r.records = 1.0;
+    r.fade_ties(&kin);
+    assert!(r.partners[2].strength > t.partners[2].strength);
+    assert!(r.partners[0].strength >= t.partners[0].strength);
+    // close ties are counted every year
+    let mut w = small();
+    for _ in 0..8 {
+        w.step();
+    }
+    let h = w.history.last().unwrap();
+    let n = w.bands.iter().map(|b| b.partners.iter().filter(|p| p.strength >= CLOSE_TIE).count()).collect::<Vec<_>>();
+    assert_eq!(h.close_ties_max as usize, n.iter().copied().max().unwrap_or(0));
+    assert!((h.close_ties_mean - n.iter().sum::<usize>() as f32 / w.bands.len().max(1) as f32).abs() < 1e-4);
+    let s = crate::analysis::summarize(&w);
+    assert_eq!(s.records.close_ties_max, h.close_ties_max);
 }
