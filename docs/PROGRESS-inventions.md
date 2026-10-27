@@ -1140,3 +1140,15 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
     sail Y438 (none). Rerunning (a) and (b) next.
 - Dispatched on 4606ba0 (12b): (a) run 40573000330 (seeds 1-10, 500 y), (b) run 40573003547
   (seeds 499246292-301, 750 y, 800x800); baselines are the step 12 results files.
+- 12b (a) results (run 40573000330, 4606ba0; docs/results-inv-step12b-seeds1-10-500y.txt), step 12
+  then step 11b in brackets: pitch 10/10 med Y183 (5/10 Y313; 10/10 Y170); sealed jar 4/10 med
+  Y303 (1/10; 10/10); wrought iron 4/10 med Y281 (3/10 Y409; 3/10 Y258); forged iron tools 4/10
+  med Y288 (0/10; 2/10); steel 0/10 (0; 1/10); bronze metal 5/10 (7/10; 2/10); cast bronze tools
+  3/10 med Y296 (2/10; 2/10); copper tools 10/10 med Y216 (Y254; Y258); loom 10/10 med Y166;
+  cloth 8/10 med Y321 (Y353); cloth clothing 3/10 (3/10; 5/10); any sail 6/10 med Y355 (2/10;
+  4/10); cloth sail 2/10 (0; 0); plank boats 6/10 med Y309 (Y391; Y365); ships 1/10 (0; 1/10);
+  ale 0/10 (0; 6/10); gold rings 2/10 (4/10; 5/10). Pop 1,163,855 (1,132,162; 1,159,192), items
+  74.7 (70.5; 74.0), war 0.398%/y (0.385; 0.410), disease 0.138%/y (0.124; 0.130), crossings
+  4/10 first Y122 (none before Y100), prestige r100 0.285 (0.269; 0.195), run 917 s. Guard rails
+  hold. Pitch is back to the 11b pace, iron and the boats are ahead of 11b; ale still waits on
+  sealed jars plus grain and feasts, and gold rings are rarer (chance; the casting is unchanged).
