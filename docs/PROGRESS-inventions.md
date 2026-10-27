@@ -199,3 +199,12 @@ Checks:
   boat), 3 646 ship bands by Y500 (quality mean 0.15), endurance p90 32 -> 46 cells, longest leg
   25 -> 35 cells; first crossing by ship Y440 (18 cells, to landmass #3); 1 527 ship voyages.
   Seed 5's second continent is 31 cells from settled land and was still not reached.
+- Check (a), run [40424609567](https://github.com/Macrolol/kindling/actions/runs/40424609567),
+  `docs/results-inv-step5-seeds1-10-500y.txt`: continents crossed 4/10 at the same years as
+  steps 3 and 4 (Y118, Y179, Y205, Y270), none before Y100, pass. Ships were built in 6/10
+  seeds, first at Y297-Y472 (never before a plank boat, pitch and a metal point were all there);
+  first crossing to another landmass by ship Y440-Y480 in seeds 1, 2, 3, 5. Endurance p90 rose
+  32 -> 45-48 cells where there are ships, but only seed 5 has a usable sail (967 sail bands,
+  range p90 27.8 vs 18-21 elsewhere), so the ships' range bonus barely acts; 2.5% of voyages
+  by ship (seeds 1-5). Ship quality mean 0.02-0.24, so hull refinement has room again. Pop
+  1 117 446 (-2.8% on step 4), war 0.408 %/y (0.402), items 68.2 (68.0).
