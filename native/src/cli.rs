@@ -15,6 +15,7 @@ pub struct Args {
     pub out_genealogy: bool,
     pub json: bool,
     pub verbose: bool,
+    /// headless progress line every K years (--progress-every K, alias --report K; 0 = off)
     pub report: u32,
     pub screenshot: Option<String>,
     pub shot_years: u32,
@@ -30,9 +31,10 @@ pub const USAGE: &str = "\
 kindling [--seed S] [--map WxH] [--config params.json] [--load file.civsave] [--threads N]
          [--start x,y | --starts x1,y1;x2,y2;...]
   desktop:  [--screenshot out.png [--years N] [--overlay 0-8] [--ui inspector|log|stats|settings|picker]]
-  headless: --headless [--seeds A..B | --seed S] [--years N] [--report K] [--json] [--verbose]
+  headless: --headless [--seeds A..B | --seed S] [--years N] [--progress-every K] [--json] [--verbose]
             [--save out.civsave (\"{seed}\" in the name: one file per seed)]
-            [--out DIR [--out-genealogy]]  (structured outputs per seed, docs/DATA_SCHEMA.md)";
+            [--out DIR [--out-genealogy]]  (structured outputs per seed, docs/DATA_SCHEMA.md)
+            --progress-every K: a progress line every K years (default 50, 0 = off; alias --report K)";
 
 pub fn parse_args() -> Args {
     let mut a = Args {
@@ -47,7 +49,7 @@ pub fn parse_args() -> Args {
         out_genealogy: false,
         json: false,
         verbose: false,
-        report: 0,
+        report: 50,
         screenshot: None,
         shot_years: 0,
         overlay: 1,
@@ -88,7 +90,7 @@ pub fn parse_args() -> Args {
                 a.years = next.parse().unwrap_or(300);
                 years_set = true
             }
-            "--report" => a.report = next.parse().unwrap_or(0),
+            "--report" | "--progress-every" => a.report = next.parse().unwrap_or(0),
             "--map" => {
                 let mut it = next.split('x');
                 if let (Some(Ok(w)), Some(Ok(h))) = (it.next().map(|x| x.parse()), it.next().map(|x| x.parse())) {

@@ -37,7 +37,10 @@ kindling --headless --seeds 1..10 --years 500 [--map WxH] [--threads N] [--confi
 - `--map WxH` sets the map size (default 256x160).
 - `--threads N` sets sim worker threads (0 = all cores; `RAYON_NUM_THREADS` also works).
 - `--config f` loads a params JSON file.
-- Also: `--report K`, `--json`, `--verbose`, `--save out.civsave`, `--load file.civsave`.
+- `--progress-every K` prints a progress line to stdout every K years of each seed (default 50; 0 turns it off; `--report K` is the old name and still works). With `--json` the lines go to stderr so stdout stays JSON. Example:
+  `  seed 3 Y 100 pop   3441 bands  141 items world  31 mean  19.4 max  26 fire  135 exp  257 inv   1 learn   92 forget  17 | 0.5s`
+  (year; people; bands; items known anywhere, mean and max per band; bands with fire; experiments, inventions, learned and forgotten that year; wall time for the seed so far).
+- Also: `--json`, `--verbose`, `--save out.civsave`, `--load file.civsave`, `--out DIR`.
 
 Screenshot mode: `kindling --seed 1 --screenshot out.png --years 300 [--overlay 0-8]`.
 

@@ -37,11 +37,20 @@ pub fn run(a: &Args) {
                 deltas.push(w.archive.frames.last().map(|f| f.counters.clone()).unwrap_or_default());
             }
             if a.report > 0 && (t + 1) % (a.report * 4) == 0 {
+                // Progress line (read-only: never touches the sim). On stdout so it shows in the
+                // run's log next to the report; the report parsers skip it (it starts with
+                // "  seed S Y", not "seed S: Y"). With --json stdout is JSON only, so it goes to stderr.
                 if let Some(h) = w.history.last() {
-                    eprintln!(
-                        "  seed {seed} Y{:>4} pop {:>6} bands {:>4} items world {:>3} mean {:>5.1} max {:>3} fire {:>4} exp {:>4} inv {:>3} learn {:>4} forget {:>3}",
-                        h.year, h.pop, h.bands, h.items_world, h.items_mean, h.items_max, h.with_fire, h.experiments, h.inventions, h.transfers, h.forgets
+                    let line = format!(
+                        "  seed {seed} Y{:>4} pop {:>6} bands {:>4} items world {:>3} mean {:>5.1} max {:>3} fire {:>4} exp {:>4} inv {:>3} learn {:>4} forget {:>3} | {:.1}s",
+                        h.year, h.pop, h.bands, h.items_world, h.items_mean, h.items_max, h.with_fire, h.experiments, h.inventions, h.transfers, h.forgets,
+                        t0.elapsed().as_secs_f32()
                     );
+                    if a.json {
+                        eprintln!("{line}");
+                    } else {
+                        println!("{line}");
+                    }
                 }
             }
             if w.bands.is_empty() {

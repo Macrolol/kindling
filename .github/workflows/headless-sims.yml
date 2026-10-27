@@ -85,7 +85,7 @@ on:
         default: "docs/results-v5-seeds1-10-500y.txt"
         type: string
       report:
-        description: "Print a progress line (pop, bands, items) to stderr every K years (blank = off)"
+        description: "Progress line (pop, bands, items) on stdout every K years (blank = default 50, 0 = off)"
         required: false
         default: ""
         type: string
