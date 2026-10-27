@@ -486,7 +486,7 @@ that already mean most.
   kinship pass is parallel). Guard rails fine: (a) 4/10, (b) 1/10, none before Y100; war a
   little lower.
 
-## Step 9: charts (in progress)
+## Step 9: charts (done; guard rails fine)
 
 Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 
@@ -510,3 +510,47 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   which is run-to-run divergence after Y414 rather than a real effect of two chart bands.
   Crossings unchanged (2/2, first Y106 / Y187, none before Y100). Run time 77.5 / 68.7 s.
 - GitHub checks dispatched (commit 0a96dd3): (a) run 40504455280, (b) run 40504465166.
+- Check (a), run [40504455280](https://github.com/Macrolol/kindling/actions/runs/40504455280)
+  (`docs/results-inv-step9-seeds1-10-500y.txt`): charts in 2/10 worlds (seed 1 Y414, peak 2
+  bands, gone by Y492; seed 5 Y466, 5 bands at Y500 with 4 routes on charts), routes taught
+  from a chart 15, kept by a chart 0, faded 232,548. Eight seeds are identical to step 8b (no
+  chart ever, same numbers). Crossings 4/10 (Y106, Y176, Y187, Y255; same as 8b, none before
+  Y100), war 0.373%/yr (8b 0.374), disease 0.119 (0.119), items 73.8 (73.6), population
+  1,136,998 (1,147,334, -0.9%: seed 1 diverges after its first chart, 116k -> 103k, as in the
+  local smoke; seed 5 +1%). Sim time 914 s (938 s).
+- Check (b), run [40504465166](https://github.com/Macrolol/kindling/actions/runs/40504465166)
+  (`docs/results-inv-step9-750y-800x800.txt`): charts in 8/10 worlds (all but the dead
+  499246298 and 499246299), first Y447-Y706 (447, 459, 506, 569, 635, 657, 703, 706); peak
+  chart bands 1-10 per world, 15 at Y750 summed; routes taught from a chart 343 (499246297:
+  170, 499246294: 85), kept by a chart 1, faded 2,655,926. Crossings 1/10 (499246293 at Y637;
+  8b Y634), war 0.289%/yr (0.290), disease 0.171 (0.171), items 77.6 (78.3), population
+  7,370,782 (7,348,876, +0.3%), steel worlds 3 (4: 499246293 diverges after its chart at Y569
+  and makes no steel). Sim time 7599 s (8616 s; slowest seed 1627 s, 1764 s; runner noise,
+  charts add no real work).
+- Totals, step 8b -> step 9:
+
+  | | (a) s8b | (a) s9 | (b) s8b | (b) s9 |
+  |---|---|---|---|---|
+  | worlds with charts | - | 2/10 | - | 8/10 |
+  | first chart year | - | Y414, Y466 | - | Y447-Y706 |
+  | chart bands peak (max world) | - | 5 | - | 10 |
+  | routes kept / taught (chart) | - | 0 / 15 | - | 1 / 343 |
+  | routes faded | (not counted) | 232,548 | (not counted) | 2,655,926 |
+  | continent crossings | 4/10 | 4/10 | 1/10 | 1/10 |
+  | first crossings | Y106-255 | Y106-255 | Y634 | Y637 |
+  | war deaths % | 0.374 | 0.373 | 0.290 | 0.289 |
+  | disease % | 0.119 | 0.119 | 0.171 | 0.171 |
+  | items (mean, end) | 73.6 | 73.8 | 78.3 | 77.6 |
+  | population | 1,147,334 | 1,136,998 | 7,348,876 | 7,370,782 |
+  | run time sum (max seed) | 938 s (247) | 914 s (246) | 8616 s (1764) | 7599 s (1627) |
+
+- Reading: charts are the minority thing the design aimed for: rare and late on the small map,
+  common but small on the big one (a handful of bands per world, first in the last 300
+  years). They teach routes (hundreds on (b)) but almost never have to keep one: a band with
+  pilotage 0.4+ already remembers a route for 90+ years (`rumour_keep`), and chart bands
+  mostly last a few decades, so `routes_kept` stays at 0-1. Crossings do not move (they come
+  before charts or, on (b), only once), so the over-reach worry in the plan did not happen.
+  Everything else is within run-to-run divergence of step 8b.
+- Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war not up, no population
+  collapse (499246298 dies out at Y31, as in every step). No tuning.
+- Checkpoint: step 9 done; step 10 (feasts and ale) not started.
