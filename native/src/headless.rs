@@ -469,6 +469,23 @@ pub fn run(a: &Args) {
                 "  charts (first year, chart bands at end (peak), with a route on the chart, routes kept by a chart, routes faded, routes taught from a chart): {}",
                 ch.join(", ")
             );
+            let fe: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.feasts;
+                    let y = g.first_feast_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    let ya = g.first_ale_year.map_or("-".to_string(), |y| format!("Y{y}"));
+                    format!(
+                        "s{} {y} n{} ale{} food{:.0} gift{:.0} ale:{ya} {}b({}) brew{} r{:.2}/{:.2} top{:.1}%/{:.1}%/{:.1}% g{:.2}",
+                        s.seed, g.feasts, g.ale_feasts, g.feast_food, g.food_shared, g.ale_bands, g.ale_bands_peak, g.brew_bands,
+                        g.prestige_size_r, g.prestige_size_r_100, g.prestige_top_pct, g.prestige_top_pct_100, g.prestige_top_pct_max, g.prestige_gini_100
+                    )
+                })
+                .collect();
+            println!(
+                "  feasts (first year, feasts held, with ale, food given at feasts, food given to the hungry, first ale year, ale bands at end (peak), brewing at end, prestige~size r end/last-100y mean, top band's prestige share end/last-100y mean/max from Y100, prestige Gini last-100y mean): {}",
+                fe.join(", ")
+            );
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

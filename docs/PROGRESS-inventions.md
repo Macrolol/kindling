@@ -565,4 +565,13 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   warm enough; a little more food from grain and a bigger feast draw. Events FirstFeast (major)
   and Feast (minor, history store only); counters; YearStats incl. prestige ~ size correlation
   and the top band's share of prestige. No caps, set dates or boosts.
-- Checkpoint: design written; code not started.
+- Code (civ-core `world/feasting.rs`; band.rs `Kit::ale`; physics ale recipe; materials name
+  "ale"; world.rs events/counters/YearStats/meeting hook; fx `Op::Feast`; analysis
+  `FeastsSummary`; headless "feasts" line; DATA_SCHEMA section). Prestige: spare-labour term and
+  flat gift removed; giving (feasts and food to the hungry) earns 0.004 x sqrt(food) (x2 ale).
+- Tests: `ale_is_brewed_from_grain_in_a_jar_at_the_water`,
+  `feasts_give_food_and_earn_standing_by_the_gift` (transfer, sqrt standing, ale x2, guest cap,
+  no feast when lean, FirstFeast once, YearStats, summary). `prestige_biases_...` now runs 600
+  seasons (no standing before the first food stores). v10 fixture run-on hash updated. All 55
+  pass, also with `--features parallel`.
+- Checkpoint: code + tests committed; next: local smoke (seeds 1-2, 500y).

@@ -42,6 +42,8 @@ pub(crate) enum Op {
     Drift(Box<Band>, u32, u32),
     /// (v10) a wedding, for the history store only
     Married { a: u32, b: u32, la: u32, lb: u32, cell: u32 },
+    /// (inventions step 10) a feast, for the history store (and the first one, the chronicle)
+    Feast { host: u32, guest: u32, cell: u32, food: f32, ale: bool },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -93,7 +95,8 @@ pub(crate) fn add_counters(a: &mut Counters, b: &Counters) {
 
 pub(crate) fn add_acc(a: &mut YearStats, b: &YearStats) {
     add_fields!(a, b; experiments, inventions, transfers, forgets, trades, trade_volume, food_shared, trade_dist,
-        confrontations, avoided, tributes, fights, conflict_deaths, displaced, absorbed, epidemics, disease_deaths);
+        confrontations, avoided, tributes, fights, conflict_deaths, displaced, absorbed, epidemics, disease_deaths,
+        feasts, feast_food);
 }
 
 impl World {
@@ -254,6 +257,7 @@ impl World {
                     }
                 }
                 Op::Married { a, b, la, lb, cell } => self.note_wedding(a, b, la, lb, cell),
+                Op::Feast { host, guest, cell, food, ale } => self.note_feast(host, guest, cell, food, ale),
                 Op::Drift(mut nb, parent, c) => {
                     let id = self.next_id;
                     self.next_id += 1;

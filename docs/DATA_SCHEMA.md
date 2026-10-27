@@ -313,6 +313,36 @@ span, tallies are summed over it.
   `charted_routes`, `routes_kept`, `routes_faded`, `routes_taught`; a "charts" line in the
   multi-seed text report.
 
+## Inventions step 10: feasts and ale (no format bump)
+
+- **Ale** is `item(Form::Jar, Mat::Grain)` (no new form or material): a `Combine` of raw grain
+  and a sealed jar (any jar but an ale jar), only at the water's edge (`Ctx::water`), p 0.2.
+  It fills the new derived `Kit::ale` slot (named "ale").
+- A band **brews** (`World::brews`) when it knows ale, sows grain, has grain in stock and the
+  warmest season at its cell reaches `ALE_WARM` (18 C, temp + seasonal swing). Brewing makes
+  `ALE_FOOD` (5%) more food of the grain digest, and doubles (`ALE_DRAW`) a feast's draw.
+- **Feasts** (`World::feast`, in a peaceful full meeting after marriage): the band with the
+  larger surplus (store beyond `FEAST_KEEP` = 1 season of its need, while eating fully) gives
+  the other `FEAST_SHARE` (25%) of it, at most `FEAST_EAT` (1) season of the guest's need; no
+  feast under `FEAST_MIN` (1 person-season). Host and guest bond by `FEAST_TIE` (0.1) x draw.
+- **Prestige from giving**: the host gains `PRESTIGE_GIVE` (0.004) x sqrt(food) x draw; food
+  given to the hungry in `trade` earns the same sqrt rule (draw 1). The old spare-labour term
+  (`PRESTIGE_SURPLUS`) and flat gift (`PRESTIGE_GIFT`) are gone; fine work and voyages are
+  unchanged. Nothing is capped.
+- Events: `FirstFeast` (kind 39, major; band = host, other = guest, item = ale if poured,
+  recipe = food given, rounded) and `Feast` (kind 40, history-store tally only, never in the
+  event log). `farm_flags` bit `FLAG_FEAST` (1<<11) marks the first feast as reported.
+- Counters `feasts`, `ale_feasts` (feasts with ale), `ale_brewed` (band-seasons brewing).
+- `metrics.csv` / `YearStats`: `feasts`, `feast_food` (person-seasons given at feasts this
+  year), `ale_bands`, `brew_bands` (year end), `prestige_size_r` (Pearson r of prestige with
+  band size across bands), `prestige_top_pct` (top band's share of all prestige, %),
+  `prestige_gini`. All `serde(default)`, so older saves and metrics load with zeros.
+- `summary.json` `feasts.`: `first_feast_year`, `first_ale_year`, `feasts`, `ale_feasts`,
+  `ale_brewed`, `feast_food`, `food_shared`, `ale_bands`, `ale_bands_peak`, `brew_bands`,
+  `prestige_size_r` (end), `prestige_size_r_100` (mean, last 100 years), `prestige_top_pct`,
+  `prestige_top_pct_100`, `prestige_top_pct_max` (from Y100), `prestige_gini_100`; a "feasts"
+  line in the multi-seed text report.
+
 ## What a save keeps (format v12)
 
 | what | resolution | kept |

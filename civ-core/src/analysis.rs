@@ -93,6 +93,8 @@ pub struct Summary {
     /// (inventions step 8) tallies, tokens and records; trade partners per band
     pub records: RecordsSummary,
     pub charts: ChartsSummary,
+    /// (inventions step 10) feasts, ale and what prestige follows
+    pub feasts: FeastsSummary,
 }
 
 /// (inventions step 8) Counting marks and records, and how many trade ties bands keep now that
@@ -141,6 +143,36 @@ pub struct ChartsSummary {
     pub routes_kept: u64,
     pub routes_faded: u64,
     pub routes_taught: u64,
+}
+
+/// (inventions step 10) Feasts and ale, and how prestige lines up with band size.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FeastsSummary {
+    /// year of the world's first `FirstFeast` event (null = none)
+    pub first_feast_year: Option<f32>,
+    /// first year any band knew ale (null = never)
+    pub first_ale_year: Option<u32>,
+    /// counters: feasts held, those with ale, band-seasons of brewing
+    pub feasts: u64,
+    pub ale_feasts: u64,
+    pub ale_brewed: u64,
+    /// food given at feasts and to the hungry over the run (person-seasons)
+    pub feast_food: f64,
+    pub food_shared: f64,
+    /// bands knowing ale / brewing it at the end, and the most knowing it in any year
+    pub ale_bands: u32,
+    pub ale_bands_peak: u32,
+    pub brew_bands: u32,
+    /// prestige ~ band size (Pearson, across bands) at the end and its mean over the last 100
+    /// years; share of all prestige held by the top band (%) at the end, its mean over the
+    /// last 100 years and its most in any year from Y100; prestige Gini, mean over the last
+    /// 100 years
+    pub prestige_size_r: f32,
+    pub prestige_size_r_100: f32,
+    pub prestige_top_pct: f32,
+    pub prestige_top_pct_100: f32,
+    pub prestige_top_pct_max: f32,
+    pub prestige_gini_100: f32,
 }
 
 /// (inventions step 7) Steel, and the weapons fights are fought with.
@@ -846,6 +878,29 @@ pub fn summarize(w: &World) -> Summary {
         routes_faded: w.counters.routes_faded,
         routes_taught: w.counters.routes_taught,
     };
+    let feasts = {
+        let h = &w.history;
+        let tail = &h[h.len().saturating_sub(100)..];
+        let mean = |f: fn(&crate::world::YearStats) -> f32| if tail.is_empty() { 0.0 } else { tail.iter().map(f).sum::<f32>() / tail.len() as f32 };
+        FeastsSummary {
+            first_feast_year: w.chronicle.iter().find(|e| e.kind == crate::world::EventKind::FirstFeast as u8).map(|e| e.tick as f32 / 4.0),
+            first_ale_year: h.iter().find(|y| y.ale_bands > 0).map(|y| y.year),
+            feasts: w.counters.feasts,
+            ale_feasts: w.counters.ale_feasts,
+            ale_brewed: w.counters.ale_brewed,
+            feast_food: h.iter().map(|y| y.feast_food as f64).sum(),
+            food_shared: h.iter().map(|y| y.food_shared as f64).sum(),
+            ale_bands: h.last().map_or(0, |y| y.ale_bands),
+            ale_bands_peak: h.iter().map(|y| y.ale_bands).max().unwrap_or(0),
+            brew_bands: h.last().map_or(0, |y| y.brew_bands),
+            prestige_size_r: h.last().map_or(0.0, |y| y.prestige_size_r),
+            prestige_size_r_100: mean(|y| y.prestige_size_r),
+            prestige_top_pct: h.last().map_or(0.0, |y| y.prestige_top_pct),
+            prestige_top_pct_100: mean(|y| y.prestige_top_pct),
+            prestige_top_pct_max: h.iter().filter(|y| y.year >= 100).map(|y| y.prestige_top_pct).fold(0.0, f32::max),
+            prestige_gini_100: mean(|y| y.prestige_gini),
+        }
+    };
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
@@ -1000,6 +1055,7 @@ pub fn summarize(w: &World) -> Summary {
         metal,
         records,
         charts,
+        feasts,
     }
 }
 

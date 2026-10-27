@@ -215,6 +215,8 @@ pub struct Kit {
     pub ship_q: f32,
     /// (inventions step 8) a counting mark (tally or token)
     pub mark: Item,
+    /// (inventions step 10) ale: grain left to work in a sealed jar (`item(Jar, Grain)`)
+    pub ale: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
     /// cooking known for grain (v5)
@@ -266,6 +268,7 @@ impl Default for Kit {
             ship: NONE,
             ship_q: 0.0,
             mark: NONE,
+            ale: NONE,
             cooked: [NONE; 3],
             cooked_grain: NONE,
             plants_m: 1.0,
@@ -282,12 +285,13 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 29] {
+    pub fn used_items(&self) -> [Item; 30] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
             self.boat, self.net, self.trap, self.cooked_grain, self.bow, self.shield, self.outrigger,
             self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch, self.ship, self.mark,
+            self.ale,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -642,6 +646,8 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
             Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
+            // (inventions step 10) a jar of grain left to work is ale, not a store jar
+            Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
             Form::Ship => upd(22, score(boat_q(m), m), &mut k.ship),
             // (inventions step 8) the mark that lasts: fired token, bone, stick, raw clay

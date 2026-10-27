@@ -417,6 +417,8 @@ pub fn item_name(i: Item) -> String {
         },
         Form::Jar => match m {
             Mat::Ceramic => "sealed jar".into(),
+            // (inventions step 10) grain and water left to work in a sealed jar
+            Mat::Grain => "ale".into(),
             _ => format!("sealed {n} jar"),
         },
         Form::Ship => match m {

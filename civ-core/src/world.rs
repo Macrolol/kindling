@@ -26,6 +26,8 @@ pub mod farming;
 pub mod terrain;
 pub mod voyaging;
 pub use voyaging::*;
+pub mod feasting;
+pub use feasting::*;
 pub use farming::{crop_potential, graze_potential};
 
 /// Size of the old single event ring (formats 1-9); now `archive::RING_CAPS` per class.
@@ -135,17 +137,16 @@ pub const QUALITY_TEACH: f32 = 0.5;
 pub const QUALITY_SHOW_P: f32 = 0.3;
 pub const QUALITY_SHOW: f32 = 0.3;
 pub const QUALITY_SPLIT: f32 = 0.9;
-/// (v9) Prestige: x`PRESTIGE_FADE` a season, plus `PRESTIGE_SURPLUS` x spare labour and, for a
-/// band that makes ornaments, `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season;
-/// `PRESTIGE_GIFT` for each gift of food to the hungry and `PRESTIGE_VOYAGE` for coming ashore
-/// alive on another landmass. A band learns from a more prestigious one more readily (chance
+/// (v9) Prestige: x`PRESTIGE_FADE` a season, plus, for a band that makes ornaments,
+/// `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season; `PRESTIGE_VOYAGE` for
+/// coming ashore alive on another landmass. (inventions step 10) Giving food, at a feast or to
+/// the hungry, earns `PRESTIGE_GIVE` x sqrt(food given) (see `feasting`); this replaced the
+/// share-of-spare-labour term (`PRESTIGE_SURPLUS`) and the flat gift (`PRESTIGE_GIFT`). A band learns from a more prestigious one more readily (chance
 /// x(1 + `PRESTIGE_LEARN` x difference), within 0.5..2), weddings are likelier with prestigious
 /// bands (x(1 + `PRESTIGE_MARRY` x their mean)), and the ambitious take ship for glory more
 /// often (`PRESTIGE_LURE` x ambition a season, for those who know of a far shore).
 pub const PRESTIGE_FADE: f32 = 0.99;
-pub const PRESTIGE_SURPLUS: f32 = 0.01;
 pub const PRESTIGE_FINE: f32 = 0.01;
-pub const PRESTIGE_GIFT: f32 = 0.05;
 pub const PRESTIGE_VOYAGE: f32 = 1.0;
 pub const PRESTIGE_LEARN: f32 = 0.5;
 pub const PRESTIGE_MARRY: f32 = 0.3;
@@ -241,6 +242,12 @@ pub enum EventKind {
     /// (inventions step 9) the world's first band to keep a chart (records and pilotage both
     /// >= `CHART_MIN`, with a boat; major; other = landmass of the far shore on it, or u32::MAX)
     FirstChart,
+    /// (inventions step 10) the world's first feast (major; band = host, other = guest, item =
+    /// ale if poured, recipe = food given, person-seasons rounded)
+    FirstFeast,
+    /// (inventions step 10, history store only) a feast: band hosted other (same fields as
+    /// `FirstFeast`); tallied in `Archive`, never in the event log
+    Feast,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -250,11 +257,11 @@ impl EventKind {
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
             FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
-            FirstChart,
+            FirstChart, FirstFeast, Feast,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 39;
+    pub const COUNT: usize = 41;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -277,6 +284,7 @@ impl EventKind {
                 | EventKind::FirstShip
                 | EventKind::FirstRecords
                 | EventKind::FirstChart
+                | EventKind::FirstFeast
         )
     }
 }
@@ -423,6 +431,19 @@ pub struct YearStats {
     /// far shore on it
     pub chart_bands: u32,
     pub charted_routes: u32,
+    /// (inventions step 10) feasts held this year and the food given at them (person-seasons)
+    pub feasts: u32,
+    pub feast_food: f32,
+    /// (inventions step 10) bands that know ale, and those brewing it (grain farmers in warm
+    /// enough country) at year end
+    pub ale_bands: u32,
+    pub brew_bands: u32,
+    /// (inventions step 10) at year end: Pearson correlation of band prestige with band size,
+    /// the share of all prestige held by the single most prestigious band (%), and the Gini of
+    /// prestige across bands
+    pub prestige_size_r: f32,
+    pub prestige_top_pct: f32,
+    pub prestige_gini: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -532,6 +553,11 @@ counters! {
         routes_kept,
         routes_faded,
         routes_taught,
+        /// (inventions step 10) feasts held, those of them with ale, and band-seasons a band
+        /// brewed ale
+        feasts,
+        ale_feasts,
+        ale_brewed,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -1560,7 +1586,11 @@ impl World {
             2.5 * kit.small_m * p.forage_eff,
             3.5 * kit.farm_m * fm.plough * p.forage_eff,
         ];
-        let dg = kit.digest;
+        let mut dg = kit.digest;
+        // (inventions step 10) brewing makes a little more of the grain
+        if self.brews(b) {
+            dg[4] *= 1.0 + ALE_FOOD;
+        }
         // effort goes where it pays best (food value per unit of effort)
         let wsum: f32 = (0..5).map(|r| ys[r] * ks[r] * dg[r]).sum::<f32>().max(1e-6);
         let harvest = |e: f32| -> [f32; 5] {
@@ -1768,9 +1798,9 @@ impl World {
             }
         }
         // ---------------- (v9) play and refinement of what the band already makes
-        // ---------------- (v9) standing: surplus and fine work earn it, time wears it away
+        // ---------------- (v9) standing: fine work earns it, time wears it away (inventions step
+        // 10: food given away earns it too, at feasts and to the hungry)
         b.prestige = b.prestige * PRESTIGE_FADE
-            + PRESTIGE_SURPLUS * spare
             + if b.d.kit.ornament != NONE { PRESTIGE_FINE * (0.5 + b.d.kit.fine) } else { 0.0 };
         Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
@@ -1788,6 +1818,10 @@ impl World {
             fx.counters.marks_used += 1;
         }
         b.records *= RECORDS_FADE;
+        // (inventions step 10) brewing ale (its food is counted in `economy`, its draw at feasts)
+        if self.brews(b) {
+            fx.counters.ale_brewed += 1;
+        }
         b.owed *= 0.95;
         let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt()) * (1.0 - RECORDS_FORGET * b.records);
         let mut forgot: Vec<u32> = Vec::new();
@@ -2982,6 +3016,8 @@ impl World {
             self.share_farming(bands, a, c, rng, fx);
             self.share_farming(bands, c, a, rng, fx);
             self.marry(bands, a, c, rng, fx);
+            // (inventions step 10) the one with food to spare may feast the other
+            self.feast(bands, a, c, fx);
         } else {
             // (v9) a visit across open water teaches whoever paddled it
             if self.map.landmass_of(bands[a].cell(self.map.w)) != self.map.landmass_of(bands[c].cell(self.map.w)) {
@@ -3151,7 +3187,7 @@ impl World {
                         bands[x].store -= give;
                         bands[y].store += give;
                         fx.acc.food_shared += give;
-                        bands[x].prestige += PRESTIGE_GIFT;
+                        bands[x].prestige += give_prestige(give, 1.0);
                         moved += 0.01;
                     }
                 }
@@ -3761,6 +3797,7 @@ impl World {
         let top_lineage_pct = if tp > 0 { 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tp as f32 } else { 0.0 };
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
+        self.feast_year_stats(&mut acc);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
             year: self.tick / 4,
@@ -3948,6 +3985,11 @@ impl World {
                 e.band, e.other, e.recipe
             ),
             EventKind::FirstRecords => format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep count of its goods and dealings, with {it}s", e.band),
+            EventKind::FirstFeast => {
+                let ale = if e.item == NONE { String::new() } else { " and ale".to_string() };
+                format!("Y{yr}: band {} at ({cx},{cy}) holds the first feast, giving band {} {} seasons' food{ale}", e.band, e.other, e.recipe)
+            }
+            EventKind::Feast => format!("Y{yr}: band {} feasts band {} ({} seasons' food)", e.band, e.other, e.recipe),
             EventKind::FirstChart => {
                 let to = if e.other == u32::MAX { String::new() } else { format!(", the way to landmass #{}", e.other) };
                 format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep its sailing directions as a chart{to}", e.band)

@@ -285,6 +285,13 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Jar, mat(pot)), 0.25);
         }
     }
+    // (inventions step 10) grain steeped in water and left to work in a sealed jar: ale. Only
+    // found where there is water at hand to steep it in
+    if ctx.water && n == 2 && raw(Mat::Grain) {
+        if items.iter().any(|&i| form(i) == Form::Jar && mat(i) != Mat::Grain) {
+            return o(item(Form::Jar, Mat::Grain), 0.2);
+        }
+    }
     // sewing: hide + cord + a point to pierce it
     if n == 3 && raw(Mat::Hide) && count(Form::Cord) == 1 && count(Form::Point) == 1 {
         return o(item(Form::Garment, Mat::Hide), 0.35);

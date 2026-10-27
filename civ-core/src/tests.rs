@@ -823,7 +823,9 @@ fn prestige_biases_learning_and_gini_measures_spread() {
     use crate::analysis::gini;
     use crate::world::prestige_bias;
     let mut w = small();
-    for _ in 0..200 {
+    // (inventions step 10) standing now comes from giving (feasts, food to the hungry), fine
+    // work and voyages, not from spare labour, so it takes the first stores of food to show
+    for _ in 0..600 {
         w.step();
     }
     // bands earn standing over time, and it never goes negative
@@ -1096,7 +1098,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x7c0d813d648ee0ca); // run-on changed by step 8 (records, no partner cap) and step 8b (close ties)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x4ef5a3368b3c3374); // run-on changed by step 8 (records, no partner cap), step 8b (close ties) and step 10 (feasts, prestige from giving)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2119,3 +2121,113 @@ fn charts_keep_and_teach_routes() {
     }
     assert_eq!(n(&w), 1, "fires once");
 }
+
+#[test]
+fn ale_is_brewed_from_grain_in_a_jar_at_the_water() {
+    let jar = item(Form::Jar, Mat::Ceramic);
+    let inp = physics::canonical(Action::Combine, [item(Form::Raw, Mat::Grain), jar, NONE, NONE]);
+    let wet = Ctx { dryness: 0.3, water: true };
+    let dry = Ctx { dryness: 0.3, water: false };
+    let ale = item(Form::Jar, Mat::Grain);
+    assert_eq!(physics::apply(Action::Combine, &inp, &wet).map(|o| o.out), Some(ale));
+    assert!(physics::apply(Action::Combine, &inp, &dry).map(|o| o.out != ale).unwrap_or(true), "no water to steep it in");
+    // an ale jar is not another jar to brew in
+    let inp = physics::canonical(Action::Combine, [item(Form::Raw, Mat::Grain), ale, NONE, NONE]);
+    assert!(physics::apply(Action::Combine, &inp, &wet).map(|o| o.out != ale).unwrap_or(true));
+    assert_eq!(item_name(ale), "ale");
+    let mut s = ItemSet::default();
+    s.add(ale);
+    s.add(jar);
+    let k = crate::band::make_kit(&s);
+    assert_eq!(k.ale, ale);
+    assert!(k.used_items().contains(&ale));
+}
+
+#[test]
+fn feasts_give_food_and_earn_standing_by_the_gift() {
+    use crate::world::fx::{Fx, Op, Pair};
+    use crate::world::*;
+    assert!((pearson(&[1.0, 2.0, 3.0, 4.0], &[2.0, 4.0, 6.0, 8.0]) - 1.0).abs() < 1e-5);
+    assert!((pearson(&[1.0, 2.0, 3.0, 4.0], &[8.0, 6.0, 4.0, 2.0]) + 1.0).abs() < 1e-5);
+    assert_eq!(pearson(&[1.0, 1.0, 1.0], &[1.0, 2.0, 3.0]), 0.0);
+    assert!((give_prestige(16.0, 1.0) - 4.0 * PRESTIGE_GIVE).abs() < 1e-6);
+    assert!((give_prestige(16.0, ALE_DRAW) - 2.0 * give_prestige(16.0, 1.0)).abs() < 1e-6);
+
+    let mut w = small();
+    for _ in 0..8 {
+        w.step();
+    }
+    let mut h = w.bands[0].clone();
+    let mut g = w.bands[1 % w.bands.len()].clone();
+    g.id = h.id + 100_000;
+    h.partners.clear();
+    g.partners.clear();
+    (h.prestige, g.prestige) = (0.0, 0.0);
+    h.d.kit.ale = NONE;
+    (h.d.food_ratio, h.d.need) = (1.2, 50.0);
+    (g.d.food_ratio, g.d.need) = (1.0, 40.0);
+    h.store = 50.0 + 100.0; // 100 to spare
+    g.store = 0.0;
+    let run = |h: &crate::band::Band, g: &crate::band::Band| {
+        let (mut h, mut g) = (h.clone(), g.clone());
+        let mut fx = Fx::default();
+        w.feast(&mut Pair(&mut g, &mut h), 0, 1, &mut fx);
+        (h, g, fx)
+    };
+    let (h1, g1, fx) = run(&h, &g);
+    let give = FEAST_SHARE * 100.0;
+    assert!((h1.store - (150.0 - give)).abs() < 1e-3 && (g1.store - give).abs() < 1e-3, "the host gives a share of its surplus");
+    assert!((h1.prestige - give_prestige(give, 1.0)).abs() < 1e-6 && g1.prestige == 0.0, "standing goes to the giver");
+    assert!(h1.partners.iter().any(|p| p.id == g.id) && g1.partners.iter().any(|p| p.id == h.id));
+    assert_eq!((fx.counters.feasts, fx.counters.ale_feasts, fx.acc.feasts), (1, 0, 1));
+    assert!(matches!(fx.ops.last(), Some(Op::Feast { ale: false, .. })));
+    // a richer host gives more and stands higher, but by the square root, not in proportion
+    let mut rich = h.clone();
+    rich.store = 50.0 + 400.0;
+    let (r1, _, _) = run(&rich, &g);
+    assert!(r1.prestige > h1.prestige && r1.prestige < 4.0 * h1.prestige);
+    // the guest eats at most a season of its need
+    let mut glut = h.clone();
+    glut.store = 50.0 + 10_000.0;
+    let (_, g2, _) = run(&glut, &g);
+    assert!((g2.store - FEAST_EAT * 40.0).abs() < 1e-3);
+    // no feast from a band short of food, or with nothing to spare
+    let mut lean = h.clone();
+    lean.d.food_ratio = 0.9;
+    assert_eq!(run(&lean, &g).2.counters.feasts, 0);
+    let mut bare = h.clone();
+    bare.store = 50.0;
+    assert_eq!(run(&bare, &g).2.counters.feasts, 0);
+    // with ale (if this band's country is warm enough to brew), the feast draws twice the crowd
+    let c = h.cell(w.map.w);
+    if w.ale_warm(c) {
+        let mut br = h.clone();
+        br.d.kit.ale = item(Form::Jar, Mat::Grain);
+        br.sow = 1.0;
+        br.stock[Mat::Grain as usize] = 1.0;
+        assert!(w.brews(&br));
+        let (b1, _, fx) = run(&br, &g);
+        assert!((b1.prestige - give_prestige(give, ALE_DRAW)).abs() < 1e-6);
+        assert_eq!(fx.counters.ale_feasts, 1);
+    }
+
+    // FirstFeast once, through the effects; YearStats and the summary
+    let mut fx = Fx::default();
+    w.feast(&mut Pair(&mut h.clone(), &mut g.clone()), 0, 1, &mut fx);
+    w.feast(&mut Pair(&mut h.clone(), &mut g.clone()), 0, 1, &mut fx);
+    w.apply_fx(fx, None);
+    let n = |w: &World| w.chronicle.iter().filter(|e| e.kind == EventKind::FirstFeast as u8).count();
+    assert_eq!(n(&w), 1);
+    assert!(EventKind::FirstFeast.major() && !EventKind::Feast.major());
+    assert_eq!(EventKind::from_u8(EventKind::Feast as u8), EventKind::Feast);
+    assert_eq!(w.counters.feasts, 2);
+    w.year_stats();
+    let y = w.history.last().unwrap();
+    assert_eq!(y.feasts, 2);
+    assert!((y.feast_food - 2.0 * give).abs() < 1e-3);
+    assert!(y.prestige_size_r.abs() <= 1.0 && y.prestige_top_pct >= 0.0 && y.prestige_top_pct <= 100.0);
+    let s = crate::analysis::summarize(&w);
+    assert_eq!(s.feasts.feasts, 2);
+    assert!(s.feasts.first_feast_year.is_some());
+}
+
