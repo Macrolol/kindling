@@ -134,7 +134,7 @@ Checks:
   rests on ships (step 5) making 47–54-cell legs. On the default map the needed hops are
   3–48 cells (seed 10's continent is 21 cells away by island chain and is not yet reached).
 
-## Step 4. Sky lore (built; checks running)
+## Step 4. Sky lore (done)
 - Band field `sky` (0..1; appended after `pilot`, older rows load as 0; no format bump): a
   calendar and star paths, one practice for farming and sailing (decision 7).
 - Learned by settled farmers (0.003 x sow x settled per season, once both are above 0.3; at full
@@ -157,3 +157,20 @@ Checks:
   so sea learning was made proportional instead). Seed 5, 400 years: sky lore from Y250 with
   farming, 7122 bands above 0.1 by Y400, farmers' mean 0.23 (+1.2% sowing effort), boat bands'
   mean 0.14 but only 0.008 usable at sea (pilotage is low on that map).
+- Check (a), run [40421935783](https://github.com/Macrolol/kindling/actions/runs/40421935783),
+  `docs/results-inv-step4-seeds1-10-500y.txt`: continents crossed 4/10 at the same years as step
+  3 (Y118, Y179, Y205, Y270), none before Y100. Farmers' sky lore mean 0.19-0.28 where grain is
+  farmed (about +1-1.4% sowing effort, inside the +5% bound); usable at sea only on the two
+  seeds with real pilotage (s1 0.04, s8 0.05), steering 0.4-0.8% of voyages. War 0.402 %/y
+  (0.407), items 68.0 (68.1), pop 1 149 650 (+11% on step 3, back above step 2's 1 145 k): most
+  of the gain is seeds 1, 3, 4 and 9 where grain was domesticated earlier this time (seed 1's
+  farmed food 6% -> 44%), which is discovery timing rather than the 1% sowing bonus.
+- Check (b), run [40421945252](https://github.com/Macrolol/kindling/actions/runs/40421945252),
+  `docs/results-inv-step4-750y-800x800.txt`: 0/10 crossed. Seed 499246293, which crossed at
+  Y723 in steps 2 and 3 (a 14-cell hop at the very end of the run), did not get across by Y750
+  this time; its longest leg was 32 cells, so the hop was in reach and this is late-run chance,
+  not a lost ability. The plan's 3-4/10 is not met for the geographic reason found in step 3:
+  sky lore only narrows the heading error and adds no range. Sky lore at sea stays small
+  (`sky_at_sea` mean 0.01-0.06) because pilotage is low on these maps (p90 0.06-0.18). War
+  0.298 %/y (0.299), items 73.9 (75.1), pop 7.34M (7.31M), farmed food share within a few
+  points per seed, lost at sea 228 568 (226 578).
