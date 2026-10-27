@@ -34,7 +34,7 @@ The real work is elsewhere:
 | Output | Produced by | Form | Notes |
 |---|---|---|---|
 | Per-seed report | `native/src/headless.rs` | ~20 lines of free text per seed (headline, firsts, continents, sea, seafaring, lineages, ancestry, motives, refinement, prestige, trade, losses, discovery order, conflict, farming), plus an aggregate block with Kendall tau for multi-seed runs | Only at the **end** of each seed |
-| Progress lines | `--report K` | One stderr line every K years (pop, bands, items, exp/inv/learn/forget) | The only thing available while a run is going |
+| Progress lines | `--progress-every K` (alias `--report K`) | One stdout line every K years, default 50, 0 = off; on stderr with `--json` (pop, bands, items, exp/inv/learn/forget, elapsed time) | The only thing available while a run is going |
 | `--json` | `analysis::summarize` → `Summary` | One JSON object per seed **instead of** the text | Not the same content as the text (the text has more) |
 | `.civsave` | `World::save_bytes` | MessagePack (named) + raw deflate, format 9; 43–147 MB at Y750 | Written only at the end (`--save` overwrites per seed). Saving 147 MB took 18.6 s; loading took 3.9 s |
 | Profile | `KINDLING_PROF` | One stderr line | |

@@ -391,7 +391,7 @@ span, tallies are summed over it.
 - Save format v13 (migration `v12_to_v13`): per-material vectors grow by one; see
   SAVE_FORMAT.md.
 
-## What a save keeps (format v13)
+## What a save keeps (format v14)
 
 | what | resolution | kept |
 |---|---|---|
