@@ -356,7 +356,7 @@ Checks:
   of the 9 worlds that ever reached iron (Y295-Y731), held at the end in 6. Killed per fight,
   living worlds: 2.84 (2.67), x1.06; largest per-seed rise x1.12. Targets met; no tuning.
 
-## Step 8: tallies, tokens and records (in progress)
+## Step 8: tallies, tokens and records (done; guard rails fine, side effects of no cap noted)
 
 - Form `Mark` (id 27, no format bump): tally (good edge + wooden stick or bone), clay token
   (point pressed into soft clay), fired clay token (fired like a pot). Kit slot `mark`.
@@ -379,3 +379,35 @@ Checks:
   (0.423), disease 0.094 (0.121), items per band 33-38 (33-37), run time about the same.
   Records in 54-62% of bands at Y500, 88-91% of them with something to count now; first
   records Y99-Y106. Partners per band mean 22 (max 61); before, about 7.7 against the cap of 8.
+- Check (a), run [40490126875](https://github.com/Macrolol/kindling/actions/runs/40490126875)
+  (`docs/results-inv-step8-seeds1-10-500y.txt`): crossings 4/10 (Y118, Y127, Y177, Y303; none
+  before Y100), war 0.387%/yr (step 7: 0.400), disease 0.113 (0.129), items 69.7 (70.5), items per
+  band 35.3 (35.8), population 1,111,541 (1,171,697, -5%). Records in 23-92% of bands at Y500,
+  76-99% of them with something to count. Partners per band mean 18.7-24.7, max 49-66 (step 7:
+  7.8 of 8). Sim time 674 s (694 s).
+- Check (b), run [40490129626](https://github.com/Macrolol/kindling/actions/runs/40490129626)
+  (`docs/results-inv-step8-750y-800x800.txt`): crossings 1/10 (499246293 at Y636; step 7 Y622),
+  war 0.299%/yr (0.303), disease 0.174 (0.175), items 75.9 (77.3), items per band 35.2 (36.5),
+  population 7,327,512 (8,107,740, -10%; step 6 7,648,642). Killed per fight 2.63 (2.73). Records
+  in 64-91% of bands at Y750, 92-97% of them with something to count. Partners per band mean
+  14.0-24.4, max 52-71 (step 7: 7.7 of 8).
+- Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war not up, no world collapses
+  (499246298 dies out, as in steps 6 and 7). So no tuning.
+- What removing the cap does at scale (both checks agree):
+  - Partners are no longer pinned (about 2.7x as many, wide spread), and items per band are
+    not runaway (slightly down). Run time: (a) the same; (b) +15% summed (6726 -> 7745 s), the
+    slowest seed 1249 -> 1781 s (499246297; 499246296 949 -> 1650 s) while 292, 299 and 300 ran
+    faster, so the cost is uneven but bounded.
+  - Ties are many but weak: with care spread over ~20 partners few reach the 0.3 strength that
+    counts as "close", so food sharing to the hungry fell by about 90% (b: 4.05M -> 0.45M;
+    a: 304k -> 28k). Trades -27% in both checks; mean trade distance 2.4-2.6 -> 1.5-2.0
+    cells in (b) (2.1 -> 1.4 in (a)); metal carried from source shorter.
+  - Learning slightly down: recipes learned -7% (a) / -11% (b), forgotten -9% / -12%.
+  - Knock-on: metal and farming slower. (b) iron traded in 6 worlds (9), steel made in only 2
+    (7: 499246296, 499246297); (a) wrought iron in 1 world (5), steel in none (2); farmers 59%
+    of people in (b) (67%) and 47% in (a) (62%). This is the main price of the change and the
+    likely cause of the population drop.
+  - For Michael (not done, no guard rail broken): if the weaker trade and slower metallurgy are
+    unwanted, the levers are the spread penalty (`TIE_SPAN` 2, the squared exponent) or the
+    0.3 tie strength that counts as close for food sharing (kin of 0.2+ already count).
+- Checkpoint: step 8 done; step 9 (charts) not started.
