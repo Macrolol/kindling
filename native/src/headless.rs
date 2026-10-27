@@ -457,6 +457,18 @@ pub fn run(a: &Args) {
                 "  records (first year, bands with a mark, record-keeping bands at end (peak), seasons a mark was used, share of record keepers with something to count, partners per band mean/max, close ties per band mean/max): {}",
                 rc.join(", ")
             );
+            let ch: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.charts;
+                    let y = g.first_chart_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!("s{} {y} {}b({}) r{} kept{} faded{} taught{}", s.seed, g.chart_bands, g.chart_bands_peak, g.charted_routes, g.routes_kept, g.routes_faded, g.routes_taught)
+                })
+                .collect();
+            println!(
+                "  charts (first year, chart bands at end (peak), with a route on the chart, routes kept by a chart, routes faded, routes taught from a chart): {}",
+                ch.join(", ")
+            );
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

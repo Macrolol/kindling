@@ -293,6 +293,26 @@ span, tallies are summed over it.
 - `summary.json` `records.`: `close_ties_mean`, `close_ties_max`; the headless "records" line
   adds `k<mean>/<max>`.
 
+## Inventions step 9: charts (no format bump)
+
+- A band **keeps charts** (`World::charts`) when records >= `CHART_MIN` (0.4), pilotage >=
+  0.4 and it has a boat (the chart is kept while it is used). No new item.
+- A charted band's far-shore route does not fade: each sea season it is renewed
+  (`far_shore_year` = this year) instead of being forgotten after `rumour_keep` years.
+- Teaching: when a charted band passes word of its far shore in `exchange`, the reach is x
+  `CHART_TELL` (1.5) and the chance is `CHART_TEACH_P` (0.6, plain word 0.3); a taught route
+  arrives as fresh (year = now).
+- Event `FirstChart` (kind 38, major): the first band keeping charts (`other` = landmass of
+  its far shore, or none). No minor events for kept/faded routes (counters only, to keep the
+  chronicle quiet).
+- Counters `routes_kept` (far-shore routes renewed by a chart), `routes_faded` (routes
+  forgotten), `routes_taught` (routes passed on by a charted band).
+- `metrics.csv` / `YearStats`: `chart_bands`, `charted_routes` (charted bands that hold a
+  far-shore route).
+- `summary.json` `charts.`: `first_chart_year`, `chart_bands`, `chart_bands_peak`,
+  `charted_routes`, `routes_kept`, `routes_faded`, `routes_taught`; a "charts" line in the
+  multi-seed text report.
+
 ## What a save keeps (format v12)
 
 | what | resolution | kept |

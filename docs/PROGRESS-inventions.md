@@ -412,7 +412,7 @@ Checks:
     0.3 tie strength that counts as close for food sharing (kin of 0.2+ already count).
 - Checkpoint: step 8 done; step 9 (charts) not started.
 
-## Step 8b: close ties (Michael approved; in progress)
+## Step 8b: close ties (Michael approved; checks running)
 
 Fix for step 8's side effects (weak ties, food sharing -90%, less metal trade). Real people keep
 a few close ties and many loose ones, so a band's yearly tie upkeep now goes mostly to the ties
@@ -455,3 +455,27 @@ that already mean most.
   ties) and lowered `LOOSE_KEEP` 0.4 -> 0.3 so the larger budget does not keep extra loose ties
   alive. Close ties doubled (about 2.2 per band, max 8), food sharing up a further 40-50%
   (now about half of step 7), trades and trade distance back near step 7; partners unchanged.
+
+## Step 9: charts (in progress)
+
+Plan 4.4: no new item; records x pilotage keeps and teaches routes.
+
+- Design: a band keeps charts (`World::charts`) when records and pilotage are both at least
+  `CHART_MIN` 0.4 and it has a boat (the chart is kept while it is used). Its far-shore route
+  no longer fades: each sea season the route is renewed instead of being forgotten after
+  `rumour_keep` years. When it passes word of the far shore to a partner or neighbour
+  (`exchange`), the reach is x`CHART_TELL` 1.5 and the chance `CHART_TEACH_P` 0.6 (plain word
+  0.3), and the taught route arrives fresh. Pilotage (p90 0.02-0.19 in step 8) and records
+  (mean 0.1-0.5) are rarely both 0.4+, so charts should be a minority thing.
+- New: event `FirstChart` (kind 38, major); counters `routes_kept`, `routes_faded`,
+  `routes_taught`; YearStats `chart_bands`, `charted_routes`; summary `charts.*`; a "charts"
+  line in the headless report. No kept/faded route events in the chronicle (counters only, to
+  keep it quiet). No save format bump; DATA_SCHEMA.md updated.
+- Test `charts_keep_and_teach_routes`: a charted band keeps a 1500-year-old route, the same band
+  without records forgets it, no boat means no chart; teaching trials (near: charts taught
+  more than 1.5x as often as plain word; far: only a chart carries); `routes_taught` counts;
+  `FirstChart` fires once; YearStats and summary match. All civ-core tests pass (53, 1 ignored).
+- Local smoke (seeds 1-2, 500y): s1 first chart Y414, peak 2 chart bands, 7 routes taught;
+  s2 no charts (its run is identical to step 8b: pop 119,870). s1 pop 103,489 (8b 116,282),
+  which is run-to-run divergence after Y414 rather than a real effect of two chart bands.
+  Crossings unchanged (2/2, first Y106 / Y187, none before Y100). Run time 77.5 / 68.7 s.

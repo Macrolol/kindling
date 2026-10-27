@@ -238,6 +238,9 @@ pub enum EventKind {
     /// (inventions step 8) the world's first band to keep records (records >= `RECORDS_FIRST`;
     /// major; item = its counting mark)
     FirstRecords,
+    /// (inventions step 9) the world's first band to keep a chart (records and pilotage both
+    /// >= `CHART_MIN`, with a boat; major; other = landmass of the far shore on it, or u32::MAX)
+    FirstChart,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -247,10 +250,11 @@ impl EventKind {
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
             FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
+            FirstChart,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 38;
+    pub const COUNT: usize = 39;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -272,6 +276,7 @@ impl EventKind {
                 | EventKind::LongestCrossing
                 | EventKind::FirstShip
                 | EventKind::FirstRecords
+                | EventKind::FirstChart
         )
     }
 }
@@ -414,6 +419,10 @@ pub struct YearStats {
     /// fade) per band: mean and most
     pub close_ties_mean: f32,
     pub close_ties_max: u32,
+    /// (inventions step 9) bands keeping a chart (`World::charts`), and those of them with a
+    /// far shore on it
+    pub chart_bands: u32,
+    pub charted_routes: u32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -518,6 +527,11 @@ counters! {
         /// (inventions step 8) band-seasons a band kept count with a tally or token (it had one
         /// and something worth counting)
         marks_used,
+        /// (inventions step 9) far-shore routes a chart kept past their fade (renewed), routes
+        /// forgotten for age, and routes taught from a chart
+        routes_kept,
+        routes_faded,
+        routes_taught,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -2391,7 +2405,7 @@ impl World {
     /// people may make out land on the horizon; and fishing parties are sometimes blown out to sea
     /// - most drown or wash back, some come ashore somewhere new, a few find their way home with
     /// news of it.
-    fn sea_season(&self, b: &mut Band, rng: &mut Rng, fx: &mut Fx) {
+    pub(crate) fn sea_season(&self, b: &mut Band, rng: &mut Rng, fx: &mut Fx) {
         let m = &self.map;
         let ci = b.cell(m.w);
         b.seacraft *= 0.998; // what is not practised is lost, generation by generation
@@ -2400,7 +2414,14 @@ impl World {
         // (v9) news nobody has confirmed for a lifetime or two is forgotten; (inventions step 3)
         // pilots keep it longer, as sailing directions
         if b.far_shore.is_some() && self.rumour_age(b) as f32 > Self::rumour_keep(b) {
-            b.far_shore = None;
+            if Self::charts(b) {
+                // (inventions step 9) unless it is on a chart still in use: read again, renewed
+                b.far_shore_year = self.year_u16();
+                fx.counters.routes_kept += 1;
+            } else {
+                b.far_shore = None;
+                fx.counters.routes_faded += 1;
+            }
         }
         if !self.coastal(ci) {
             return;
@@ -3183,7 +3204,7 @@ impl World {
     }
 
     /// `src` shows `dst` one thing it knows (if `dst` can use it, it is more likely to stick).
-    fn exchange(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
+    pub(crate) fn exchange(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         // fire can be shared
         if bands[src].flame && !bands[dst].flame && rng.chance(0.5) {
             bands[dst].flame = true;
@@ -3233,11 +3254,16 @@ impl World {
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
+        // (inventions step 9) a chart is taught: further, more readily, and as fresh directions
         if let (None, Some(f)) = (bands[dst].far_shore, bands[src].far_shore) {
-            let reach = 2.0 * Self::boat_range(&bands[dst].d.kit, bands[dst].seacraft) * (1.0 + PILOT_TELL * bands[src].pilot);
-            if dist_cells(bands[dst].cell(self.map.w), f as usize, self.map.w) <= reach && rng.chance(0.3) {
+            let chart = Self::charts(&bands[src]);
+            let reach = 2.0 * Self::boat_range(&bands[dst].d.kit, bands[dst].seacraft) * (1.0 + PILOT_TELL * bands[src].pilot) * if chart { CHART_TELL } else { 1.0 };
+            if dist_cells(bands[dst].cell(self.map.w), f as usize, self.map.w) <= reach && rng.chance(if chart { CHART_TEACH_P } else { 0.3 }) {
                 bands[dst].far_shore = Some(f);
-                bands[dst].far_shore_year = bands[src].far_shore_year;
+                bands[dst].far_shore_year = if chart { self.year_u16() } else { bands[src].far_shore_year };
+                if chart {
+                    fx.counters.routes_taught += 1;
+                }
             }
         }
         // (v9) watching a better craftsman: some of a finer way to make what dst already makes
@@ -3556,7 +3582,7 @@ impl World {
         }
     }
 
-    fn year_stats(&mut self) {
+    pub(crate) fn year_stats(&mut self) {
         let mut counts: BTreeMap<Item, u32> = BTreeMap::new();
         let mut sum = 0u64;
         let mut mx = 0u32;
@@ -3653,6 +3679,15 @@ impl World {
                 let (id, c, mk) = (b.id, b.cell(w), b.d.kit.mark);
                 self.farm_flags |= FLAG_RECORDS;
                 self.push_event(EventKind::FirstRecords, id, 0, c as u32, mk, u32::MAX);
+            }
+        }
+        // (inventions step 9) the world's first chart
+        if self.farm_flags & FLAG_CHART == 0 {
+            if let Some(b) = self.bands.iter().find(|b| Self::charts(b)) {
+                let (id, c) = (b.id, b.cell(w));
+                let other = b.far_shore.map_or(u32::MAX, |f| self.map.landmass_of(f as usize) as u32);
+                self.farm_flags |= FLAG_CHART;
+                self.push_event(EventKind::FirstChart, id, other, c as u32, NONE, u32::MAX);
             }
         }
         self.fade_grudges();
@@ -3913,6 +3948,10 @@ impl World {
                 e.band, e.other, e.recipe
             ),
             EventKind::FirstRecords => format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep count of its goods and dealings, with {it}s", e.band),
+            EventKind::FirstChart => {
+                let to = if e.other == u32::MAX { String::new() } else { format!(", the way to landmass #{}", e.other) };
+                format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep its sailing directions as a chart{to}", e.band)
+            }
         }
     }
 }

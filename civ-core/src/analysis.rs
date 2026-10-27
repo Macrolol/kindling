@@ -92,6 +92,7 @@ pub struct Summary {
     pub metal: MetalSummary,
     /// (inventions step 8) tallies, tokens and records; trade partners per band
     pub records: RecordsSummary,
+    pub charts: ChartsSummary,
 }
 
 /// (inventions step 8) Counting marks and records, and how many trade ties bands keep now that
@@ -123,6 +124,23 @@ pub struct RecordsSummary {
     /// and most
     pub close_ties_mean: f32,
     pub close_ties_max: u32,
+}
+
+/// (inventions step 9) Charts: sailing directions kept by bands with records and pilotage.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ChartsSummary {
+    /// year of the world's first `FirstChart` event (null = none)
+    pub first_chart_year: Option<f32>,
+    /// bands keeping a chart at the end and the most in any year, and chart bands with a far
+    /// shore on it at the end
+    pub chart_bands: u32,
+    pub chart_bands_peak: u32,
+    pub charted_routes: u32,
+    /// counters: routes a chart kept past their fade, routes forgotten for age, routes taught
+    /// from a chart
+    pub routes_kept: u64,
+    pub routes_faded: u64,
+    pub routes_taught: u64,
 }
 
 /// (inventions step 7) Steel, and the weapons fights are fought with.
@@ -819,6 +837,15 @@ pub fn summarize(w: &World) -> Summary {
             close_ties_max: last.map_or(0, |h| h.close_ties_max),
         }
     };
+    let charts = ChartsSummary {
+        first_chart_year: w.chronicle.iter().find(|e| e.kind == crate::world::EventKind::FirstChart as u8).map(|e| e.tick as f32 / 4.0),
+        chart_bands: w.history.last().map_or(0, |h| h.chart_bands),
+        chart_bands_peak: w.history.iter().map(|h| h.chart_bands).max().unwrap_or(0),
+        charted_routes: w.history.last().map_or(0, |h| h.charted_routes),
+        routes_kept: w.counters.routes_kept,
+        routes_faded: w.counters.routes_faded,
+        routes_taught: w.counters.routes_taught,
+    };
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
@@ -972,6 +999,7 @@ pub fn summarize(w: &World) -> Summary {
         motives: motive_summary(w),
         metal,
         records,
+        charts,
     }
 }
 

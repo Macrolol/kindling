@@ -2007,3 +2007,115 @@ fn close_ties_get_the_care() {
     let s = crate::analysis::summarize(&w);
     assert_eq!(s.records.close_ties_max, h.close_ties_max);
 }
+
+/// (inventions step 9) Charts: only bands with records and pilotage both at `CHART_MIN` and a
+/// boat keep one; a chart keeps a route past its fade (renewed) where plain word is forgotten;
+/// a chart is taught further and more readily, as fresh directions; `FirstChart` fires once and
+/// YearStats / summary count chart bands.
+#[test]
+fn charts_keep_and_teach_routes() {
+    use crate::world::*;
+    let mut w = small();
+    w.tick = 400 * 4;
+    let mw = w.map.w;
+    let mut b = w.bands[0].clone();
+    (b.x, b.y) = (10, 10);
+    b.d.kit = crate::band::Kit::default();
+    b.d.kit.boat = item(Form::Boat, Mat::Wood);
+    b.d.kit.boat_q = 1.0;
+    b.seacraft = 0.5;
+    (b.records, b.pilot) = (CHART_MIN, CHART_MIN);
+    assert!(World::charts(&b));
+    let mut c = b.clone();
+    c.records = CHART_MIN - 0.01;
+    assert!(!World::charts(&c), "records too low");
+    c = b.clone();
+    c.pilot = CHART_MIN - 0.01;
+    assert!(!World::charts(&c), "pilotage too low");
+    c = b.clone();
+    c.d.kit.boat_q = 0.0;
+    assert!(!World::charts(&c), "no boat to use it in");
+    (b.records, b.pilot) = (0.5, 0.5); // clear of the line (pilotage fades a little each season)
+
+    // an old route: forgotten from plain memory, kept (and renewed) on a chart
+    b.far_shore = Some((10 * mw + 30) as u32);
+    b.far_shore_year = 100; // 300 years old: past even a full pilot's 150
+    let mut fx = crate::world::fx::Fx::default();
+    let mut rng = crate::rng::Rng::new(3);
+    let mut plain = b.clone();
+    plain.records = 0.0;
+    w.sea_season(&mut plain, &mut rng, &mut fx);
+    assert_eq!(plain.far_shore, None);
+    assert_eq!((fx.counters.routes_faded, fx.counters.routes_kept), (1, 0));
+    let mut charted = b.clone();
+    w.sea_season(&mut charted, &mut rng, &mut fx);
+    assert_eq!(charted.far_shore, b.far_shore);
+    assert_eq!(charted.far_shore_year, 400);
+    assert_eq!((fx.counters.routes_faded, fx.counters.routes_kept), (1, 1));
+
+    // teaching: a hearer with a boat and no far shore; the shore is just beyond what plain
+    // word reaches, but within a chart's reach
+    let mut h = b.clone();
+    h.far_shore = None;
+    h.records = 0.0;
+    h.pilot = 0.0;
+    let reach = 2.0 * World::boat_range(&h.d.kit, h.seacraft) * (1.0 + PILOT_TELL * 0.5);
+    let far = (reach * 1.2).ceil() as usize;
+    assert!((far as f32) < reach * CHART_TELL && 10 + far < mw);
+    let trial = |src: &crate::band::Band, at: usize| {
+        let mut rng = crate::rng::Rng::new(9);
+        let mut fx = crate::world::fx::Fx::default();
+        let mut got = 0;
+        for _ in 0..400 {
+            let (mut s, mut d) = (src.clone(), h.clone());
+            s.far_shore = Some((10 * mw + 10 + at) as u32);
+            s.far_shore_year = 390;
+            w.exchange(&mut crate::world::fx::Pair(&mut s, &mut d), 0, 1, &mut rng, &mut fx);
+            if d.far_shore.is_some() {
+                got += 1;
+                assert_eq!(d.far_shore_year, if World::charts(&s) { 400 } else { 390 });
+            }
+        }
+        (got, fx.counters.routes_taught)
+    };
+    let mut teller = b.clone();
+    teller.records = 0.0;
+    let (near_plain, t0) = trial(&teller, 3);
+    let (near_chart, t1) = trial(&b, 3);
+    let (far_plain, _) = trial(&teller, far);
+    let (far_chart, _) = trial(&b, far);
+    assert_eq!(t0, 0);
+    assert_eq!(t1, near_chart as u64);
+    assert!(near_chart as f32 > 1.5 * near_plain as f32, "charts are taught more readily: {near_plain} vs {near_chart}");
+    assert_eq!(far_plain, 0, "plain word does not carry that far");
+    assert!(far_chart > 0, "a chart does");
+
+    // FirstChart once; YearStats and summary
+    let mut w = small();
+    for _ in 0..4 {
+        w.step();
+    }
+    let k = w.bands.len().min(3);
+    for b in w.bands.iter_mut().take(k) {
+        b.d.kit.boat = item(Form::Boat, Mat::Wood);
+        b.d.kit.boat_q = 1.0;
+        (b.records, b.pilot) = (0.9, 0.9);
+    }
+    // (the kit is worked out afresh each season, so close the year straight away)
+    w.year_stats();
+    let n = |w: &World| w.chronicle.iter().filter(|e| e.kind == EventKind::FirstChart as u8).count();
+    assert_eq!(n(&w), 1);
+    assert!(EventKind::FirstChart.major());
+    assert_eq!(EventKind::from_u8(EventKind::FirstChart as u8), EventKind::FirstChart);
+    let last = w.history.last().unwrap();
+    assert_eq!(last.chart_bands, w.bands.iter().filter(|b| World::charts(b)).count() as u32);
+    let s = crate::analysis::summarize(&w);
+    assert!(s.charts.first_chart_year.is_some());
+    assert_eq!(last.chart_bands as usize, k);
+    assert_eq!(s.charts.chart_bands, last.chart_bands);
+    w.year_stats();
+    for _ in 0..8 {
+        w.step();
+    }
+    assert_eq!(n(&w), 1, "fires once");
+}

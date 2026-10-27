@@ -98,6 +98,16 @@ pub const PILOT_FADE: f32 = 0.998;
 pub const ROUTE_KEEP: f32 = 2.0;
 /// ...and tells it to neighbours up to (1 + PILOT_TELL x pilot) times as far off.
 pub const PILOT_TELL: f32 = 0.5;
+/// (inventions step 9) charts: a band with records and pilotage both at least `CHART_MIN` keeps
+/// its sailing directions as a chart (stick chart, recited directions with tally aids). While
+/// it still sails (has a boat), its route does not fade, and it teaches the route to the people
+/// it meets or visits (partners too) up to `CHART_TELL` times as far and with chance
+/// `CHART_TEACH_P` (plain word: 0.3); the hearer gets it as fresh directions.
+pub const CHART_MIN: f32 = 0.4;
+pub const CHART_TELL: f32 = 1.5;
+pub const CHART_TEACH_P: f32 = 0.6;
+/// (inventions step 9) `World::farm_flags` bit: the world's first chart has been noted
+pub const FLAG_CHART: u32 = 1 << 10;
 /// (inventions step 4) Sky lore. Settled farmers (sow and settled above `SKY_FARM_MIN`) learn
 /// this much per season, times sow x settled...
 pub const SKY_FARM: f32 = 0.003;
@@ -223,6 +233,12 @@ impl World {
     /// `gain` of the way to 1.
     pub(crate) fn learn_pilot(b: &mut Band, gain: f32) {
         b.pilot = (b.pilot + gain * (1.0 - b.pilot)).min(1.0);
+    }
+
+    /// (inventions step 9) Whether band `b` keeps a chart: records and pilotage both at least
+    /// `CHART_MIN`, and a boat to use it in.
+    pub fn charts(b: &Band) -> bool {
+        b.records >= CHART_MIN && b.pilot >= CHART_MIN && b.d.kit.boat_q > 0.0
     }
 
     /// (inventions step 3) Years band `b` keeps word of a far shore nobody has confirmed.
@@ -403,6 +419,9 @@ impl World {
         let w = self.map.w;
         let mut ps: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.pilot).collect();
         ys.pilot_bands = self.bands.iter().filter(|b| b.pilot > 0.1).count() as u32;
+        // (inventions step 9) bands keeping a chart, and those of them with a route on it
+        ys.chart_bands = self.bands.iter().filter(|b| Self::charts(b)).count() as u32;
+        ys.charted_routes = self.bands.iter().filter(|b| b.far_shore.is_some() && Self::charts(b)).count() as u32;
         if !ps.is_empty() {
             ys.pilot_mean = ps.iter().sum::<f32>() / ps.len() as f32;
             ps.sort_by(|a, b| a.partial_cmp(b).unwrap());
