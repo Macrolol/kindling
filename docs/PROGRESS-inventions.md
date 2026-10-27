@@ -933,4 +933,6 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   copper Y254, fired mould Y121; none in the first run), seed 8 at Y237 (crucible Y227, copper
   Y259, fired mould Y54). The (b) run 40547619310 on the buggy code was cancelled; (a) and (b)
   rerun on the fix (see below).
+- Rerun dispatched at 13:31 EDT on 585dfc6 (archive off): (a) run 40551434999, (b) run
+  40551447315.
 
