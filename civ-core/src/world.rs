@@ -364,6 +364,10 @@ pub struct YearStats {
     pub opened_fields: u32,
     pub forest_fields: u32,
     pub wet_fields: u32,
+    /// (inventions step 7) bands whose kit has a steel tool or weapon; people-weighted mean
+    /// weapon quality (`band::weapon_q`, what fight losses scale with)
+    pub steel_bands: u32,
+    pub weapon_q_mean: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -462,6 +466,9 @@ counters! {
         deep_water_legs,
         /// (inventions step 6) band-seasons spent opening forest or heavy ground with iron tools
         iron_clearing,
+        /// (inventions step 7) band-seasons a band forged a fresh batch of steel (its steel
+        /// stock topped up from its own smithy)
+        steel_made,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -657,7 +664,7 @@ fn raw(m: Mat) -> Item {
 }
 
 /// Goods bands carry and can pass on (food is shared separately; wood is everywhere).
-pub const TRADE_MATS: [Mat; 18] = [
+pub const TRADE_MATS: [Mat; 19] = [
     Mat::Stone,
     Mat::Flint,
     Mat::Obsidian,
@@ -676,6 +683,8 @@ pub const TRADE_MATS: [Mat; 18] = [
     Mat::IronOre,
     Mat::Iron,
     Mat::Salt,
+    // (inventions step 7)
+    Mat::Steel,
 ];
 
 /// What material `mi` is worth to band `b` right now, as (reason to want it, marginal worth).
@@ -1262,7 +1271,7 @@ impl World {
             }
         }
         // hides, bones, and metal carried as blanks / ingots (made here or traded in)
-        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Grain, Mat::Flax, Mat::Wool, Mat::Salt] {
+        for mm in [Mat::Hide, Mat::Bone, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::Iron, Mat::Steel, Mat::Grain, Mat::Flax, Mat::Wool, Mat::Salt] {
             if st(mm) {
                 s.add(raw(mm));
             }
@@ -1614,9 +1623,12 @@ impl World {
         }
         // metal the band can smelt or alloy itself is kept as blanks / ingots; it remembers
         // where its ore came from
-        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre), (Mat::Iron, Mat::IronOre), (Mat::Salt, Mat::Brine)] {
+        for (metal, ore) in [(Mat::Copper, Mat::CopperOre), (Mat::Tin, Mat::TinOre), (Mat::Bronze, Mat::CopperOre), (Mat::Iron, Mat::IronOre), (Mat::Salt, Mat::Brine), (Mat::Steel, Mat::IronOre)] {
             let mi = metal as usize;
             if b.d.tk.producible.has(raw(metal)) && b.stock[mi] < 0.8 {
+                if metal == Mat::Steel {
+                    fx.counters.steel_made += 1;
+                }
                 let o = b.origin[ore as usize];
                 if b.stock[mi] < 0.4 || b.origin[mi] == u32::MAX {
                     b.origin[mi] = if o != u32::MAX { o } else { ci as u32 };
@@ -1632,7 +1644,7 @@ impl World {
             let present = match mm {
                 Mat::Wood => self.map.k_wood[ci] > 2.0,
                 Mat::Fibre => self.map.k_fibre[ci] > 2.0,
-                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Salt => b.d.tk.producible.has(raw(mm)),
+                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel | Mat::Salt => b.d.tk.producible.has(raw(mm)),
                 Mat::Brine => false,
                 Mat::Flax | Mat::Wool => false, // grown / shorn: topped up in `farm_season`
                 mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
@@ -3522,7 +3534,7 @@ impl World {
             b.partners.retain(|p| (p.strength >= 0.05 || p.married >= 0.05) && ids.contains(&p.id));
             links += b.partners.len() as u32;
             let c = b.cell(w);
-            for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre, Mat::Iron, Mat::Grain] {
+            for m in [Mat::Obsidian, Mat::Copper, Mat::Tin, Mat::Bronze, Mat::CopperOre, Mat::TinOre, Mat::Iron, Mat::Steel, Mat::Grain] {
                 let mi = m as usize;
                 let o = b.origin.get(mi).copied().unwrap_or(u32::MAX);
                 if b.stock.get(mi).copied().unwrap_or(0.0) > 0.1 && o != u32::MAX {
@@ -3539,6 +3551,7 @@ impl World {
         self.build_walls();
         // farming
         let (mut farmers, mut farmer_pop, mut herders, mut iron_farm_bands) = (0u32, 0u32, 0u32, 0u32);
+        let (mut steel_bands, mut wq_sum, mut wq_pop) = (0u32, 0.0f64, 0.0f64);
         let (mut ff, mut fall) = (0.0f32, 0.0f32);
         let mut fcells = std::collections::HashSet::new();
         let mut gcells = std::collections::HashSet::new();
@@ -3558,6 +3571,12 @@ impl World {
             if b.sow > 0.0 && farming::iron_tools(b) {
                 iron_farm_bands += 1;
             }
+            let k = &b.d.kit;
+            if [k.hunt, k.cut, k.axe, k.point].iter().any(|&i| i != NONE && mat(i) == Mat::Steel) {
+                steel_bands += 1;
+            }
+            wq_sum += crate::band::weapon_q(k) as f64 * b.pop as f64;
+            wq_pop += b.pop as f64;
             ff += b.d.farm_food;
             fall += b.d.food;
         }
@@ -3614,6 +3633,8 @@ impl World {
             top_lineage_pct,
             eff_lineages: crate::analysis::effective_number(lin.values().map(|&p| p as u64)),
             iron_farm_bands,
+            steel_bands,
+            weapon_q_mean: (wq_sum / wq_pop.max(1.0)) as f32,
             opened_fields,
             forest_fields,
             wet_fields,

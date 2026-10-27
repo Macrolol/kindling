@@ -5,7 +5,7 @@
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
 
-pub const NMAT: usize = 26;
+pub const NMAT: usize = 27;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
 /// products of physics (charcoal, ceramic, metals).
 pub const NRAW: usize = 13;
@@ -51,6 +51,10 @@ pub enum Mat {
     /// pitch (wood tar): resinous wood heated slowly in a closed pot, short of air; caulks
     /// hulls, glues hafts, seals jars. Made where it is used, never carried
     Pitch,
+    // inventions step 7: appended so every older index is unchanged
+    /// steel: wrought iron soaked in a blown charcoal fire until it takes up carbon, then
+    /// quenched in water. Harder and keener than iron, and as tough
+    Steel,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Wood,
@@ -79,6 +83,7 @@ pub const ALL_MATS: [Mat; NMAT] = [
     Mat::Brine,
     Mat::Salt,
     Mat::Pitch,
+    Mat::Steel,
 ];
 
 /// Physical properties, on rough 0..10 scales unless noted. Values are loosely based on real
@@ -173,6 +178,9 @@ pub static PROPS: [Props; NMAT] = [
     Props { hard: 0.0, tough: 0.0, ..p("brine") },
     Props { hard: 2.5, tough: 1.0, ..p("salt") },
     Props { hard: 0.5, tough: 2.0, seal: 9.0, ..p("pitch") },
+    // worked hot, so a hammerstone (hard 6) still shapes it; quench-hardened, it takes and
+    // keeps a keener edge than iron (cut 0.78 against iron's 0.64 and bronze's 0.65)
+    Props { hard: 6.0, tough: 9.0, sharp: 9.0, malleable: 5.5, melt: 1450.0, ..p("steel") },
 ];
 
 impl Mat {
@@ -190,7 +198,7 @@ impl Mat {
         self.props().food >= 5.0
     }
     pub fn is_metal(self) -> bool {
-        matches!(self, Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron)
+        matches!(self, Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel)
     }
 }
 
@@ -318,11 +326,12 @@ pub fn item_name(i: Item) -> String {
         Form::Raw => match m {
             Mat::Copper | Mat::Tin | Mat::Bronze => format!("{n} (metal)"),
             Mat::Iron => "wrought iron".into(),
+            Mat::Steel => "steel bar".into(),
             _ => n.to_string(),
         },
         Form::Hammer => format!("{n} hammerstone"),
         Form::Edge => match m {
-            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => format!("{n} knife"),
+            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel => format!("{n} knife"),
             _ => format!("{n} blade"),
         },
         Form::Point => format!("{n} point"),
@@ -398,7 +407,7 @@ pub fn item_name(i: Item) -> String {
         Form::Frame => format!("carrying frame ({n})"),
         Form::Ornament => match m {
             Mat::Bone => "bone beads".into(),
-            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron => format!("{n} ring"),
+            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel => format!("{n} ring"),
             _ => format!("{n} pendant"),
         },
         Form::Jar => match m {

@@ -232,7 +232,25 @@ span, tallies are summed over it.
   "iron in the fields" line in the multi-seed text report.
 - No save format change (the new layer defaults to empty).
 
-## What a save keeps (format v11)
+### Steel (inventions step 7)
+
+- New material `Steel` (26; save format v12). Recipe: Heat of wrought iron with bellows in a
+  closed charcoal kiln, by water (the quench), chance `STEEL_P` = 0.03 per try. Shaped like
+  iron (a hammerstone works it hot) into knives, points, spears and axes; traded like iron.
+  Props: hard 6, tough 9, sharp 9, malleable 5.5 (cut 0.78 against iron 0.64 and bronze 0.65).
+- Fights get deadlier only through the edge: casualties already scale with
+  `0.6 + weapon_q`, and a steel spear and axe raise `weapon_q` by about 0.07 over iron.
+  Armour (shields, bows: `loss_guard`) is unchanged. Steel tools count as iron in the fields.
+- New stage `steel` (above `iron`) in `stage_now` / `stage_ever` and the stage table.
+- `metrics.csv` / `YearStats`: `steel_bands` (bands with a steel knife, point, spear or axe in
+  their kit), `weapon_q_mean` (people-weighted mean `weapon_q`).
+- Counter `steel_made` (band-seasons a band forged fresh steel). The world first of the steel
+  bar is a `FirstInvention` event (no separate event kind).
+- `summary.json` `metal.`: `first_steel_year` (null if never), `steel_bands`,
+  `steel_bands_peak`, `steel_made`, `weapon_q_mean`, `weapon_q_peak`, `fights`,
+  `deaths_per_fight`; a "steel" line in the multi-seed text report.
+
+## What a save keeps (format v12)
 
 | what | resolution | kept |
 |---|---|---|

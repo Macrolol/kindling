@@ -326,3 +326,23 @@ Checks:
 - From step 7 on, crossings are a guard rail only: stop and report if any world crosses before
   Y100, if (b) reaches 7+/10, or if (a) rises above 6/10. No more crossing tuning (this also
   applies to step 9, charts).
+
+## Step 7: steel (in progress)
+
+- Material `Steel` (26, save format v12, migration `v11_to_v12`, fixture
+  `v11_seed9_y160_64x40.civsave` from the step 6 build). Recipe: Heat of wrought iron with
+  bellows in a closed charcoal kiln, by water for the quench, p 0.03 a try (`STEEL_P`). Shaped
+  with a hammerstone like iron into knives, points, spears and axes; traded and carried like
+  iron; steel tools count as iron in the fields. Props hard 6, tough 9, sharp 9, malleable 5.5
+  (cut 0.78 vs iron 0.64, bronze 0.65), so the kit takes steel over bronze and iron.
+- Deadlier only through the edge (Michael's decision): no new multiplier. Fight losses already
+  scale with `0.6 + weapon_q`; a steel spear and axe add about 0.07 to `weapon_q`, i.e. about
+  +5% to losses inflicted. Armour (`loss_guard`: bows, shields) unchanged; no metal armour yet.
+- New stage `steel`. YearStats `steel_bands`, `weapon_q_mean`; counter `steel_made`; summary
+  `metal.*` (first steel year, steel bands, peak, forging seasons, weapon quality, deaths per
+  fight); a "steel" headless line. The world first is the usual `FirstInvention` of the steel
+  bar (no separate `FirstSteel` kind, which would duplicate it).
+- Tests `steel_recipe_kit_and_weapons`, `v11_fixture_gains_steel`; `v10_fixture_loads_and_runs`
+  run-on hash updated (one more material); `v9_fixture_loads_exactly` skips the new leaning. All
+  civ-core tests pass (48, 1 ignored).
+- Local smoke (seeds 1-2, 500y): neither world holds iron at Y500, so no steel; nothing broken.

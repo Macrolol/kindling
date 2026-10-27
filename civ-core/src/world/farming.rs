@@ -85,7 +85,8 @@ pub fn opened_potential(m: &Map, i: usize) -> f32 {
 /// cutting edge it can make or holds (iron ore is common, so anyone who can make one can
 /// make enough; a kit slot may still hold a bronze tool that cuts as well)?
 pub fn iron_tools(b: &Band) -> bool {
-    [Form::Axe, Form::Edge].iter().any(|&f| b.d.tk.via(item(f, Mat::Iron)).is_some())
+    // (inventions step 7) steel is iron too
+    [Form::Axe, Form::Edge].iter().any(|&f| [Mat::Iron, Mat::Steel].iter().any(|&m| b.d.tk.via(item(f, m)).is_some()))
 }
 
 /// Bit flags for where the wild ancestors of crops and herd animals live (derived from the map,

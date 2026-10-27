@@ -928,9 +928,10 @@ fn v9_fixture_loads_exactly() {
         for p in &b.partners {
             s = s.wrapping_mul(31).wrapping_add(p.strength.to_bits() as u64 + p.married.to_bits() as u64 + p.id as u64);
         }
-        // (v11 inserts the neutral pitch leaning; the v9 leanings must be unchanged around it)
+        // (v11 inserts the neutral pitch leaning, v12 the steel one; the v9 leanings must be
+        // unchanged around them)
         for (i, c) in b.craft.iter().enumerate() {
-            if i != Mat::Pitch as usize {
+            if i != Mat::Pitch as usize && i != Mat::Steel as usize {
                 s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
             }
         }
@@ -1068,8 +1069,8 @@ fn data_outputs_shape() {
 /// gains the crossing-ledger fields at their defaults, and runs on. Step 0 ran it on exactly as
 /// the v10 build did; since step 1 (pitch, v11) the extra material shifts the craft-leaning
 /// normalisation, since step 2 provisions and endurance change the sea toll and spoilage, and
-/// since step 3 pilotage learned on long legs turns crews toward signs of land, so the checksum
-/// after 10 more years is this build's own.
+/// since step 3 pilotage learned on long legs turns crews toward signs of land, and since step 7
+/// (steel, v12) one more material again, so the checksum after 10 more years is this build's own.
 #[test]
 fn v10_fixture_loads_and_runs() {
     let bytes = include_bytes!("../tests/fixtures/v10_seed9_y150_64x40.civsave");
@@ -1094,7 +1095,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xe3580b52d7c543f7);
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x37162920eef6e5f8);
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1701,4 +1702,105 @@ fn iron_opens_forest_and_heavy_ground() {
 
 fn farming_iron(b: &crate::band::Band) -> bool {
     crate::world::farming::iron_tools(b)
+}
+
+/// (inventions step 7) Steel: wrought iron soaked in a blown charcoal furnace and quenched in
+/// water, at a low chance per try. It is shaped like iron (a hammerstone still works it hot),
+/// wins the kit's cutting and weapon slots from iron and bronze, and makes fights deadlier only
+/// through the edge: weapon quality rises a little, armour (shields, bows) is unchanged.
+#[test]
+fn steel_recipe_kit_and_weapons() {
+    let raw = |m| item(Form::Raw, m);
+    let ch = item(Form::Fire, Mat::Charcoal);
+    let bel = item(Form::Bellows, Mat::Hide);
+    let clay = item(Form::Kiln, Mat::Clay);
+    let heat = |inp, water| {
+        let ctx = Ctx { dryness: 0.5, water };
+        physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx)
+    };
+    let steel = raw(Mat::Steel);
+    let got = heat([raw(Mat::Iron), bel, ch, clay], true).expect("carburised and quenched");
+    assert_eq!(got.out, steel);
+    assert_eq!(got.p, physics::STEEL_P);
+    assert_eq!(heat([bel, raw(Mat::Iron), ch, clay], true).map(|o| o.out), Some(steel));
+    // no quench away from water, no carbon without the blown charcoal chamber
+    assert_eq!(heat([raw(Mat::Iron), bel, ch, clay], false).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), NONE, ch, clay], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), bel, ch, NONE], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), bel, item(Form::Fire, Mat::Wood), clay], true).map(|o| o.out), None);
+    // the old iron recipes are untouched
+    assert_eq!(heat([raw(Mat::IronOre), bel, ch, clay], true).map(|o| o.out), Some(item(Form::Bloom, Mat::Iron)));
+    // shaped hot with a hammerstone into a knife, drawn into a point, hafted
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let ham = item(Form::Hammer, Mat::Stone);
+    let edge = item(Form::Edge, Mat::Steel);
+    assert_eq!(physics::apply(Action::Shape, &[steel, ham, NONE, NONE], &ctx).map(|o| o.out), Some(edge));
+    assert_eq!(physics::apply(Action::Shape, &[edge, ham, NONE, NONE], &ctx).map(|o| o.out), Some(item(Form::Point, Mat::Steel)));
+    assert_eq!(item_name(steel), "steel bar");
+    assert_eq!(item_name(edge), "steel knife");
+    assert!(Mat::Steel.is_metal() && valid_item(steel));
+    assert_eq!(ALL_MATS[NMAT - 1], Mat::Steel);
+    assert!(crate::world::TRADE_MATS.contains(&Mat::Steel));
+    // keener than iron or bronze, about as tough
+    assert!(cut_q(Mat::Steel) > cut_q(Mat::Bronze) + 0.1);
+    assert!(durability(Mat::Steel) >= 0.95 * durability(Mat::Iron));
+    // the kit takes the steel tools over iron and bronze ones
+    let mut s = ItemSet::default();
+    for m in [Mat::Iron, Mat::Bronze] {
+        for f in [Form::Edge, Form::Spear, Form::Axe, Form::Point] {
+            s.add(item(f, m));
+        }
+    }
+    s.add(item(Form::Shield, Mat::Hide));
+    let k0 = crate::band::make_kit(&s);
+    for f in [Form::Edge, Form::Spear, Form::Axe, Form::Point] {
+        s.add(item(f, Mat::Steel));
+    }
+    let k1 = crate::band::make_kit(&s);
+    assert_eq!((mat(k1.hunt), mat(k1.cut), mat(k1.axe)), (Mat::Steel, Mat::Steel, Mat::Steel));
+    // deadlier only through the edge: losses inflicted scale with (0.6 + weapon quality), and
+    // steel raises that well under the 1.3x limit; armour is unchanged
+    let (q0, q1) = (crate::band::weapon_q(&k0), crate::band::weapon_q(&k1));
+    assert!(q1 > q0);
+    assert!((0.6 + q1) / (0.6 + q0) < 1.1, "steel weapons {q1} vs iron/bronze {q0}");
+    assert_eq!(crate::band::loss_guard(&k0), crate::band::loss_guard(&k1));
+    // the technology stage, and iron in the fields counts steel
+    assert_eq!(crate::analysis::STAGES[crate::analysis::stage_of(&[edge])], "steel");
+    assert_eq!(crate::analysis::STAGES[crate::analysis::stage_of(&[raw(Mat::Iron)])], "iron");
+}
+
+/// (inventions step 7, v12) A v11 save written by the step 6 build loads: every per-material
+/// vector grows by one, the steel craft leaning goes in neutral before the action leanings, and
+/// the rest is unchanged; by the JSON route the migration does the same; it runs on.
+#[test]
+fn v11_fixture_gains_steel() {
+    let bytes = include_bytes!("../tests/fixtures/v11_seed9_y160_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v11 save loads");
+    assert_eq!(info.format_version, 11);
+    assert_eq!(info.migrated_from, Some(11));
+    assert_eq!((w.tick, w.bands.len()), (640, 625));
+    for b in &w.bands {
+        assert_eq!((b.stock.len(), b.origin.len(), b.craft.len()), (NMAT, NMAT, crate::band::CRAFT_LEN));
+        assert_eq!(b.craft[Mat::Steel as usize], 1.0);
+        assert_eq!((b.stock[Mat::Steel as usize], b.origin[Mat::Steel as usize]), (0.0, u32::MAX));
+    }
+    // the JSON route: a v11-shaped payload (vectors one short) migrates to the same shape
+    let mut v: serde_json::Value = serde_json::to_value(&w.bands[0]).unwrap();
+    let craft_v12 = v["craft"].clone();
+    v["stock"].as_array_mut().unwrap().pop();
+    v["origin"].as_array_mut().unwrap().pop();
+    v["craft"].as_array_mut().unwrap().remove(Mat::Steel as usize);
+    let payload = serde_json::json!({ "world": { "bands": [v] } });
+    let m = crate::save::migrate(payload, 11).unwrap();
+    let b = &m["world"]["bands"][0];
+    assert_eq!(b["stock"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["origin"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["craft"], craft_v12);
+    // re-saved as v12 it is the same world, and it runs on
+    let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(w.save_json(None, "t", "t").unwrap(), w2.save_json(None, "t", "t").unwrap());
+    for _ in 0..8 {
+        w.step();
+    }
+    assert_eq!(w.tick, 648);
 }

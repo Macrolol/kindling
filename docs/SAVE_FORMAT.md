@@ -177,5 +177,13 @@ Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 wr
   - Tests: `v10_fixture_loads_and_runs` (vectors grow, pitch leaning neutral),
     `v9_fixture_loads_exactly` (old leanings unchanged around the new one),
     `v7_0_fixture_gains_new_materials_in_place`.
+- **v12** (inventions step 7: steel). Migration `v11_to_v12`:
+  - Material 26 `Steel` is appended, so every item id is unchanged.
+  - `bands[].stock` and `bands[].origin` grow from 26 to 27 entries (0.0 / `u32::MAX`);
+    `bands[].craft` gets a neutral 1.0 at index 26, before the three action leanings.
+  - Binary v11 saves are decoded directly and `Band::fit_vectors` pads the vectors on load;
+    JSON v11 saves go through `v11_to_v12`. Both give the same bands.
+  - Fixture `v11_seed9_y160_64x40.civsave` (written by the step 6 build: the v10 fixture run 10
+    more years) is loaded by `v11_fixture_gains_steel`, which also checks the JSON route.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

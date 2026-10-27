@@ -422,6 +422,17 @@ pub fn run(a: &Args) {
                 })
                 .collect();
             println!("  iron in the fields (first year, iron-farming bands, opened/forest/wet/all fields, clearing seasons): {}", ir.join(", "));
+            // (inventions step 7) steel and weapons, per seed: first steel year, bands with steel at
+            // the end (peak), steel-forging seasons, mean weapon quality at the end, killed per fight
+            let st: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.metal;
+                    let y = g.first_steel_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!("s{} {y} {}b({}) m{} wq{:.2} d{:.1}", s.seed, g.steel_bands, g.steel_bands_peak, g.steel_made, g.weapon_q_mean, g.deaths_per_fight)
+                })
+                .collect();
+            println!("  steel (first year, steel bands at end (peak), forging seasons, weapon quality, killed per fight): {}", st.join(", "));
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

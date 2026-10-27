@@ -88,6 +88,26 @@ pub struct Summary {
     pub lineages: LineageSummary,
     /// (v9) splits by cause, and the heritable traits at home and overseas
     pub motives: MotiveSummary,
+    /// (inventions step 7) steel and weapons
+    pub metal: MetalSummary,
+}
+
+/// (inventions step 7) Steel, and the weapons fights are fought with.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MetalSummary {
+    /// first year any band could make steel (world first of the steel bar)
+    pub first_steel_year: Option<f32>,
+    /// bands with a steel tool or weapon in their kit: at the end, and the most in any year
+    pub steel_bands: u32,
+    pub steel_bands_peak: u32,
+    /// band-seasons a band forged a fresh batch of steel (counter `steel_made`)
+    pub steel_made: u64,
+    /// people-weighted mean weapon quality at the end, and at its highest
+    pub weapon_q_mean: f32,
+    pub weapon_q_peak: f32,
+    /// fights so far, and the people killed in them per fight
+    pub fights: u64,
+    pub deaths_per_fight: f32,
 }
 
 /// (v9) Why bands split, and whether the bold and curious went farther: mean curiosity and
@@ -272,7 +292,8 @@ pub struct FarmSummary {
     pub forager_density: f32,
     /// landmasses with farmers / with foragers at the end
     pub landmasses_farming: u32,
-    pub landmasses_foraging: u32,    /// (inventions step 6) first year a farming band had iron tools; at the end: farming bands
+    pub landmasses_foraging: u32,
+    /// (inventions step 6) first year a farming band had iron tools; at the end: farming bands
     /// with iron tools, fields more than half opened with iron, fields in forest and on heavy
     /// wet ground; band-seasons spent opening ground with iron (counter `iron_clearing`)
     pub first_iron_farm_year: Option<f32>,
@@ -445,12 +466,15 @@ impl LandmassSummary {
     }
 }
 
-pub const STAGES: [&str; 8] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze", "iron"];
+pub const STAGES: [&str; 9] = ["none", "stone tools", "fire-making", "hafted tools", "pottery", "copper", "bronze", "iron", "steel"];
 
-fn stage_of(items: &[Item]) -> usize {
+pub(crate) fn stage_of(items: &[Item]) -> usize {
     let has = |f: &dyn Fn(Item) -> bool| items.iter().any(|&i| f(i));
     // a raw bloom is not yet usable iron; forged (wrought) iron is
-    if has(&|i| mat(i) == Mat::Iron && form(i) != Form::Bloom) {
+    // (inventions step 7) steel, quench-hardened iron
+    if has(&|i| mat(i) == Mat::Steel) {
+        8
+    } else if has(&|i| mat(i) == Mat::Iron && form(i) != Form::Bloom) {
         7
     } else if has(&|i| mat(i) == Mat::Bronze) {
         6
@@ -726,6 +750,20 @@ pub fn summarize(w: &World) -> Summary {
             farming.wet_fields = h.wet_fields;
         }
     }
+    let metal = {
+        let steel = crate::materials::item(Form::Raw, Mat::Steel);
+        let last = w.history.last();
+        MetalSummary {
+            first_steel_year: w.firsts.iter().find(|f| f.item == steel).map(|f| f.tick as f32 / 4.0),
+            steel_bands: last.map_or(0, |h| h.steel_bands),
+            steel_bands_peak: w.history.iter().map(|h| h.steel_bands).max().unwrap_or(0),
+            steel_made: w.counters.steel_made,
+            weapon_q_mean: last.map_or(0.0, |h| h.weapon_q_mean),
+            weapon_q_peak: w.history.iter().map(|h| h.weapon_q_mean).fold(0.0, f32::max),
+            fights: w.counters.fights,
+            deaths_per_fight: w.counters.conflict_deaths as f32 / w.counters.fights.max(1) as f32,
+        }
+    };
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
@@ -877,6 +915,7 @@ pub fn summarize(w: &World) -> Summary {
         farming,
         lineages,
         motives: motive_summary(w),
+        metal,
     }
 }
 

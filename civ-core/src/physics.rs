@@ -78,7 +78,7 @@ pub fn apply(action: Action, inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     match action {
         Action::Shape => shape(inp[0], inp[1], ctx),
         Action::Combine => combine(inp, ctx),
-        Action::Heat => heat(inp),
+        Action::Heat => heat(inp, ctx),
     }
 }
 
@@ -328,7 +328,12 @@ pub const FORGE_T: f32 = 1100.0;
 /// (inventions) heat at which resinous wood in a closed pot gives off pitch (deg C)
 pub const PITCH_T: f32 = 350.0;
 
-fn heat(inp: &Inputs) -> Option<Outcome> {
+/// (inventions step 7) Chance per try that wrought iron, soaked in a blown charcoal furnace and
+/// quenched, comes out as true steel: the carbon is taken up unevenly and most bars are spoiled
+/// or merely iron again, so it takes many heats.
+pub const STEEL_P: f32 = 0.03;
+
+fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     let (t1, t2, fire, kiln) = (inp[0], inp[1], inp[2], inp[3]);
     if fire == NONE || form(fire) != Form::Fire || t1 == NONE {
         return None;
@@ -343,6 +348,7 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
     let reducing = lining.is_some() && fuel.props().fuel_t >= 900.0;
     // bellows worked into a closed charcoal furnace force the draught: a few hundred degrees
     // more. In an open or wood fire the blast only fans the flames
+    let blown = (t1 != NONE && form(t1) == Form::Bellows) || (t2 != NONE && form(t2) == Form::Bellows);
     let (t1, t2) = match (t1 != NONE && form(t1) == Form::Bellows, t2 != NONE && form(t2) == Form::Bellows) {
         (false, false) => (t1, t2),
         (true, true) => return None,
@@ -398,6 +404,12 @@ fn heat(inp: &Inputs) -> Option<Outcome> {
             }
         }
         if f == Form::Raw {
+            // (inventions step 7) wrought iron left long in a blown charcoal furnace takes up
+            // carbon from the fuel; plunged hot into water it hardens into steel. Needs the
+            // closed charcoal chamber, the bellows, and water at hand for the quench
+            if m == Mat::Iron && blown && reducing && ctx.water && temp >= FORGE_T {
+                return o(item(Form::Raw, Mat::Steel), STEEL_P);
+            }
             // wood heated without enough air chars instead of burning
             if m == Mat::Wood && lining.is_some() {
                 return o(item(Form::Raw, Mat::Charcoal), 0.15);
