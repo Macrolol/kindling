@@ -594,4 +594,5 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   6.8%, no hub); Gini 0.53 / 0.43. Crossings Y126 / Y188 (step 9: Y106 / Y187), none before
   Y100. Pop 120,751 / 123,856 (step 9: 103,489 / 119,870). Killed 0.412 / 0.467 %/yr (step 9
   0.370 / 0.452); disease 0.084 / 0.109 %/yr. Guard rails fine; r below the 0.4 goal on 256x160.
-- Checkpoint: smoke recorded; next: checks (a), (b) on GitHub.
+- GitHub checks dispatched (commit e248dc8): (a) run 40514735908, (b) run 40514750187.
+- Checkpoint: checks running; next: download summaries, write results files, compare with step 9.
