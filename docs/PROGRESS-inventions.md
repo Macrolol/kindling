@@ -1272,3 +1272,62 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   - Ships and ale follow pitch and jars; neither is tuned directly.
   - Tests: all pass; the v10 fixture run-on hash changes (step 13 experiments). No format
     change (still 14), and no new events or counters.
+- Dispatched on 85f4848 (13.1 + 13.2): (a) run 40588153931 (seeds 1-10, 500 y), (b) run
+  40588163981 (seeds 499246292-301, 750 y, 800x800); baselines are the step 12b results files.
+  Both runs are archived as pre-releases `run-<id>` by the workflow (no saves).
+- 13 (a) results (run 40588153931, 85f4848; docs/results-inv-step13-seeds1-10-500y.txt), step 12b
+  then step 11b in brackets: steel 2/10 med Y382 (0/10; 1/10); forged iron tools 2/10 (4/10
+  Y288; 2/10); wrought iron 3/10 (4/10; 3/10); pitch 10/10 med Y196 (10/10 Y183; 10/10 Y170);
+  sealed jar 10/10 med Y214 (4/10 Y303; 10/10 Y230); ships 0/10 (1/10; 1/10); ale 1/10 Y488
+  (0/10; 6/10); any sail 5/10 med Y396 (6/10 Y355; 4/10), cloth sail 0/10 (2/10; 0/10); gold
+  rings 1/10 (2/10; 5/10); bronze metal 6/10 (5/10; 2/10). Pop 1,096,051 (1,163,855;
+  1,159,192), items 74.1 (74.7; 74.0), war 0.392%/y (0.398; 0.410), disease 0.117%/y (0.138;
+  0.130), crossings 4/10 first Y114 (Y114, Y137, Y190, Y365; none before Y100), prestige r100
+  0.296 (0.285; 0.195), run 810 s. Sealed jars are back to the 11b level (the 13.2 pot pairing);
+  steel appears in the small worlds for the first time since 11b (seeds 5 and 9).
+  Population -5.8% vs 12b; seed 7 (a forager world, no domestic grain) ends at 35,373 (66,004
+  in 12b) after swinging between 35k and 50k from Y200 on (peak 50,491 at Y482); seeds 2, 3, 4
+  9 and 10 are 15-20% lower, seeds 5, 6 and 8 higher. A slow plateau, not a collapse.
+- 13 (b) results (run 40588163981, 85f4848; docs/results-inv-step13-750y-800x800.txt; 9 living
+  worlds, 499246298 dies out early as always), step 12b then step 11b in brackets: steel 8/9
+  med Y373 (2/9 Y351; 5/9 Y533); forged iron tools 8/9 med Y353 (7/9 Y305; 7/9 Y405); wrought
+  iron 8/9 med Y340 (7/9 Y302; 8/9 Y312); pitch 9/9 med Y265 (9/9 Y296; 9/9 Y156); sealed jar
+  9/9 med Y341 (6/9 Y332; 9/9 Y208); ships 1/9 Y665 (0/9; 4/9 Y532); ale 2/9 med Y546 (3/9 Y483;
+  8/9 Y504); any sail 7/9 med Y433 (6/9 Y445; 8/9 Y502), cloth sail 7/9 med Y659 (5/9 Y633; 5/9
+  Y542); gold rings 7/9 med Y436 (5/9 Y641; 7/9 Y466); bronze metal 6/9 med Y345 (8/9 Y399; 5/9
+  Y585); plank boats 7/9 med Y342 (6/9 Y403; 7/9 Y451). Pop 7,736,599 (7,626,340; 7,943,784),
+  items 93.7 (88.3; 93.0), war 0.294%/y (0.290; 0.308), disease 0.177%/y (0.190; 0.203),
+  crossings 1/10 first Y632 (Y625; Y658), none before Y100, prestige r100 0.282 (0.271; 0.272),
+  run 10,090 s (9,275; 9,765). Steel is back in every living world but 301 (no wrought iron there),
+  more than in 11b; the steel worlds end at stage steel. Sealed jars are in every living world
+  again, though at scale they still follow late pitch (geography, see 13.2). Ale stays rare
+  (2/9): it needs jars, grain and feasts in one band, and is not tuned directly. Ships 1/9.
+- Totals, step 11b -> 12 -> 12b -> 13, (a) seeds 1-10, 500 y, 256x160 and (b) seeds
+  499246292-301, 750 y, 800x800 ((b) counts over 9 living worlds; years are medians of the
+  world firsts, a count alone means too few worlds for a median that says much):
+
+  | | (a) 11b | (a) 12 | (a) 12b | (a) 13 | (b) 11b | (b) 12 | (b) 12b | (b) 13 |
+  |---|---|---|---|---|---|---|---|---|
+  | steel | 1/10 | 0/10 | 0/10 | 2/10 Y382 | 5/9 Y533 | 7/9 Y310 | 2/9 Y351 | 8/9 Y373 |
+  | forged iron tools | 2/10 | 0/10 | 4/10 Y288 | 2/10 | 7/9 Y405 | 8/9 Y290 | 7/9 Y305 | 8/9 Y353 |
+  | pitch | 10/10 Y170 | 5/10 Y313 | 10/10 Y183 | 10/10 Y196 | 9/9 Y156 | 9/9 Y410 | 9/9 Y296 | 9/9 Y265 |
+  | sealed jar | 10/10 Y230 | 1/10 | 4/10 Y303 | 10/10 Y214 | 9/9 Y208 | 7/9 Y518 | 6/9 Y332 | 9/9 Y341 |
+  | ships | 1/10 | 0/10 | 1/10 | 0/10 | 4/9 Y532 | 1/9 | 0/9 | 1/9 |
+  | ale | 6/10 | 0/10 | 0/10 | 1/10 | 8/9 Y504 | 2/9 | 3/9 Y483 | 2/9 |
+  | any sail | 4/10 | 2/10 | 6/10 Y355 | 5/10 Y396 | 8/9 Y502 | 7/9 Y432 | 6/9 Y445 | 7/9 Y433 |
+  | gold rings | 5/10 | 4/10 | 2/10 | 1/10 | 7/9 Y466 | 6/9 Y337 | 5/9 Y641 | 7/9 Y436 |
+  | bronze metal | 2/10 | 7/10 | 5/10 | 6/10 Y283 | 5/9 Y585 | 6/9 Y401 | 8/9 Y399 | 6/9 Y345 |
+  | population | 1,159,192 | 1,132,162 | 1,163,855 | 1,096,051 | 7,943,784 | 7,808,933 | 7,626,340 | 7,736,599 |
+  | war %/y | 0.410 | 0.385 | 0.398 | 0.392 | 0.308 | 0.293 | 0.290 | 0.294 |
+  | crossings (first) | 5/10 Y112 | 4/10 Y136 | 4/10 Y122 | 4/10 Y114 | 1/10 Y658 | 1/10 Y646 | 1/10 Y625 | 1/10 Y632 |
+
+- Guard rails (13): no crossing before Y100 in either check (first Y114 (a), Y632 (b)); (b) 1/10
+  (under 7/10); (a) 4/10 (at most 6/10); war not doubling ((b) 0.294 vs 0.290 in 12b; (a) 0.392
+  vs 0.398); no population collapse ((b) +1.4% vs 12b, no living world down more than 7.2%
+  (499246295); (a) -5.8% vs 12b, seed 7 ending in a dip of its forager plateau as above;
+  499246298 dies early as always). All hold. No tuning round was needed.
+- Still rarer than in 11b, left for Michael: ale (1/10 (a), 2/9 (b); 6/10, 8/9 in 11b), ships
+  (0/10, 1/9; 1/10, 4/9), gold rings in (a) (1/10; 5/10; casting unchanged), pitch at scale
+  (med Y265; Y156 in 11b, geography).
+- Save format: 14, unchanged in step 13.
+- Checkpoint: step 13 done. Nothing is in progress.
