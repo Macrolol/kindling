@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 13` (Kindling 0.9 development, inventions). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -189,5 +189,17 @@ Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 wr
     appended (id 27), band fields `records` and `owed` are appended after `sky` in the
     positional band rows (named in JSON) and load as 0 from older saves, and the partner list
     was always variable length, so lifting the 8-partner cap needs no migration.
+- **v13** (inventions step 11: native gold). Migration `v12_to_v13`:
+  - Material 27 `Gold` is appended, so every item id is unchanged.
+  - `bands[].stock` and `bands[].origin` grow from 27 to 28 entries (0.0 / `u32::MAX`);
+    `bands[].craft` gets a neutral 1.0 at index 27, before the three action leanings.
+  - Binary v12 saves are decoded directly and `Band::fit_vectors` pads the vectors on load;
+    JSON v12 saves go through `v12_to_v13`. Both give the same bands.
+  - The map is untouched: an older map keeps `gen_version` 4 and gets no gold. The binary map
+    blob of a generator-4 map is stored and decoded against `Map::generate_layers(w, h, seed,
+    false)` (the generator-4 map, which generator 5 reproduces exactly apart from gold).
+  - Fixture `v12_seed9_y170_64x40.civsave` (written by the step 10b build: the v11 fixture run
+    10 more years) is loaded by `v12_fixture_gains_gold_vectors_but_no_gold`, which also checks
+    the JSON route, the re-save and that no gold appears.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

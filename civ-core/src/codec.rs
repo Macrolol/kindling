@@ -446,8 +446,17 @@ macro_rules! map_layers {
     }};
 }
 
+/// (inventions step 11) Generator 5 only adds gold, from its own random stream, so a generator-4
+/// map is the same map without the gold: saves made before gold still decode against it.
 fn base_map(w: usize, h: usize, seed: u64, gen_version: u32) -> Option<Map> {
-    (gen_version == GEN_VERSION && w > 0 && h > 0 && w.saturating_mul(h) <= 1 << 26).then(|| Map::generate(w, h, seed))
+    if !(w > 0 && h > 0 && w.saturating_mul(h) <= 1 << 26) {
+        return None;
+    }
+    match gen_version {
+        GEN_VERSION => Some(Map::generate(w, h, seed)),
+        4 => Some(Map::generate_layers(w, h, seed, false)),
+        _ => None,
+    }
 }
 
 pub fn encode_map(m: &Map) -> Result<Vec<u8>, String> {

@@ -714,3 +714,36 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   disease 0.138 (0.130); prestige ~ size r last-100y mean 0.261 (0.186), range 0.11-0.41; Gini
   (100y) 0.479 (0.496); top band max from Y100 18.1% (same: seed 7 at Y121, a world of ~100
   bands); run 796 s total (903 s).
+
+## Step 11: native gold (in progress)
+
+- Plan (approved Oct 27): gold as a rare optional map resource; old saves load, old maps get no
+  gold unless regenerated; gold from its own random stream so every other map layer stays
+  byte-identical.
+- Built: map generator 5 (`D_GOLD` = 128): a few quartz veins in the hills (max(2, land/2500)
+  veins of 1-4 cells, 600-3000 m) and placer gold in river gravels below them (chance 0.35 a
+  river cell, up to 40 steps downstream), from `seed ^ GOLD_SALT`. Material `Gold` (27, save
+  format v13, migration `v12_to_v13`) with the new prop `prized` (1.0; 0 elsewhere): soft
+  (hard 2.5), no tools; a hammerstone beats a nugget into a gold ornament ("gold ring", p 0.4).
+  The kit wears gold before any other ornament; standing `ornament_prestige(fine + prized,
+  pop)` (2-3x a plain ornament), the wearer's own (gold is not traded). Rare in wants, wears
+  like metal, strong attention once seen. Old maps keep generator 4 (no gold) and their binary
+  saves decode against the generator-4 map (`Map::generate_layers(.., false)`).
+- Stats: YearStats `gold_bands`, `gold_held`, `gold_prestige_x`; summary `gold.*`; a "gold"
+  headless line. DATA_SCHEMA and SAVE_FORMAT (v13) sections.
+- Tests (all 59 pass, also with `--features parallel`): `gold_leaves_every_other_map_layer_identical`
+  (gold bit masked, generator-5 maps hash exactly as the generator-4 maps recorded with the step
+  10b build, for 256x160 seeds 1 and 7 and 200x120 seed 499246292; the no-gold map is the
+  generator-4 map; gold is rare, on rivers or hills only), `gold_ornaments_are_prized`,
+  `v12_fixture_gains_gold_vectors_but_no_gold` (new fixture `v12_seed9_y170_64x40.civsave`
+  from the step 10b build; JSON route, re-save, no gold appears). The v1 fixture test now
+  expects generator 4 after the upgrade (no gold on load). v10 fixture run-on hash updated (one
+  more material; load hash unchanged).
+- Local smoke (seeds 1-2, 500 y, 256x160, against the 10b smoke): gold cells 44 / 36 (0.1% of
+  the map); first gold ring Y186 / Y193; bands wearing gold peak 292 / 223 (of ~7,000; 62 / 156
+  at Y500), holding gold 284 / 363; gold wearers' prestige 1.28x / 2.18x the mean (last 100
+  years). Pop 257,796 (267,064); war 0.369 %/yr (0.425); disease 0.122 (0.130); crossings
+  Y132, Y180 / Y212, Y320 (Y162 / Y183), none before Y100; prestige ~ size r last-100y 0.15 /
+  0.27 (0.15 / 0.31); Gini (100y) 0.585 (0.533) and top 10% share 50% (40%): gold adds to the
+  spread of standing, but no hub (top band max from Y100 4.1% / 8.1%, both at Y100 before any
+  gold; 0.25% on average over the last 100 years). Run 165 s (189 s).

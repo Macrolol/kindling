@@ -97,6 +97,14 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
     let op = om.props();
     match tf {
         Form::Raw => {
+            // (inventions step 11) native gold: too soft for any edge, but a hammerstone beats a
+            // nugget cold into a bead, a sheet or a ring, kept for show
+            if tm == Mat::Gold {
+                if of == Form::Hammer && op.hard >= tp.hard {
+                    return o(item(Form::Ornament, tm), 0.4);
+                }
+                return None;
+            }
             // metals: hammer into a blade (cold working) with a harder hammerstone
             if is_metal(tm) {
                 if of == Form::Hammer && op.hard >= tp.hard {

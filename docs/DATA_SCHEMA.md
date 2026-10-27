@@ -356,7 +356,37 @@ span, tallies are summed over it.
   (`Archive::note_many`) instead of through an effect per feast; only the world's first feast
   still goes through the effects (for `FirstFeast`). Same tallies, cheaper.
 
-## What a save keeps (format v12)
+## Inventions step 11: native gold (save format v13, map generator 5)
+
+- **Map generator 5** adds deposit bit `D_GOLD` (128) and nothing else. Gold has its own
+  random stream (`seed ^ GOLD_SALT`), so with that bit masked off a generator-5 map is byte for
+  byte the generator-4 map (test `gold_leaves_every_other_map_layer_identical`, hashes recorded
+  with the step 10b build). Quartz veins: max(2, land cells / 2500) veins of 1-4 cells, started
+  on land at 600-3000 m, each cell kept if above 300 m. Placer gold: on river cells up to 40
+  steps downstream of a vein cell (not the first step), chance 0.35 each.
+- **Older maps get no gold**: `Map::upgrade_legacy` does not add it; such a map keeps
+  `gen_version` 4, and binary saves of it decode against `Map::generate_layers(.., false)`
+  (the generator-4 map). Only a newly generated map has gold.
+- Material `Gold` (27, appended; item ids unchanged). Props hard 2.5, tough 5, sharp 1,
+  malleable 10, melt 1064, new prop `prized` 1.0 (0 for every other material). Not a metal for
+  tools or fields (`Mat::is_metal` false). Gathered from `D_GOLD` cells like other deposits;
+  rare in the band's wants; wears as slowly as metal; strong attention (1.0) once seen.
+- Recipe: `Shape` of a raw gold nugget with a hammerstone at least as hard (2.5) gives a gold
+  ornament ("gold ring"), p 0.4. Nothing else: no gold tools.
+- The kit wears the ornament with the highest `hard + 1 + 10 x prized`, so gold first. Ornament
+  standing uses `ornament_prestige(fine + prized, pop)`: a gold ornament adds 1 to the quality
+  term, i.e. 2-3x the standing of a plain ornament of the same work. Local only: gold is not in the
+  trade list and standing is the wearer's own.
+- `metrics.csv` / `YearStats`: `gold_bands` (bands wearing gold), `gold_held` (bands holding
+  any gold), `gold_prestige_x` (mean prestige of gold wearers / mean of all bands; 0 = none).
+  `serde(default)`.
+- `summary.json` `gold.`: `gold_cells`, `first_gold_year`, `gold_bands`, `gold_bands_peak`,
+  `gold_held`, `gold_prestige_x_100` (mean over the last 100 years with any gold wearer); a
+  "gold" line in the multi-seed text report.
+- Save format v13 (migration `v12_to_v13`): per-material vectors grow by one; see
+  SAVE_FORMAT.md.
+
+## What a save keeps (format v13)
 
 | what | resolution | kept |
 |---|---|---|

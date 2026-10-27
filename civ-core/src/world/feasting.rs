@@ -146,5 +146,15 @@ impl World {
         let tot: f64 = p.iter().sum();
         ys.prestige_top_pct = if tot > 0.0 { (100.0 * p.iter().cloned().fold(0.0, f64::max) / tot) as f32 } else { 0.0 };
         ys.prestige_gini = crate::analysis::gini(&self.bands.iter().map(|b| b.prestige).collect::<Vec<_>>());
+        // (inventions step 11) gold
+        let gold = |b: &Band| b.d.kit.ornament != NONE && mat(b.d.kit.ornament) == Mat::Gold;
+        ys.gold_bands = self.bands.iter().filter(|b| gold(b)).count() as u32;
+        ys.gold_held = self.bands.iter().filter(|b| b.stock.get(Mat::Gold as usize).copied().unwrap_or(0.0) > 0.05).count() as u32;
+        let mean_all = if self.bands.is_empty() { 0.0 } else { self.bands.iter().map(|b| b.prestige).sum::<f32>() / self.bands.len() as f32 };
+        ys.gold_prestige_x = if ys.gold_bands > 0 && mean_all > 0.0 {
+            self.bands.iter().filter(|b| gold(b)).map(|b| b.prestige).sum::<f32>() / ys.gold_bands as f32 / mean_all
+        } else {
+            0.0
+        };
     }
 }

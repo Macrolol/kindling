@@ -486,6 +486,18 @@ pub fn run(a: &Args) {
                 "  feasts (first year, feasts held, with ale, food given at feasts, food given to the hungry, first ale year, ale bands at end (peak), brewing at end, prestige~size r end/last-100y mean, top band's prestige share end/last-100y mean/max from Y100, prestige Gini last-100y mean): {}",
                 fe.join(", ")
             );
+            let go: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.gold;
+                    let y = g.first_gold_year.map_or("-".to_string(), |y| format!("Y{y}"));
+                    format!("s{} cells{} {y} {}b({}) held{} x{:.2}", s.seed, g.gold_cells, g.gold_bands, g.gold_bands_peak, g.gold_held, g.gold_prestige_x_100)
+                })
+                .collect();
+            println!(
+                "  gold (map cells with gold, first year a band wore gold, bands wearing gold at end (peak), bands holding gold at end, prestige of gold wearers over all bands last-100y mean): {}",
+                go.join(", ")
+            );
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

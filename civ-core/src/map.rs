@@ -75,7 +75,10 @@ pub const D_COPPER: u8 = 16;
 pub const D_TIN: u8 = 32;
 /// bog / laterite / ironstone iron ore (map generator 4)
 pub const D_IRON: u8 = 64;
-pub const DEPOSITS: [(u8, Mat); 7] = [
+/// (inventions step 11) native gold: quartz veins in old uplands and the river gravels below
+/// them (map generator 5; rare; older maps have none)
+pub const D_GOLD: u8 = 128;
+pub const DEPOSITS: [(u8, Mat); 8] = [
     (D_STONE, Mat::Stone),
     (D_FLINT, Mat::Flint),
     (D_OBSIDIAN, Mat::Obsidian),
@@ -83,6 +86,7 @@ pub const DEPOSITS: [(u8, Mat); 7] = [
     (D_COPPER, Mat::CopperOre),
     (D_TIN, Mat::TinOre),
     (D_IRON, Mat::IronOre),
+    (D_GOLD, Mat::Gold),
 ];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -136,7 +140,10 @@ fn lat_s_default() -> f32 {
 fn gen_v1() -> u32 {
     1
 }
-pub const GEN_VERSION: u32 = 4; // 3: placer tin in streams below tin lodes; 4: iron ore
+pub const GEN_VERSION: u32 = 5; // 3: placer tin in streams below tin lodes; 4: iron ore; 5: gold
+/// (inventions step 11) Gold is placed from its own random stream (seed ^ this), so every other
+/// layer of a map is exactly what generator 4 made.
+pub const GOLD_SALT: u64 = 0x676f_6c64_5f76_6e;
 
 // ---------------------------------------------------------------- noise
 fn lattice(seed: u64, x: i64, y: i64) -> f32 {
@@ -443,6 +450,61 @@ impl Map {
     }
 
     pub fn generate(w: usize, h: usize, seed: u64) -> Map {
+        Self::generate_layers(w, h, seed, true)
+    }
+
+    /// (inventions step 11) Native gold, rare: a few quartz veins in uplands of old hard rock
+    /// (picked from gold's own random stream, so nothing else on the map changes), and placer
+    /// gold in the river gravels below them, where heavy grains settle as the current slackens.
+    /// Older maps get none: gold is not added on load.
+    fn add_gold(&mut self, recv: &[usize]) {
+        let (w, h) = (self.w, self.h);
+        let n = w * h;
+        let mut rng = Rng::new(self.seed ^ GOLD_SALT);
+        let land = (0..n).filter(|&i| self.is_land(i)).count();
+        let up: Vec<usize> = (0..n).filter(|&i| self.is_land(i) && self.height[i] > 600.0 && self.height[i] < 3000.0).collect();
+        if up.is_empty() {
+            return;
+        }
+        let nveins = (land / 2500).max(2);
+        let mut veins = Vec::new();
+        for _ in 0..nveins {
+            // a vein runs a few cells along the strike of the rock
+            let i0 = up[rng.below(up.len())];
+            let (x, y) = ((i0 % w) as i64, (i0 / w) as i64);
+            let dir = rng.range(0.0, std::f32::consts::TAU);
+            let len = 1 + rng.below(4);
+            for k in 0..len as i64 {
+                let cx = x + (dir.cos() * k as f32).round() as i64;
+                let cy = y + (dir.sin() * k as f32).round() as i64;
+                if cx < 0 || cy < 0 || cx >= w as i64 || cy >= h as i64 {
+                    break;
+                }
+                let c = cy as usize * w + cx as usize;
+                if self.is_land(c) && self.height[c] > 300.0 {
+                    self.deposits[c] |= D_GOLD;
+                    veins.push(c);
+                }
+            }
+        }
+        // placer gold: downstream of a vein, in river gravels, now and then
+        for &v in &veins {
+            let mut c = v;
+            for step in 0..40 {
+                let nx = recv.get(c).copied().unwrap_or(usize::MAX);
+                if nx == usize::MAX || !self.is_land(nx) {
+                    break;
+                }
+                c = nx;
+                if step >= 1 && self.river[c] && rng.chance(0.35) {
+                    self.deposits[c] |= D_GOLD;
+                }
+            }
+        }
+    }
+
+    /// The generator; `gold` = false leaves gold out (the generator-4 map, for tests).
+    pub fn generate_layers(w: usize, h: usize, seed: u64, gold: bool) -> Map {
         let n = w * h;
         let mut rng = Rng::new(seed ^ 0x6d61_7067_656e);
         // noise frequencies are per cell (not per map), so bigger maps have more features, not bigger ones
@@ -550,7 +612,7 @@ impl Map {
         let lat_n = rng.range(48.0, 72.0);
         let lat_s = rng.range(-58.0, -8.0);
         let climate = rng.range(-2.5, 2.5);
-        let mut m = Map { w, h, seed, height, lat_n, lat_s, gen_version: GEN_VERSION, ..Default::default() };
+        let mut m = Map { w, h, seed, height, lat_n, lat_s, gen_version: if gold { GEN_VERSION } else { 4 }, ..Default::default() };
         // ---- distance to sea (for continentality), BFS
         let mut dsea = vec![u32::MAX; n];
         let mut q = std::collections::VecDeque::new();
@@ -793,6 +855,9 @@ impl Map {
             }
         }
         m.add_iron();
+        if gold {
+            m.add_gold(&recv);
+        }
         // ---- renewable capacities
         m.k_plants = vec![0.0; n];
         m.k_game = vec![0.0; n];

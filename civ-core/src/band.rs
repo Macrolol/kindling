@@ -645,7 +645,8 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Sail => upd(17, m.props().tough + if m == Mat::Fibre { 0.0 } else { 10.0 }, &mut k.sail),
             Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
-            Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
+            // (inventions step 11) a prized material (gold) is worn before any hard one
+            Form::Ornament => upd(20, m.props().hard + 1.0 + 10.0 * m.props().prized, &mut k.ornament),
             // (inventions step 10) a jar of grain left to work is ale, not a store jar
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),

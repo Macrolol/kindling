@@ -95,6 +95,24 @@ pub struct Summary {
     pub charts: ChartsSummary,
     /// (inventions step 10) feasts, ale and what prestige follows
     pub feasts: FeastsSummary,
+    /// (inventions step 11) native gold
+    pub gold: GoldSummary,
+}
+
+/// (inventions step 11) Native gold: where it lies, who wears it and what standing it brings.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct GoldSummary {
+    /// map cells with gold (veins and placer gravels; 0 on maps older than generator 5)
+    pub gold_cells: u32,
+    /// first year any band wore a gold ornament (null = never)
+    pub first_gold_year: Option<u32>,
+    /// bands wearing gold at the end and the most in any year; bands holding gold at the end
+    pub gold_bands: u32,
+    pub gold_bands_peak: u32,
+    pub gold_held: u32,
+    /// mean prestige of gold-wearing bands over that of all bands, mean over the last 100 years
+    /// in which any band wore gold (0 = none)
+    pub gold_prestige_x_100: f32,
 }
 
 /// (inventions step 8) Counting marks and records, and how many trade ties bands keep now that
@@ -901,6 +919,19 @@ pub fn summarize(w: &World) -> Summary {
             prestige_gini_100: mean(|y| y.prestige_gini),
         }
     };
+    let gold = {
+        let h = &w.history;
+        let with: Vec<f32> = h.iter().filter(|y| y.gold_bands > 0).map(|y| y.gold_prestige_x).collect();
+        let tail = &with[with.len().saturating_sub(100)..];
+        GoldSummary {
+            gold_cells: w.map.deposits.iter().filter(|&&d| d & crate::map::D_GOLD != 0).count() as u32,
+            first_gold_year: h.iter().find(|y| y.gold_bands > 0).map(|y| y.year),
+            gold_bands: h.last().map_or(0, |y| y.gold_bands),
+            gold_bands_peak: h.iter().map(|y| y.gold_bands).max().unwrap_or(0),
+            gold_held: h.last().map_or(0, |y| y.gold_held),
+            gold_prestige_x_100: if tail.is_empty() { 0.0 } else { tail.iter().sum::<f32>() / tail.len() as f32 },
+        }
+    };
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
@@ -1056,6 +1087,7 @@ pub fn summarize(w: &World) -> Summary {
         records,
         charts,
         feasts,
+        gold,
     }
 }
 

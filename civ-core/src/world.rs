@@ -446,6 +446,11 @@ pub struct YearStats {
     pub prestige_size_r: f32,
     pub prestige_top_pct: f32,
     pub prestige_gini: f32,
+    /// (inventions step 11) bands wearing gold ornaments, bands holding any gold, and the mean
+    /// prestige of the gold-wearing bands over the mean of all bands (0 = none wear gold)
+    pub gold_bands: u32,
+    pub gold_held: u32,
+    pub gold_prestige_x: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -795,7 +800,7 @@ pub fn want(b: &Band, mi: usize) -> (f32, f32) {
     let nov = if st < 0.05 { 0.12 * b.curiosity } else { 0.0 };
     // (v8) a small, lasting want for what the band makes ornaments of, more for rare stuff
     let need = if b.d.orn & bit != 0 {
-        let rare = matches!(ALL_MATS[mi], Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Obsidian);
+        let rare = matches!(ALL_MATS[mi], Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Obsidian | Mat::Gold);
         need.max(if rare { 0.4 } else { 0.15 })
     } else {
         need
@@ -1748,7 +1753,8 @@ impl World {
             };
             // metal is durable and re-worked (blunt tools are re-hammered, scrap re-melted),
             // so it wears away far slower than stone, hide or fibre
-            let metal = mm.is_metal();
+            // (inventions step 11) gold never tarnishes and is kept: it wears as slowly as metal
+            let metal = mm.is_metal() || mm == Mat::Gold;
             let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
                 use_ += if metal { 0.02 } else { 0.06 };
@@ -1803,7 +1809,12 @@ impl World {
         // ---------------- (v9) standing: fine work earns it, time wears it away (inventions step
         // 10: food given away earns it too, at feasts and to the hungry)
         b.prestige = b.prestige * PRESTIGE_FADE
-            + if b.d.kit.ornament != NONE { ornament_prestige(b.d.kit.fine, pop) } else { 0.0 };
+            + if b.d.kit.ornament != NONE {
+                // (inventions step 11) a prized material (gold) counts on top of the work
+                ornament_prestige(b.d.kit.fine + mat(b.d.kit.ornament).props().prized, pop)
+            } else {
+                0.0
+            };
         Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
@@ -1946,6 +1957,8 @@ impl World {
         let smelts = [Mat::Copper, Mat::Tin, Mat::Bronze].iter().any(|&mm| b.d.tk.producible.has(raw(mm)));
         add(IronOre, if smelts { 1.0 } else { 0.2 });
         add(Obsidian, 0.5);
+        // (inventions step 11) bright yellow grains in a stream bed or a quartz seam catch anyone's eye
+        add(Gold, 1.0);
         // a band that gets spongy iron out of its furnace has that lump on its mind
         let blooms = b.d.tk.producible.has(item(Form::Bloom, Mat::Iron));
         if blooms {

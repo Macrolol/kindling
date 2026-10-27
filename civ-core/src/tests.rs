@@ -203,7 +203,7 @@ fn v1_fixture_loads_and_runs() {
         assert!(b.d.need > 0.0, "need recomputed");
         assert!(b.d.food_ratio > 0.0, "food ratio recomputed");
     }
-    assert_eq!(w.map.gen_version, crate::map::GEN_VERSION, "legacy map upgraded (iron ore added too)");
+    assert_eq!(w.map.gen_version, 4, "legacy map upgraded (iron ore added too), but gains no gold");
     let t0 = w.tick;
     for _ in 0..40 {
         w.step();
@@ -930,10 +930,10 @@ fn v9_fixture_loads_exactly() {
         for p in &b.partners {
             s = s.wrapping_mul(31).wrapping_add(p.strength.to_bits() as u64 + p.married.to_bits() as u64 + p.id as u64);
         }
-        // (v11 inserts the neutral pitch leaning, v12 the steel one; the v9 leanings must be
-        // unchanged around them)
+        // (v11 inserts the neutral pitch leaning, v12 the steel one, v13 the gold one; the v9
+        // leanings must be unchanged around them)
         for (i, c) in b.craft.iter().enumerate() {
-            if i != Mat::Pitch as usize && i != Mat::Steel as usize {
+            if i != Mat::Pitch as usize && i != Mat::Steel as usize && i != Mat::Gold as usize {
                 s = s.wrapping_mul(31).wrapping_add(c.to_bits() as u64);
             }
         }
@@ -1098,7 +1098,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x71a3fda142663967); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving) and step 10b (feast scale, ornaments seen)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x70e035d1d1a61827); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen) and step 11 (gold: one more material)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1742,7 +1742,8 @@ fn steel_recipe_kit_and_weapons() {
     assert_eq!(item_name(steel), "steel bar");
     assert_eq!(item_name(edge), "steel knife");
     assert!(Mat::Steel.is_metal() && valid_item(steel));
-    assert_eq!(ALL_MATS[NMAT - 1], Mat::Steel);
+    assert_eq!(ALL_MATS[Mat::Steel as usize], Mat::Steel);
+    assert_eq!(ALL_MATS[NMAT - 1], Mat::Gold); // (step 11) gold appended after steel
     assert!(crate::world::TRADE_MATS.contains(&Mat::Steel));
     // keener than iron or bronze, about as tough
     assert!(cut_q(Mat::Steel) > cut_q(Mat::Bronze) + 0.1);
@@ -2251,3 +2252,116 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
 }
 
 
+
+/// FNV-1a over a map's layers with the gold bit cleared (and the generator version left out),
+/// so a later generator that only adds gold hashes the same as generator 4.
+fn map_hash_sans_gold(m: &crate::map::Map) -> u64 {
+    let mut m = m.clone();
+    for d in &mut m.deposits {
+        *d &= 0x7f;
+    }
+    m.gen_version = 0;
+    let v = serde_json::to_vec(&m).unwrap();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in v {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// (inventions step 11) Gold comes from its own random stream: with the gold bits masked off,
+/// generator-5 maps are byte for byte the generator-4 maps (hashes recorded with the step 10b
+/// build), the map without gold is exactly that, and gold does turn up.
+#[test]
+fn gold_leaves_every_other_map_layer_identical() {
+    use crate::map::{Map, D_GOLD};
+    let mut with_gold = 0;
+    for (w, h, s, want) in [(256usize, 160usize, 1u64, 0x7f4b796ad04695d4u64), (256, 160, 7, 0xd467f3d67d821f1e), (200, 120, 499246292, 0xe6adb9cd4629db3)] {
+        let m = Map::generate(w, h, s);
+        assert_eq!(map_hash_sans_gold(&m), want, "{w}x{h} seed {s}: a layer other than gold changed");
+        let old = Map::generate_layers(w, h, s, false);
+        assert_eq!(old.gen_version, 4);
+        assert!(old.deposits.iter().all(|&d| d & D_GOLD == 0));
+        assert_eq!(map_hash_sans_gold(&old), want);
+        let cells = m.deposits.iter().filter(|&&d| d & D_GOLD != 0).count();
+        // rare: a handful of veins and the gravels below them
+        assert!(cells < w * h / 200, "{cells} gold cells");
+        // placer gold lies only on rivers; vein gold only in the hills
+        for c in (0..w * h).filter(|&c| m.deposits[c] & D_GOLD != 0) {
+            assert!(m.is_land(c) && (m.river[c] || m.height[c] > 300.0));
+        }
+        with_gold += (cells > 0) as u32;
+    }
+    assert!(with_gold >= 2, "gold turns up on most maps");
+}
+
+/// (inventions step 11) Native gold is beaten cold with a hammerstone into an ornament, never a
+/// tool; the kit wears gold before anything else, and gold standing counts above the work.
+#[test]
+fn gold_ornaments_are_prized() {
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let shape = |t, tool| physics::apply(Action::Shape, &[t, tool, NONE, NONE], &ctx).map(|o| o.out);
+    let nugget = item(Form::Raw, Mat::Gold);
+    let ring = item(Form::Ornament, Mat::Gold);
+    assert_eq!(shape(nugget, item(Form::Hammer, Mat::Stone)), Some(ring));
+    assert_eq!(shape(nugget, NONE), None);
+    assert_eq!(shape(nugget, item(Form::Edge, Mat::Flint)), None);
+    assert!(!Mat::Gold.is_metal(), "gold is no metal for tools or fields");
+    assert_eq!(Mat::Gold.props().prized, 1.0);
+    assert!(ALL_MATS.iter().filter(|&&m| m != Mat::Gold).all(|m| m.props().prized == 0.0));
+    let mut s = ItemSet::default();
+    s.add(item(Form::Ornament, Mat::Tin));
+    s.add(item(Form::Ornament, Mat::Bone));
+    s.add(ring);
+    assert_eq!(crate::band::make_kit(&s).ornament, ring);
+    let p = |fine: f32| crate::world::feasting::ornament_prestige(fine, 25.0);
+    assert!(p(0.5 + Mat::Gold.props().prized) > 1.6 * p(0.5));
+}
+
+/// (inventions step 11, v13) A v12 save written by the step 10b build loads: every per-material
+/// vector grows by one, the gold craft leaning goes in neutral before the action leanings, the
+/// map stays generator 4 with no gold, and by the JSON route the migration does the same.
+#[test]
+fn v12_fixture_gains_gold_vectors_but_no_gold() {
+    let bytes = include_bytes!("../tests/fixtures/v12_seed9_y170_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v12 save loads");
+    assert_eq!(info.format_version, 12);
+    assert_eq!(info.migrated_from, Some(12));
+    assert_eq!((w.tick, w.bands.len()), (680, 678));
+    assert_eq!(w.map.gen_version, 4);
+    assert!(w.map.deposits.iter().all(|&d| d & crate::map::D_GOLD == 0), "old maps get no gold");
+    for b in &w.bands {
+        assert_eq!((b.stock.len(), b.origin.len(), b.craft.len()), (NMAT, NMAT, crate::band::CRAFT_LEN));
+        assert_eq!(b.craft[Mat::Gold as usize], 1.0);
+        assert_eq!((b.stock[Mat::Gold as usize], b.origin[Mat::Gold as usize]), (0.0, u32::MAX));
+    }
+    let mut v: serde_json::Value = serde_json::to_value(&w.bands[0]).unwrap();
+    let craft_v13 = v["craft"].clone();
+    v["stock"].as_array_mut().unwrap().pop();
+    v["origin"].as_array_mut().unwrap().pop();
+    v["craft"].as_array_mut().unwrap().remove(Mat::Gold as usize);
+    let payload = serde_json::json!({ "world": { "bands": [v] } });
+    let m = crate::save::migrate(payload, 12).unwrap();
+    let b = &m["world"]["bands"][0];
+    assert_eq!(b["stock"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["origin"].as_array().unwrap().len(), NMAT);
+    assert_eq!(b["craft"], craft_v13);
+    // re-saved as v13 (the map against the generator-4 base) it is the same world; it runs on
+    let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(w.save_json(None, "t", "t").unwrap(), w2.save_json(None, "t", "t").unwrap());
+    for _ in 0..8 {
+        w.step();
+    }
+    assert_eq!(w.tick, 688);
+    assert!(w.map.deposits.iter().all(|&d| d & crate::map::D_GOLD == 0));
+}
+
+#[test]
+#[ignore]
+fn print_map_hashes() {
+    for (w, h, s) in [(256usize, 160usize, 1u64), (256, 160, 7), (200, 120, 499246292)] {
+        let m = crate::map::Map::generate(w, h, s);
+        println!("MAPHASH {w}x{h} seed {s}: {:#x}", map_hash_sans_gold(&m));
+    }
+}
