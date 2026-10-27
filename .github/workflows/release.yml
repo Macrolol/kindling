@@ -1,0 +1,260 @@
+# Release builds for Kindling.
+#
+# Pushing a tag v* (or running this workflow by hand with a tag) builds the same assets as the
+# v0.8.0 release, computes their SHA-256 and creates a DRAFT GitHub release for the tag:
+#   kindling-linux-x86_64        cargo build --release -p kindling (x86_64-unknown-linux-gnu)
+#   kindling-windows-x86_64.exe  cross-built with mingw-w64 (x86_64-pc-windows-gnu), as in README
+#   kindling-web.zip             ./build-web.sh (wasm32-unknown-unknown; zip holds web-dist/)
+#   SHA256SUMS.txt               sha256sum of the three above
+# The notes come from docs/release-notes/<tag>.md when that file exists at the tag (else
+# GitHub's generated notes); the SHA-256 block is appended. The release is left as a draft:
+# review and publish it by hand.
+#
+# The tag must match the package versions in native/Cargo.toml and civ-core/Cargo.toml
+# (tag v0.9.0 <-> version = "0.9.0"), otherwise the run fails before building.
+#
+# Dry run (workflow_dispatch, dry_run: true): builds the code of the branch the workflow is run
+# on, uploads the assets, SHA256SUMS.txt and the assembled notes as artifacts, and creates no
+# release (a tag/version mismatch is only a warning then).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.9.0 (must exist unless dry run; dry run: blank = v<Cargo version>)"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Only build and upload artifacts; create no release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  prepare:
+    name: Resolve tag and check versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      ref: ${{ steps.r.outputs.ref }}
+      dry_run: ${{ steps.r.outputs.dry_run }}
+    steps:
+      - name: Resolve tag and ref
+        id: r
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_TAG: ${{ inputs.tag }}
+          IN_DRY: ${{ inputs.dry_run }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          dry=false
+          if [ "$EVENT" = "push" ]; then
+            tag="$REF_NAME"; ref="refs/tags/$REF_NAME"
+          else
+            tag="$IN_TAG"
+            if [ "$IN_DRY" = "true" ]; then
+              dry=true; ref="$SHA"
+            else
+              if [ -z "$tag" ]; then echo "::error::the tag input is required unless dry_run is set"; exit 1; fi
+              ref="refs/tags/$tag"
+            fi
+          fi
+          if [ -n "$tag" ] && ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like vMAJOR.MINOR.PATCH"; exit 1
+          fi
+          { echo "tag=$tag"; echo "ref=$ref"; echo "dry_run=$dry"; } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.r.outputs.ref }}
+          persist-credentials: false
+
+      - name: Check tag against Cargo.toml versions
+        id: v
+        env:
+          TAG: ${{ steps.r.outputs.tag }}
+          DRY: ${{ steps.r.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          ver() { sed -n '/^\[package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p}' "$1" | head -1; }
+          vn=$(ver native/Cargo.toml); vc=$(ver civ-core/Cargo.toml)
+          echo "native/Cargo.toml: $vn, civ-core/Cargo.toml: $vc, tag: ${TAG:-<none>}"
+          if [ -z "$vn" ] || [ "$vn" != "$vc" ]; then
+            echo "::error::package versions differ or are missing (kindling '$vn', civ-core '$vc')"; exit 1
+          fi
+          if [ -z "$TAG" ]; then
+            echo "tag=v$vn" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${TAG#v}" != "$vn" ]; then
+            msg="tag $TAG does not match the Cargo.toml package version $vn"
+            if [ "$DRY" = "true" ]; then echo "::warning::$msg (dry run: continuing)"; else echo "::error::$msg"; exit 1; fi
+          fi
+
+      - name: Summary
+        run: echo "tag ${{ steps.v.outputs.tag }}, ref ${{ steps.r.outputs.ref }}, dry run ${{ steps.r.outputs.dry_run }}" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs: prepare
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - asset: kindling-linux-x86_64
+            kind: linux
+          - asset: kindling-windows-x86_64.exe
+            kind: windows
+          - asset: kindling-web.zip
+            kind: web
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
+
+      # macroquad/miniquad (default-features = false) load X11/GL at run time, so the Linux
+      # build needs no -dev packages. No cargo cache: release builds start clean.
+      - name: Install Rust (stable) and target tools
+        env:
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          case "$KIND" in
+            windows)
+              rustup target add x86_64-pc-windows-gnu
+              sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 ;;
+            web)
+              rustup target add wasm32-unknown-unknown
+              command -v zip >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q zip; } ;;
+          esac
+          rustc --version && cargo --version
+
+      - name: Build
+        env:
+          KIND: ${{ matrix.kind }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          case "$KIND" in
+            linux)
+              cargo build --release --locked -p kindling
+              ./target/release/kindling --help > /dev/null
+              cp target/release/kindling "dist/$ASSET" ;;
+            windows)
+              cargo build --release --locked -p kindling --target x86_64-pc-windows-gnu
+              cp target/x86_64-pc-windows-gnu/release/kindling.exe "dist/$ASSET" ;;
+            web)
+              cargo fetch --locked
+              ./build-web.sh
+              unzip -l web-dist.zip | grep -q ' web-dist/kindling.wasm$'
+              cp web-dist.zip "dist/$ASSET" ;;
+          esac
+          ls -l dist
+          (cd dist && sha256sum "$ASSET")
+          echo "rustc: $(rustc --version)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: ${{ needs.prepare.outputs.dry_run == 'true' && 'Assemble notes (dry run, no release)' || 'Create draft release' }}
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          IN_TAG: ${{ needs.prepare.outputs.tag }}
+          DRY: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          tag="$IN_TAG"
+          if [ -z "$tag" ]; then
+            tag="v$(sed -n '/^\[package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p}' native/Cargo.toml | head -1)"
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          assets=(kindling-linux-x86_64 kindling-windows-x86_64.exe kindling-web.zip)
+          for f in "${assets[@]}"; do [ -s "dist/$f" ] || { echo "::error::missing asset $f"; exit 1; }; done
+          (cd dist && sha256sum "${assets[@]}") > SHA256SUMS.txt
+          cp SHA256SUMS.txt dist/
+          src="docs/release-notes/${tag}.md"
+          if [ -f "$src" ]; then
+            echo "notes: $src"
+            cp "$src" notes.md
+          elif [ "$DRY" = "true" ]; then
+            echo "notes: $src not found; a real run would use GitHub's generated notes"
+            printf '(no %s: generated notes would go here)\n' "$src" > notes.md
+          else
+            echo "notes: $src not found, using generated notes"
+            gh api "repos/$REPO/releases/generate-notes" -f tag_name="$tag" --jq .body > notes.md
+          fi
+          { echo; echo "### SHA-256"; echo '```'; cat SHA256SUMS.txt; echo '```'; } >> notes.md
+          cp notes.md dist/release-notes.md
+          { echo "### $tag"; echo '```'; cat SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload checksums and notes (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-preview
+          path: |
+            dist/SHA256SUMS.txt
+            dist/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft release
+        if: needs.prepare.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "::error::a release for $TAG already exists; delete or edit it by hand"; exit 1
+          fi
+          gh release create "$TAG" --repo "$REPO" --draft --verify-tag \
+            --title "Kindling $TAG" --notes-file notes.md \
+            dist/kindling-linux-x86_64 dist/kindling-windows-x86_64.exe dist/kindling-web.zip dist/SHA256SUMS.txt
+          echo "Draft release created: $(gh release view "$TAG" --repo "$REPO" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
