@@ -554,3 +554,15 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 - Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war not up, no population
   collapse (499246298 dies out at Y31, as in every step). No tuning.
 - Checkpoint: step 9 done; step 10 (feasts and ale) not started.
+
+## Step 10: feasts and ale (in progress)
+
+- Plan (approved Oct 27: ale and feasts now, a small step, prestige in proportion to giving):
+  a band with food stored beyond what it needs hosts a neighbour at a feast and gives part of
+  that surplus; prestige earned ~ sqrt(food given), x2 when it pours ale. This replaces the old
+  share-of-spare-labour prestige term. Ale = a sealed jar + grain at the water (item
+  jar-of-grain, no new form or material); brewed only by grain farmers where the warm season is
+  warm enough; a little more food from grain and a bigger feast draw. Events FirstFeast (major)
+  and Feast (minor, history store only); counters; YearStats incl. prestige ~ size correlation
+  and the top band's share of prestige. No caps, set dates or boosts.
+- Checkpoint: design written; code not started.
