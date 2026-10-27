@@ -747,3 +747,6 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   0.27 (0.15 / 0.31); Gini (100y) 0.585 (0.533) and top 10% share 50% (40%): gold adds to the
   spread of standing, but no hub (top band max from Y100 4.1% / 8.1%, both at Y100 before any
   gold; 0.25% on average over the last 100 years). Run 165 s (189 s).
+- GitHub checks on commit 7032723, dispatched 11:28 EDT Oct 27: (a) run 40531284922
+  https://github.com/Macrolol/kindling/actions/runs/40531284922, (b) run 40531289571
+  https://github.com/Macrolol/kindling/actions/runs/40531289571 (running).
