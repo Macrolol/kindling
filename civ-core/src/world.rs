@@ -140,8 +140,9 @@ pub const QUALITY_SPLIT: f32 = 0.9;
 /// (v9) Prestige: x`PRESTIGE_FADE` a season, plus, for a band that makes ornaments,
 /// `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season; `PRESTIGE_VOYAGE` for
 /// coming ashore alive on another landmass. (inventions step 10) Giving food, at a feast or to
-/// the hungry, earns `PRESTIGE_GIVE` x sqrt(food given) (see `feasting`); this replaced the
-/// share-of-spare-labour term (`PRESTIGE_SURPLUS`) and the flat gift (`PRESTIGE_GIFT`). A band learns from a more prestigious one more readily (chance
+/// the hungry, earns `PRESTIGE_GIVE` x the food given (see `feasting`); this replaced the
+/// share-of-spare-labour term (`PRESTIGE_SURPLUS`) and the flat gift (`PRESTIGE_GIFT`).
+/// A band learns from a more prestigious one more readily (chance
 /// x(1 + `PRESTIGE_LEARN` x difference), within 0.5..2), weddings are likelier with prestigious
 /// bands (x(1 + `PRESTIGE_MARRY` x their mean)), and the ambitious take ship for glory more
 /// often (`PRESTIGE_LURE` x ambition a season, for those who know of a far shore).

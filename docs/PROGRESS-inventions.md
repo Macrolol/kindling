@@ -574,4 +574,18 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   no feast when lean, FirstFeast once, YearStats, summary). `prestige_biases_...` now runs 600
   seasons (no standing before the first food stores). v10 fixture run-on hash updated. All 55
   pass, also with `--features parallel`.
-- Checkpoint: code + tests committed; next: local smoke (seeds 1-2, 500y).
+- Local smoke, first attempt (keep 1 season, give 25% of the surplus, prestige 0.004 x
+  sqrt(food)): s1 first feast Y90, 173,500 feasts, ale Y477 (2,080 bands, 2,135 ale feasts);
+  s2 first feast Y116, 212,395 feasts, no ale. Prestige ~ size r only 0.01 / 0.13 (last-100y
+  mean), top band 0.2-0.3%, Gini 0.70 / 0.53. A clear miss: only ~0.6% of bands had a store
+  past a full season, so feasts were too rare to shape standing.
+- Diagnosis (seed 1, 256x160, probes): most fed bands hold 0.25-0.5 season in store; absolute
+  store tracks band size (r 0.3-0.7) but store/need does not. Keeping back 0.1 season raised r
+  (0.43 / 0.31 / 0.23 for Y100-200 / -300 / -400) but halved the v5-beta fixture's population
+  in 20 years (hosts gave away their lean-season store); 0.25 cost a fifth. Passing prestige
+  to daughter bands in proportion to the people who leave did not help (tried, dropped).
+- Tuning round (the one allowed): `FEAST_KEEP` 0.5 season, `FEAST_SHARE` 0.25, `FEAST_MIN` 0.5,
+  prestige in proportion to the food given (`PRESTIGE_GIVE` 0.01 x food, x2 with ale), the
+  same for food to the hungry. Probe seed 1: r 0.39 (Y100-200), 0.21, 0.14; top band <1%;
+  Gini ~0.48. Tests updated (linear standing); v10 run-on hash updated again.
+- Checkpoint: tuned code committed; next: local smoke (seeds 1-2, 500y), then checks (a), (b).

@@ -1,22 +1,22 @@
-//! (inventions step 10) Feasts and ale. A band with food stored beyond what it needs may host a
-//! neighbour it meets at a feast, giving part of that surplus away. Standing comes from what is
-//! actually given (~ the square root of the food, so a big, rich band stands out without one
-//! band taking all), and fades as before. Ale, grain left to work in a sealed jar, is brewed by
-//! grain farmers where the warm season is warm enough: it makes a little more of the grain and
-//! a feast with ale draws twice the crowd. Nothing is capped, dated or boosted.
+//! (inventions step 10) Feasts and ale. A well-fed band with food stored beyond what it keeps
+//! back may host a neighbour it meets at a feast, giving part of that surplus away. Standing
+//! comes from what is actually given, in proportion to the food, and fades as before. Ale,
+//! grain left to work in a sealed jar, is brewed by grain farmers where the warm season is warm
+//! enough: it makes a little more of the grain and a feast with ale draws twice the crowd.
+//! Nothing is capped, dated or boosted.
 
 use super::*;
 
 /// A host keeps this many seasons of its own need in store; only what lies beyond is surplus.
-pub const FEAST_KEEP: f32 = 1.0;
+pub const FEAST_KEEP: f32 = 0.5;
 /// Share of the surplus given at one feast.
 pub const FEAST_SHARE: f32 = 0.25;
 /// The guests eat at most this many seasons of their own need.
 pub const FEAST_EAT: f32 = 1.0;
 /// Smallest gift (person-seasons of food) worth calling a feast.
-pub const FEAST_MIN: f32 = 1.0;
-/// Standing for giving food, at a feast or to the hungry: this x sqrt(food given).
-pub const PRESTIGE_GIVE: f32 = 0.004;
+pub const FEAST_MIN: f32 = 0.5;
+/// Standing for giving food, at a feast or to the hungry: this x the food given (person-seasons).
+pub const PRESTIGE_GIVE: f32 = 0.01;
 /// Tie between host and guest from a feast (x the draw).
 pub const FEAST_TIE: f32 = 0.1;
 /// A feast with ale draws this many times the crowd: standing and tie x this.
@@ -50,7 +50,7 @@ pub fn pearson(x: &[f64], y: &[f64]) -> f32 {
 
 /// Standing earned for giving `food` person-seasons away (x `draw` for a feast with ale).
 pub fn give_prestige(food: f32, draw: f32) -> f32 {
-    PRESTIGE_GIVE * food.max(0.0).sqrt() * draw
+    PRESTIGE_GIVE * food.max(0.0) * draw
 }
 
 impl World {

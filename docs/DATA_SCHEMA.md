@@ -322,11 +322,12 @@ span, tallies are summed over it.
   warmest season at its cell reaches `ALE_WARM` (18 C, temp + seasonal swing). Brewing makes
   `ALE_FOOD` (5%) more food of the grain digest, and doubles (`ALE_DRAW`) a feast's draw.
 - **Feasts** (`World::feast`, in a peaceful full meeting after marriage): the band with the
-  larger surplus (store beyond `FEAST_KEEP` = 1 season of its need, while eating fully) gives
-  the other `FEAST_SHARE` (25%) of it, at most `FEAST_EAT` (1) season of the guest's need; no
-  feast under `FEAST_MIN` (1 person-season). Host and guest bond by `FEAST_TIE` (0.1) x draw.
-- **Prestige from giving**: the host gains `PRESTIGE_GIVE` (0.004) x sqrt(food) x draw; food
-  given to the hungry in `trade` earns the same sqrt rule (draw 1). The old spare-labour term
+  larger surplus (store beyond `FEAST_KEEP` = half a season of its need, while eating fully)
+  gives the other `FEAST_SHARE` (25%) of it, at most `FEAST_EAT` (1) season of the guest's
+  need; no feast under `FEAST_MIN` (0.5 person-season). Host and guest bond by `FEAST_TIE`
+  (0.1) x draw.
+- **Prestige from giving**: the host gains `PRESTIGE_GIVE` (0.01) x food given x draw, in
+  proportion to the gift; food given to the hungry in `trade` earns the same (draw 1). The old spare-labour term
   (`PRESTIGE_SURPLUS`) and flat gift (`PRESTIGE_GIFT`) are gone; fine work and voyages are
   unchanged. Nothing is capped.
 - Events: `FirstFeast` (kind 39, major; band = host, other = guest, item = ale if poured,

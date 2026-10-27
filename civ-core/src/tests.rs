@@ -1098,7 +1098,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x4ef5a3368b3c3374); // run-on changed by step 8 (records, no partner cap), step 8b (close ties) and step 10 (feasts, prestige from giving)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x5ffeab88433e351f); // run-on changed by step 8 (records, no partner cap), step 8b (close ties) and step 10 (feasts, prestige from giving)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2150,7 +2150,7 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     assert!((pearson(&[1.0, 2.0, 3.0, 4.0], &[2.0, 4.0, 6.0, 8.0]) - 1.0).abs() < 1e-5);
     assert!((pearson(&[1.0, 2.0, 3.0, 4.0], &[8.0, 6.0, 4.0, 2.0]) + 1.0).abs() < 1e-5);
     assert_eq!(pearson(&[1.0, 1.0, 1.0], &[1.0, 2.0, 3.0]), 0.0);
-    assert!((give_prestige(16.0, 1.0) - 4.0 * PRESTIGE_GIVE).abs() < 1e-6);
+    assert!((give_prestige(16.0, 1.0) - 16.0 * PRESTIGE_GIVE).abs() < 1e-6);
     assert!((give_prestige(16.0, ALE_DRAW) - 2.0 * give_prestige(16.0, 1.0)).abs() < 1e-6);
 
     let mut w = small();
@@ -2165,8 +2165,8 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     (h.prestige, g.prestige) = (0.0, 0.0);
     h.d.kit.ale = NONE;
     (h.d.food_ratio, h.d.need) = (1.2, 50.0);
-    (g.d.food_ratio, g.d.need) = (1.0, 40.0);
-    h.store = 50.0 + 100.0; // 100 to spare
+    (g.d.food_ratio, g.d.need) = (1.0, 400.0);
+    h.store = 150.0; // 150 - FEAST_KEEP x 50 to spare
     g.store = 0.0;
     let run = |h: &crate::band::Band, g: &crate::band::Band| {
         let (mut h, mut g) = (h.clone(), g.clone());
@@ -2175,28 +2175,28 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
         (h, g, fx)
     };
     let (h1, g1, fx) = run(&h, &g);
-    let give = FEAST_SHARE * 100.0;
+    let give = FEAST_SHARE * (150.0 - FEAST_KEEP * 50.0);
     assert!((h1.store - (150.0 - give)).abs() < 1e-3 && (g1.store - give).abs() < 1e-3, "the host gives a share of its surplus");
     assert!((h1.prestige - give_prestige(give, 1.0)).abs() < 1e-6 && g1.prestige == 0.0, "standing goes to the giver");
     assert!(h1.partners.iter().any(|p| p.id == g.id) && g1.partners.iter().any(|p| p.id == h.id));
     assert_eq!((fx.counters.feasts, fx.counters.ale_feasts, fx.acc.feasts), (1, 0, 1));
     assert!(matches!(fx.ops.last(), Some(Op::Feast { ale: false, .. })));
-    // a richer host gives more and stands higher, but by the square root, not in proportion
+    // a richer host gives more and stands higher, in proportion to what it gives
     let mut rich = h.clone();
-    rich.store = 50.0 + 400.0;
-    let (r1, _, _) = run(&rich, &g);
-    assert!(r1.prestige > h1.prestige && r1.prestige < 4.0 * h1.prestige);
+    rich.store = 450.0;
+    let (r1, rg, _) = run(&rich, &g);
+    assert!((r1.prestige / h1.prestige - rg.store / give).abs() < 1e-3 && rg.store > give);
     // the guest eats at most a season of its need
     let mut glut = h.clone();
     glut.store = 50.0 + 10_000.0;
     let (_, g2, _) = run(&glut, &g);
-    assert!((g2.store - FEAST_EAT * 40.0).abs() < 1e-3);
+    assert!((g2.store - FEAST_EAT * 400.0).abs() < 1e-3);
     // no feast from a band short of food, or with nothing to spare
     let mut lean = h.clone();
     lean.d.food_ratio = 0.9;
     assert_eq!(run(&lean, &g).2.counters.feasts, 0);
     let mut bare = h.clone();
-    bare.store = 50.0;
+    bare.store = FEAST_KEEP * 50.0 + FEAST_MIN; // its share of what is spare is under FEAST_MIN
     assert_eq!(run(&bare, &g).2.counters.feasts, 0);
     // with ale (if this band's country is warm enough to brew), the feast draws twice the crowd
     let c = h.cell(w.map.w);
@@ -2230,4 +2230,5 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     assert_eq!(s.feasts.feasts, 2);
     assert!(s.feasts.first_feast_year.is_some());
 }
+
 
