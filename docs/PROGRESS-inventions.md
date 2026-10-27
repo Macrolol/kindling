@@ -588,4 +588,10 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   prestige in proportion to the food given (`PRESTIGE_GIVE` 0.01 x food, x2 with ale), the
   same for food to the hungry. Probe seed 1: r 0.39 (Y100-200), 0.21, 0.14; top band <1%;
   Gini ~0.48. Tests updated (linear standing); v10 run-on hash updated again.
-- Checkpoint: tuned code committed; next: local smoke (seeds 1-2, 500y), then checks (a), (b).
+- Local smoke, tuned (8c1f050, seeds 1-2, 500y, 256x160): first feast Y44 / Y62; 1,850,353 /
+  1,760,697 feasts (10x the first attempt), no ale yet in 500 y on either seed. Prestige ~ size r
+  0.16 / 0.30 at Y500 (last-100y mean 0.14 / 0.26); top band 0.2% / 0.1% (max from Y100 2.6% /
+  6.8%, no hub); Gini 0.53 / 0.43. Crossings Y126 / Y188 (step 9: Y106 / Y187), none before
+  Y100. Pop 120,751 / 123,856 (step 9: 103,489 / 119,870). Killed 0.412 / 0.467 %/yr (step 9
+  0.370 / 0.452); disease 0.084 / 0.109 %/yr. Guard rails fine; r below the 0.4 goal on 256x160.
+- Checkpoint: smoke recorded; next: checks (a), (b) on GitHub.
