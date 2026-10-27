@@ -1117,7 +1117,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x5ad578b60ed4ac44); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x9cb3b4f00671ff1b); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) and step 13 (resinous wood drawn like wood, pitch daubed on a pot)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2867,4 +2867,124 @@ fn step13_old_furnace_steel_is_retired_on_load() {
     assert!(!w2.bands[0].knows(r_old), "furnace steel dropped");
     assert!(w2.bands[1].knows(r_new), "smith's steel kept");
     assert_eq!(w2.bands[0].stock[Mat::Steel as usize], 0.8, "the steel itself stays");
+}
+
+/// (inventions step 13, diagnostic) Why pitch and sealed jars come late on big maps: per season,
+/// how many bands could make pitch (resinous wood at hand + a fired pot + a fire) and how many
+/// could seal a jar (pitch + a fired pot), summed until each is first found, against when bands
+/// first reach resinous country at all and when the first potters do. Same knobs as
+/// `probe_step12` (PROBE_SEEDS, PROBE_YEARS, PROBE_W, PROBE_H).
+#[test]
+#[ignore]
+fn probe_step13_pitch() {
+    let seeds: Vec<u64> = std::env::var("PROBE_SEEDS").unwrap_or("5".into()).split(',').map(|s| s.trim().parse().unwrap()).collect();
+    let years: u32 = std::env::var("PROBE_YEARS").ok().and_then(|s| s.parse().ok()).unwrap_or(500);
+    let (mw, mh): (usize, usize) = (std::env::var("PROBE_W").ok().and_then(|s| s.parse().ok()).unwrap_or(256), std::env::var("PROBE_H").ok().and_then(|s| s.parse().ok()).unwrap_or(160));
+    let (resin, pot, pitch) = (item(Form::Raw, Mat::ResinWood), item(Form::Vessel, Mat::Ceramic), item(Form::Raw, Mat::Pitch));
+    let jar = item(Form::Jar, Mat::Ceramic);
+    for seed in seeds {
+        let mut w = World::new(Config { seed, map_w: mw, map_h: mh, ..Default::default() }, Params::default());
+        let m = &w.map;
+        let n = m.w * m.h;
+        let land = (0..n).filter(|&i| m.is_land(i)).count();
+        let rc: Vec<usize> = (0..n).filter(|&i| m.resin_wood(i)).collect();
+        let s0 = w.bands[0].cell(m.w);
+        let (sx, sy) = ((s0 % m.w) as i64, (s0 / m.w) as i64);
+        let d0 = rc.iter().map(|&c| ((c % m.w) as i64 - sx).abs().max(((c / m.w) as i64 - sy).abs())).min().unwrap_or(-1);
+        println!("seed {seed} {mw}x{mh}: land {land}, resinous cells {} ({:.1}% of land); start {:?} lat {:.0}, nearest resinous cell {d0} cells away", rc.len(), 100.0 * rc.len() as f32 / land as f32, m.biome_at(s0), m.lat(s0 / m.w));
+        let (mut f_on, mut f_pot, mut f_rdy, mut f_pitch, mut f_jrdy, mut f_jar) = (None, None, None, None, None, None);
+        let (mut rdy_bs, mut jrdy_bs, mut exp_rdy) = (0u64, 0u64, 0u64);
+        let yr = |t: u32| t as f32 / 4.0;
+        for t in 0..years * 4 {
+            w.step();
+            if w.bands.is_empty() {
+                break;
+            }
+            let (mut on, mut pots, mut rdy, mut jrdy, mut bands) = (0u32, 0u32, 0u32, 0u32, 0u32);
+            for b in &w.bands {
+                let a = &b.d.tk.avail;
+                bands += 1;
+                let r = a.has(resin);
+                let p = a.has(pot);
+                let f = a.iter().any(|i| form(i) == Form::Fire);
+                on += r as u32;
+                pots += p as u32;
+                if r && p && f {
+                    rdy += 1;
+                    if f_pitch.is_none() {
+                        exp_rdy += b.d.experiments as u64;
+                    }
+                }
+                jrdy += (a.has(pitch) && p) as u32;
+            }
+            let found = |o: Item| w.reg.recipes.iter().any(|r| r.output == o);
+            if f_on.is_none() && on > 0 { f_on = Some(yr(t)); }
+            if f_pot.is_none() && pots > 0 { f_pot = Some(yr(t)); }
+            if f_rdy.is_none() && rdy > 0 { f_rdy = Some(yr(t)); }
+            if f_pitch.is_none() {
+                rdy_bs += rdy as u64;
+                if found(pitch) { f_pitch = Some(yr(t)); println!("  Y{:.0} pitch found: {rdy_bs} pitch-ready band-seasons ({exp_rdy} experiments by them) since the first ready band", yr(t)); }
+            }
+            if f_jrdy.is_none() && jrdy > 0 { f_jrdy = Some(yr(t)); }
+            if f_jar.is_none() && f_pitch.is_some() {
+                jrdy_bs += jrdy as u64;
+                if found(jar) { f_jar = Some(yr(t)); println!("  Y{:.0} sealed jar found: {jrdy_bs} jar-ready band-seasons", yr(t)); }
+            }
+            if (t + 1) % 100 == 0 {
+                // the picker's odds (attention only, before need weighting), per season, summed
+                // over the ready bands: expected finds of pitch (heat) and of a sealed jar (combine)
+                let (mut e_pitch, mut e_jar, mut pool_n, mut nj) = (0f64, 0f64, 0f64, 0u32);
+                let (mut r_pitch, mut r_pot, mut c_pitch, mut c_cer) = (0f64, 0f64, 0f64, 0f64);
+                for b in &w.bands {
+                    let a = &b.d.tk.avail;
+                    let fire = a.iter().any(|i| form(i) == Form::Fire);
+                    if !(a.has(pot) && fire && (a.has(resin) || a.has(pitch))) {
+                        continue;
+                    }
+                    let att = w.attention(b);
+                    let pool: Vec<Item> = a.iter().filter(|&i| !matches!(form(i), Form::Cooked | Form::Fire | Form::Kiln)).collect();
+                    let nf = a.iter().filter(|&i| form(i) == Form::Fire).count();
+                    let cr = |k: usize| b.craft.get(NMAT + k).copied().unwrap_or(1.0) as f64;
+                    let (wh, ws, wc) = (0.15 * cr(Action::Heat as usize), 0.45 * cr(Action::Shape as usize), 0.40 * cr(Action::Combine as usize));
+                    let tot = wh + ws + wc;
+                    let ex = b.d.experiments as f64;
+                    if a.has(resin) {
+                        let hw = |i: Item| {
+                            let m = mat(i);
+                            let keeps = if matches!(m, Mat::Fibre | Mat::Hide | Mat::Bone) { 0.3 } else if m.is_food() || m.props().fuel_t > 0.0 { 1.0 } else { 1.5 };
+                            let unf = if matches!(form(i), Form::Bloom | Form::Crucible) || (matches!(form(i), Form::Raw | Form::Edge) && physics::hot_worked(m)) { 8.0 } else { 1.0 };
+                            (att[m as usize] as f64).sqrt() * keeps * unf
+                        };
+                        let hs: f64 = pool.iter().map(|&i| hw(i)).sum();
+                        let (pr, pp) = (hw(resin) / hs, hw(pot) / hs);
+                        let p_pair = pr * (0.5 + 0.5 * 0.25 * pp) + pp * 0.25 * pr;
+                        e_pitch += ex * wh / tot * p_pair * 0.2;
+                    }
+                    if a.has(pitch) {
+                        nj += 1;
+                        pool_n += pool.len() as f64;
+                        let cs: f64 = pool.iter().map(|&i| att[mat(i) as usize] as f64).sum::<f64>() + nf as f64 * 1.0;
+                        let (pp, pv) = (att[Mat::Pitch as usize] as f64 / cs, att[Mat::Ceramic as usize] as f64 / cs);
+                        e_jar += ex * wc / tot * 2.0 * pp * pv * 0.55 * 0.25;
+                        let mean = cs / (pool.len() + nf) as f64;
+                        r_pitch += att[Mat::Pitch as usize] as f64 / mean;
+                        r_pot += att[Mat::Ceramic as usize] as f64 / mean;
+                        c_pitch += b.craft[Mat::Pitch as usize] as f64;
+                        c_cer += b.craft[Mat::Ceramic as usize] as f64;
+                    }
+                }
+                println!(
+                    "  Y{:<4} bands {bands:>6} | on resin {on:>6} | pots {pots:>6} | pitch-ready {rdy:>6} | jar-ready {jrdy:>6} | expected finds/season (attention only, before the 12b tar-pot and step 13 pitch-pot pairings for jars): pitch {e_pitch:.3}, jar {e_jar:.4} (jar-ready pool {:.0} items; attention vs pool mean: pitch {:.2} pot {:.2}; craft pitch {:.2} ceramic {:.2})",
+                    (t + 1) / 4,
+                    pool_n / nj.max(1) as f64,
+                    r_pitch / nj.max(1) as f64,
+                    r_pot / nj.max(1) as f64,
+                    c_pitch / nj.max(1) as f64,
+                    c_cer / nj.max(1) as f64
+                );
+            }
+            if f_jar.is_some() { break; }
+        }
+        println!("  firsts: band at resin {f_on:?}, pots {f_pot:?}, pitch-ready {f_rdy:?}, pitch {f_pitch:?} | jar-ready {f_jrdy:?}, jar {f_jar:?} | ready band-seasons before pitch {rdy_bs}, before jar {jrdy_bs}");
+    }
 }

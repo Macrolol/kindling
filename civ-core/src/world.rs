@@ -1945,7 +1945,7 @@ impl World {
     /// at hand or a hard winter to store food for: things that hold), whether a material lies
     /// all around or is a carried rarity (curious bands play with novelties), and the band's own
     /// craft tradition. Physics still decides what works.
-    fn attention(&self, b: &Band) -> [f32; NMAT] {
+    pub(crate) fn attention(&self, b: &Band) -> [f32; NMAT] {
         use Mat::*;
         let m = &self.map;
         let ci = b.cell(m.w);
@@ -1995,9 +1995,14 @@ impl World {
         add(Clay, 0.8 * store);
         add(Hide, 0.5 * store);
         add(Fibre, 0.5 * store);
+        // (inventions step 13) resinous wood is wood: the pine and birch a band cuts, burns and
+        // whittles draws the same eye as its other wood (step 12 split it off the wood but left it
+        // at the floor, and never "at hand" even in a pine forest)
+        a[ResinWood as usize] = a[Wood as usize];
         // at hand here vs carried in
         let here = |mm: Mat| match mm {
             Wood => m.k_wood[ci] > 2.0,
+            ResinWood => m.resin_wood(ci),
             Fibre => m.k_fibre[ci] > 2.0,
             Meat | Hide | Bone => self.seen(1, ci, b) > 5.0,
             Plants => self.seen(0, ci, b) > 5.0,
@@ -2253,8 +2258,18 @@ impl World {
             let fuels: Vec<Item> = pool.iter().copied().filter(|&i| mat(i).props().fuel_t > 0.0).collect();
             let src = if !b.flame && fuels.len() >= 2 && rng.chance(0.4) { &fuels } else { &cpool };
             let a = pick_c(rng, src);
-            let bb = pick_c(rng, src);
-            let c = if rng.chance(0.45) { pick_c(rng, src) } else { NONE };
+            let mut bb = pick_c(rng, src);
+            let mut c = if rng.chance(0.45) { pick_c(rng, src) } else { NONE };
+            // (inventions step 13) pitch is boiled out in a fired pot and comes out hot and
+            // sticky: half the time it is daubed on a fired pot (the one it was cooked in), as
+            // resinous wood goes into the pot and a charged crucible to its mould. Not when it
+            // was picked up for a plank hull
+            let plank = |i: Item| i != NONE && form(i) == Form::Plank;
+            if a == raw(Mat::Pitch) && !plank(bb) && !plank(c) && rng.chance(0.5) {
+                if let Some(pot) = src.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i) == Mat::Ceramic) {
+                    (bb, c) = (pot, NONE);
+                }
+            }
             if a == bb || a == c || bb == c {
                 return;
             }

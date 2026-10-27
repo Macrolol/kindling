@@ -1239,3 +1239,36 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   DATA_SCHEMA.md is unchanged. Tests: `steel_recipe_kit_and_weapons` rewritten for the hearth,
   new `step13_old_furnace_steel_is_retired_on_load`; all 64 civ-core tests pass, v10 fixture
   hash unchanged. Smoke: seed 3 500 y standard map runs (118 s, no steel, as in 12b).
+- 13.2 pitch and sealed jars at scale (done: mostly geography, plus two code quirks fixed).
+  New ignored probe `probe_step13_pitch` (same PROBE_* knobs as `probe_step12`). It logs, per
+  season, the bands on resinous wood, potters, pitch-ready bands (resinous wood + fired pot +
+  fire), jar-ready bands (pitch + fired pot), the band-seasons they spend ready before each
+  first find, and the picker's attention-only odds. Evidence, before the fixes:
+  - Standard map, seeds 1-4: bands reach resinous country at Y0/Y75/Y148/Y61 (starts 0-12
+    cells away). Pitch then follows in 1.6k-16k pitch-ready band-seasons (Y94/Y169/Y184/Y183).
+  - 800x800 seed 499246292 (12b: pitch Y320, no jar in 750 y): potters from Y40, thousands
+    of them by Y200, but **no band in resinous country until Y223** (0 of 2,823 bands at Y200,
+    4 of 5,536 at Y250, 133 of 8,910 at Y300). Pitch came at Y372 after 65.8k pitch-ready
+    band-seasons. The wait for pine and birch is geography: tropical and warm starts on a big
+    map spread for two centuries before reaching the cool forests, as people did. Not tuned.
+  - Quirk 1 (bug): step 12 split resinous wood off wood but left it out of `attention`. It
+    got only the floor and was never "at hand", even in a pine forest (wood gets every
+    gathering, hunting, fishing, trapping and cold-weather need, and the at-hand factor).
+    Fixed: resinous wood draws the same attention as wood and is at hand where
+    `map.resin_wood` is. Seed 292 after: pitch Y316 (12.9k ready band-seasons); still waiting on
+    the Y223 arrival.
+  - Quirk 2 (jars): sealed jars waited on hundreds of thousands of jar-ready band-seasons
+    (standard seed 1: 111k; seed 3: 884k, jar Y482; seed 2: 918k, no jar by Y500), with
+    hundreds of jar-ready bands. The cause was the combine picker. Pitch and fired pots are
+    made goods, so they sit at the attention floor (0.15-0.25 of the pool mean each). The
+    one pair a jar needs was about 30x rarer than an average pair, and rarer still as pools grew
+    (27-47 items). Expected finds were about 0.0003-0.0009 a season world-wide, a find every
+    250-800 years. Fixed like the 12b tar-pot and crucible-mould pairings: pitch picked up to
+    combine is daubed on a fired pot half the time (the pot it is boiled out in), unless it
+    was picked with a plank hull (ships unchanged). Jar odds unchanged (0.25). After: standard seed 2
+    pitch Y202 and jar Y216; seed 3 pitch Y256 and jar Y286; 800x800 seed 292 pitch Y316 and jar Y433.
+    On the big map jars still wait on how few pitch makers there are (49-254 jar-ready bands
+    Y350-Y425): geography again.
+  - Ships and ale follow pitch and jars; neither is tuned directly.
+  - Tests: all pass; the v10 fixture run-on hash changes (step 13 experiments). No format
+    change (still 14), and no new events or counters.
