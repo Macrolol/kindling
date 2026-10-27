@@ -344,6 +344,18 @@ span, tallies are summed over it.
   `prestige_top_pct_100`, `prestige_top_pct_max` (from Y100), `prestige_gini_100`; a "feasts"
   line in the multi-seed text report.
 
+## Inventions step 10b: feasts and ornaments scale with band size (no format bump)
+
+- A feast gives at most `feast_cap` = `FEAST_EAT` (1) season of food for a crowd the size of
+  the host or of the guest band, whichever is bigger (step 10: the guest's need only). Share,
+  keep-back, minimum and prestige per unit of food are unchanged (standing stays
+  proportional to the food given).
+- Ornament standing a season: `ornament_prestige` = `PRESTIGE_FINE` x (0.5 + fine) x
+  sqrt(pop / `ORNAMENT_SEEN`) (25); a 25-person band earns what every band earned before.
+- The `Feast` tally (kind 40) is added to the history store once a year from `feasts`
+  (`Archive::note_many`) instead of through an effect per feast; only the world's first feast
+  still goes through the effects (for `FirstFeast`). Same tallies, cheaper.
+
 ## What a save keeps (format v12)
 
 | what | resolution | kept |

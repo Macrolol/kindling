@@ -138,7 +138,8 @@ pub const QUALITY_SHOW_P: f32 = 0.3;
 pub const QUALITY_SHOW: f32 = 0.3;
 pub const QUALITY_SPLIT: f32 = 0.9;
 /// (v9) Prestige: x`PRESTIGE_FADE` a season, plus, for a band that makes ornaments,
-/// `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season; `PRESTIGE_VOYAGE` for
+/// `PRESTIGE_FINE` x (0.5 + the ornament recipe's quality) a season (step 10b: x sqrt(size /
+/// `ORNAMENT_SEEN`), see `ornament_prestige`); `PRESTIGE_VOYAGE` for
 /// coming ashore alive on another landmass. (inventions step 10) Giving food, at a feast or to
 /// the hungry, earns `PRESTIGE_GIVE` x the food given (see `feasting`); this replaced the
 /// share-of-spare-labour term (`PRESTIGE_SURPLUS`) and the flat gift (`PRESTIGE_GIFT`).
@@ -1802,7 +1803,7 @@ impl World {
         // ---------------- (v9) standing: fine work earns it, time wears it away (inventions step
         // 10: food given away earns it too, at feasts and to the hungry)
         b.prestige = b.prestige * PRESTIGE_FADE
-            + if b.d.kit.ornament != NONE { PRESTIGE_FINE * (0.5 + b.d.kit.fine) } else { 0.0 };
+            + if b.d.kit.ornament != NONE { ornament_prestige(b.d.kit.fine, pop) } else { 0.0 };
         Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
@@ -3799,6 +3800,8 @@ impl World {
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
         self.feast_year_stats(&mut acc);
+        // (step 10b) the year's feasts go into the history store's tally in one go
+        self.archive.note_many(EventKind::Feast as u8, acc.feasts);
         let nb = self.bands.len() as u32;
         self.history.push(YearStats {
             year: self.tick / 4,

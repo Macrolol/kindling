@@ -1098,7 +1098,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x5ffeab88433e351f); // run-on changed by step 8 (records, no partner cap), step 8b (close ties) and step 10 (feasts, prestige from giving)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x71a3fda142663967); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving) and step 10b (feast scale, ornaments seen)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2186,11 +2186,23 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     rich.store = 450.0;
     let (r1, rg, _) = run(&rich, &g);
     assert!((r1.prestige / h1.prestige - rg.store / give).abs() < 1e-3 && rg.store > give);
-    // the guest eats at most a season of its need
+    // (step 10b) a feast is at most a season's food for a crowd the size of the bigger band:
+    // here the guest band (need 400) ...
     let mut glut = h.clone();
     glut.store = 50.0 + 10_000.0;
     let (_, g2, _) = run(&glut, &g);
     assert!((g2.store - FEAST_EAT * 400.0).abs() < 1e-3);
+    // ... and a big host (need 2000) feeds a crowd of its own size, more than the guest band
+    let mut big = glut.clone();
+    big.d.need = 2000.0;
+    big.store = 2000.0 + 20_000.0;
+    let (b2, g3, _) = run(&big, &g);
+    assert!((g3.store - FEAST_EAT * 2000.0).abs() < 1e-2 && (b2.prestige - give_prestige(2000.0, 1.0)).abs() < 1e-4);
+    assert_eq!(feast_cap(30.0, 10.0), FEAST_EAT * 30.0);
+    // (step 10b) ornament standing grows with the square root of band size
+    let o = |n: f32| ornament_prestige(0.5, n);
+    assert!((o(ORNAMENT_SEEN) - PRESTIGE_FINE).abs() < 1e-6 && (o(4.0 * ORNAMENT_SEEN) - 2.0 * o(ORNAMENT_SEEN)).abs() < 1e-6);
+    assert_eq!(o(0.0), 0.0);
     // no feast from a band short of food, or with nothing to spare
     let mut lean = h.clone();
     lean.d.food_ratio = 0.9;
@@ -2218,6 +2230,10 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     w.apply_fx(fx, None);
     let n = |w: &World| w.chronicle.iter().filter(|e| e.kind == EventKind::FirstFeast as u8).count();
     assert_eq!(n(&w), 1);
+    // (step 10b) once the first feast is known, feasts send no effect of their own
+    let mut fx = Fx::default();
+    w.feast(&mut Pair(&mut h.clone(), &mut g.clone()), 0, 1, &mut fx);
+    assert!(fx.ops.is_empty() && fx.counters.feasts == 1);
     assert!(EventKind::FirstFeast.major() && !EventKind::Feast.major());
     assert_eq!(EventKind::from_u8(EventKind::Feast as u8), EventKind::Feast);
     assert_eq!(w.counters.feasts, 2);
@@ -2226,6 +2242,9 @@ fn feasts_give_food_and_earn_standing_by_the_gift() {
     assert_eq!(y.feasts, 2);
     assert!((y.feast_food - 2.0 * give).abs() < 1e-3);
     assert!(y.prestige_size_r.abs() <= 1.0 && y.prestige_top_pct >= 0.0 && y.prestige_top_pct <= 100.0);
+    // the history store tallies the year's feasts
+    let kinds = &w.archive.frames.last().unwrap().kinds;
+    assert_eq!(kinds[EventKind::Feast as usize], 2);
     let s = crate::analysis::summarize(&w);
     assert_eq!(s.feasts.feasts, 2);
     assert!(s.feasts.first_feast_year.is_some());

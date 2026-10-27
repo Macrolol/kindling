@@ -238,6 +238,14 @@ impl Archive {
             _ => {}
         }
     }
+    /// Count `n` events of `kind` that need no other bookkeeping (tally only).
+    pub fn note_many(&mut self, kind: u8, n: u32) {
+        let k = kind as usize;
+        if self.tally.kinds.len() <= k {
+            self.tally.kinds.resize(KINDS.max(k + 1), 0);
+        }
+        self.tally.kinds[k] += n;
+    }
     /// Weddings between lineages `la` and `lb` (counted for the frames).
     pub fn note_wedding_lineages(&mut self, la: u32, lb: u32) {
         *self.tally.wed.entry((la.min(lb), la.max(lb))).or_default() += 1;

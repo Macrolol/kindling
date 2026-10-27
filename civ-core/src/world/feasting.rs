@@ -4,6 +4,12 @@
 //! grain left to work in a sealed jar, is brewed by grain farmers where the warm season is warm
 //! enough: it makes a little more of the grain and a feast with ale draws twice the crowd.
 //! Nothing is capped, dated or boosted.
+//!
+//! (inventions step 10b) A feast is as big as its host: the host's people can cook for and
+//! serve a crowd about their own number, so a big band with surplus feeds more guests and
+//! gives more (guests from round about come with the neighbour, who carries the gifts home).
+//! Fine ornaments are seen by more people in a bigger band, so their standing grows with the
+//! square root of its size (`ornament_prestige`).
 
 use super::*;
 
@@ -11,8 +17,11 @@ use super::*;
 pub const FEAST_KEEP: f32 = 0.5;
 /// Share of the surplus given at one feast.
 pub const FEAST_SHARE: f32 = 0.25;
-/// The guests eat at most this many seasons of their own need.
+/// (step 10b) A feast is at most this many seasons of food for a crowd the size of the host or
+/// of the guest band, whichever is bigger (step 10: the guest band only).
 pub const FEAST_EAT: f32 = 1.0;
+/// (step 10b) Ornament standing grows with sqrt(band size / this): fine work seen by more people.
+pub const ORNAMENT_SEEN: f32 = 25.0;
 /// Smallest gift (person-seasons of food) worth calling a feast.
 pub const FEAST_MIN: f32 = 0.5;
 /// Standing for giving food, at a feast or to the hungry: this x the food given (person-seasons).
@@ -53,6 +62,18 @@ pub fn give_prestige(food: f32, draw: f32) -> f32 {
     PRESTIGE_GIVE * food.max(0.0) * draw
 }
 
+/// (step 10b) Standing a season from a band of `pop` that makes ornaments of quality `fine`:
+/// `PRESTIGE_FINE` x (0.5 + fine) x sqrt(pop / `ORNAMENT_SEEN`).
+pub fn ornament_prestige(fine: f32, pop: f32) -> f32 {
+    PRESTIGE_FINE * (0.5 + fine) * (pop.max(0.0) / ORNAMENT_SEEN).sqrt()
+}
+
+/// (step 10b) The most a host with need `host_need` can give a guest band with need
+/// `guest_need` at one feast: a season's food for a crowd the size of the bigger of the two.
+pub fn feast_cap(host_need: f32, guest_need: f32) -> f32 {
+    FEAST_EAT * host_need.max(guest_need).max(1.0)
+}
+
 impl World {
     /// Whether the warmest season at cell `c` is warm enough for grain to work into ale.
     pub fn ale_warm(&self, c: usize) -> bool {
@@ -78,7 +99,7 @@ impl World {
         if sur <= 0.0 {
             return;
         }
-        let give = (FEAST_SHARE * sur).min(FEAST_EAT * bands[y].d.need.max(1.0));
+        let give = (FEAST_SHARE * sur).min(feast_cap(bands[x].d.need, bands[y].d.need));
         if give < FEAST_MIN {
             return;
         }
@@ -96,11 +117,16 @@ impl World {
         }
         fx.acc.feasts += 1;
         fx.acc.feast_food += give;
-        let cell = bands[x].cell(self.map.w) as u32;
-        fx.ops.push(Op::Feast { host: ix, guest: iy, cell, food: give, ale });
+        // (step 10b) only the world's first feast goes through the effects (for the chronicle);
+        // the history store's feast tally is taken from the year's count (`year_stats`)
+        if self.farm_flags & FLAG_FEAST == 0 {
+            let cell = bands[x].cell(self.map.w) as u32;
+            fx.ops.push(Op::Feast { host: ix, guest: iy, cell, food: give, ale });
+        }
     }
 
-    /// (history store) a feast; the first one in the world is a major event.
+    /// The world's first feast, a major event (step 10b: later feasts are tallied in the
+    /// history store from the year's count, without an effect each).
     pub(crate) fn note_feast(&mut self, host: u32, guest: u32, cell: u32, food: f32, ale: bool) {
         let it = if ale { item(Form::Jar, Mat::Grain) } else { NONE };
         let food = food.round().max(0.0) as u32;
@@ -108,8 +134,6 @@ impl World {
             self.farm_flags |= FLAG_FEAST;
             self.push_event(EventKind::FirstFeast, host, guest, cell, it, food);
         }
-        let e = Event { tick: self.tick, kind: EventKind::Feast as u8, band: host, other: guest, cell, item: it, recipe: food };
-        self.archive.note(&e);
     }
 
     /// Year-end feast, ale and prestige figures.

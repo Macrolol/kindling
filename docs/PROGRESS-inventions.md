@@ -669,3 +669,39 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 - Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war +6% / +11% (not doubling), no
   population collapse (499246298 dies out at Y31, as in every step). No further tuning.
 - Checkpoint: step 10 done (goal missed, reported); step 11 (native gold) not started.
+
+## Step 10b: feasts and ornaments scale with band size (in progress)
+
+- Plan (approved Oct 27, one more tuning round for step 10): (1) a feast is as big as its host:
+  the flat cap of one season of the guest's need becomes one season of food for a crowd the
+  size of the host or the guest, whichever is bigger (`feast_cap`), so a big band with surplus
+  gives more; standing stays in proportion to the food given. (2) Ornament standing grows with
+  how many people see it: x sqrt(pop / 25) (`ornament_prestige`; a 25-person band earns what
+  every band did before). Feast tallies go to the history store once a year
+  (`Archive::note_many`) instead of an effect per feast (cheaper). No caps or boosts.
+- Tests: `feasts_give_food_and_earn_standing_by_the_gift` extended (big host gives up to its own
+  need, `feast_cap`, sqrt ornament standing, no feast effect after the first, yearly Feast tally).
+  v10 fixture run-on hash updated (the v10 save still loads with the same load hash). All 56
+  pass, also with `--features parallel`. DATA_SCHEMA section added (no format bump).
+- Probes (seed 1, 256x160, 400 y; r by 50-year mark Y200/250/300/350/400 or by century):
+  - 10b as built: C3-C5 r 0.29 / 0.14 / 0.15 (step 10 0.21 / 0.14 / 0.14); seed 2 0.25 / 0.27 /
+    0.31 (0.28 / 0.17 / 0.26). Little change.
+  - Per-size breakdown (debug, seed 1): bands are 0-50 people, mostly 10-30; mean prestige rises
+    only 0.42 -> 0.79 from size 5 to 40. Small bands hold more store per person (store/need ~0.5
+    vs 0.17-0.3) and far more often have a surplus (16-50% vs 2-8% for 30-50 people): stores are
+    per head and self-limited by the effort target, a growing band eats into its store, and a
+    split leaves remnant and daughter with stores but few mouths. So the feast flow per head
+    falls with size, and the bigger cap rarely binds. Ornaments are held by 12-40% of bands in
+    every size bin (binary, size-free noise).
+  - Ornament standing ~ size^1 instead of sqrt: 0.39 / 0.23 / 0.18 / 0.05 / 0.09 (no help).
+  - Daughter takes standing in proportion to the people who leave: 0.14 / 0.08 / 0.13 / 0.14 /
+    -0.05 (worse). Both together: worse.
+  - Labour-backed feast (host adds food its spare labour could fetch, 0.5 or 0.2 x spare x
+    need): C3/C4 r 0.31 / 0.30 and 0.33 / 0.17, but it is free food per meeting (farming bands
+    1,315 vs 21 at Y400 at 0.5): not realistic as is, dropped.
+  - None reaches 0.4 past Y200; kept the plain design (1) + (2).
+- Local smoke (seeds 1-2, 500 y, 256x160, against the tuned step 10 smoke): pop 267,064
+  (244,607); war 0.425 %/yr (0.439); disease 0.130 (0.097); crossings Y162 / Y183 (Y126 / Y188),
+  none before Y100; prestige ~ size r last-100y 0.15 / 0.31, mean 0.23 (0.20); Gini (100y) 0.53
+  (0.48); top band max from Y100 2.6% / 6.8% (same); 3.77M feasts (3.61M). Run time 189 s
+  (153 s; local, one sim at a time).
