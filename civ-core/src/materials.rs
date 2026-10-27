@@ -194,7 +194,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 26;
+pub const NFORM: usize = 27;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -252,6 +252,10 @@ pub enum Form {
     // inventions step 1: appended so every older item id is unchanged
     /// a fired pot sealed with pitch: keeps food and water (material = the pot)
     Jar,
+    // inventions step 5
+    /// a plank hull caulked with pitch and fastened with metal nails or rivets: a ship that
+    /// carries a big party and its stores (material = the hull's timber)
+    Ship,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -280,6 +284,7 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Frame,
     Form::Ornament,
     Form::Jar,
+    Form::Ship,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -399,6 +404,10 @@ pub fn item_name(i: Item) -> String {
         Form::Jar => match m {
             Mat::Ceramic => "sealed jar".into(),
             _ => format!("sealed {n} jar"),
+        },
+        Form::Ship => match m {
+            Mat::Wood => "nailed plank ship".into(),
+            _ => format!("{n} ship"),
         },
     }
 }

@@ -329,6 +329,19 @@ pub fn run(a: &Args) {
                 100.0 * skyv as f32 / voy.max(1) as f32,
                 sky.join(", ")
             );
+            let shipv: u64 = sums.iter().map(|s| s.sea.ship_voyages).sum();
+            let ship: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let y = s.sea.first_ship_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!("s{} {}/{:.2}/{}", s.seed, s.sea.ship_bands, s.sea.ship_q_mean, y)
+                })
+                .collect();
+            println!(
+                "  ships: {:.1}% of voyages by ship | ship bands/quality/first crossing by ship {}",
+                100.0 * shipv as f32 / voy.max(1) as f32,
+                ship.join(", ")
+            );
         }
         {
             let lost: u64 = sums.iter().map(|s| s.sea.lost_at_sea).sum();

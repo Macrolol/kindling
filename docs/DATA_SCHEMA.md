@@ -161,6 +161,30 @@ span, tallies are summed over it.
   `sea.sky_at_sea_mean`, and a "sky lore" line in the multi-seed text report.
 - Crossing ledger: the `sky` bit is set when the crossing crew had `sky_at_sea` >= 0.2.
 
+### Ships (inventions step 5)
+
+- Form `Ship` (form id 26, appended after `Jar`; item id `26*32+mat`, e.g. 832 "nailed plank
+  ship" for wood). Recipe (combine, by the water only): a plank boat + raw pitch + a metal point
+  (any malleable metal: copper, bronze, iron) makes a ship of the plank's material, success
+  0.2. It sits in a new kit slot `ship` (scored by the boat quality of its material); `Kit`
+  is derived each season, so it is not saved.
+- Tinkering: a band that already has a plank hull and lives by the water weighs planks, pitch
+  and metal points by an extra `3 x seacraft` when it picks things to try together (the same
+  need-weighting as the other forms), so seafaring shipwrights try the combination far more
+  often than inland bands.
+- Effects: endurance (provisions) x 1.4 x (1 + 0.2 x ship quality); boat range x 1.25 but
+  only with a usable sail (sail in kit and sailing experience > 0.4). No extra seaworthiness:
+  a ship hull counts for `boat_q` exactly like a plank hull. Ships need pitch caulking upkeep
+  like other craft.
+- `metrics.csv` / `YearStats`: `ship_bands` (bands with a ship), `ship_q_mean` (mean ship
+  quality over them).
+- Counter `ship_voyages` (voyages made in a ship). `summary.json` `sea.ship_voyages`,
+  `sea.ship_bands`, `sea.ship_q_mean`, `sea.first_ship_year` (from the `FirstShip` event, null
+  if none); a "ships" line in the multi-seed text report.
+- Event kind `FirstShip` (id 36, major): the first time a band in a ship (not adrift) comes
+  ashore on another landmass; `other` = landmass, `item` = the ship, `recipe` = leg in cells.
+- Crossing ledger: the `ship` bit (`TECH_SHIP`, 1<<4) is set when the crossing crew had a ship.
+
 ## What a save keeps (format v11)
 
 | what | resolution | kept |

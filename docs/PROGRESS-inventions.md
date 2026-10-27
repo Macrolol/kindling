@@ -174,3 +174,28 @@ Checks:
   (`sky_at_sea` mean 0.01-0.06) because pilotage is low on these maps (p90 0.06-0.18). War
   0.298 %/y (0.299), items 73.9 (75.1), pop 7.34M (7.31M), farmed food share within a few
   points per seed, lost at sea 228 568 (226 578).
+
+## Step 5. Ships (built; checks running)
+- Form `Ship` (id 26, appended; "nailed plank ship" for wood). Recipe, by the water only:
+  plank boat + raw pitch + a metal point (copper, bronze or iron) -> ship of the plank's
+  material, success 0.2. New kit slot `ship` and `ship_q`; daughters inherit them; ships need
+  caulking upkeep like other craft.
+- Effects: endurance x 1.4 x (1 + 0.2 x ship quality) (about 1.5x at quality 0.3, so 32 -> 45-48
+  cells); boat range x 1.25 only with a usable sail (sail in kit, sail experience > 0.4). No
+  extra seaworthiness and no bigger crews. Ledger bit `ship` (TECH_SHIP), event `FirstShip`
+  (id 36, major), counter `ship_voyages`, YearStats `ship_bands`, `ship_q_mean`, summary
+  `sea.ship_*` and `sea.first_ship_year`, and a "ships" line in the multi-seed report.
+- Tuning (before any check): the first build made no ships on seed 5 in 500 years although
+  planks (Y334), pitch (Y139) and copper/iron points (Y253-270) were all there. An experiment
+  draws 3 things weighted by attention and need, so plank + pitch + metal point came up about
+  4e-7 of the time. Fix, in the style of the existing need weights: a band that already has a
+  plank hull and lives by the water weighs planks, pitch and metal points by 1 + 3 x seacraft
+  (shipwrights tinker with ship parts), and the recipe's success went 0.06 -> 0.2. No cap,
+  date or range boost.
+- Tests: `ships_recipe_and_reach` (recipe and its negatives, name, form list, unchanged
+  boat_q, endurance factor, range x1.25 only with a usable sail, provisions scaling, ledger bit,
+  `FirstShip` once and only for ships, event round trip). 45 pass, 1 ignored; fixtures load.
+- Local look, seed 5, 500 years (after tuning): first ship Y405 (pitch + copper point + plank
+  boat), 3 646 ship bands by Y500 (quality mean 0.15), endurance p90 32 -> 46 cells, longest leg
+  25 -> 35 cells; first crossing by ship Y440 (18 cells, to landmass #3); 1 527 ship voyages.
+  Seed 5's second continent is 31 cells from settled land and was still not reached.

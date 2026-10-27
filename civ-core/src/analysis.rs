@@ -347,6 +347,12 @@ pub struct SeaSummary {
     pub sky_farm_mean: f32,
     pub sky_sea_mean: f32,
     pub sky_at_sea_mean: f32,
+    /// (inventions step 5) planned voyages made in a ship; bands with a ship and the mean
+    /// quality of their ships, at the end; the first crossing by ship (year, null = none)
+    pub ship_voyages: u64,
+    pub ship_bands: u32,
+    pub ship_q_mean: f32,
+    pub first_ship_year: Option<f32>,
 }
 
 /// (inventions step 0) One entry of the crossing ledger: the first arrival of people on a
@@ -799,6 +805,10 @@ pub fn summarize(w: &World) -> Summary {
             sky_farm_mean: w.history.last().map_or(0.0, |y| y.sky_farm_mean),
             sky_sea_mean: w.history.last().map_or(0.0, |y| y.sky_sea_mean),
             sky_at_sea_mean: w.history.last().map_or(0.0, |y| y.sky_at_sea_mean),
+            ship_voyages: w.counters.ship_voyages,
+            ship_bands: w.history.last().map_or(0, |y| y.ship_bands),
+            ship_q_mean: w.history.last().map_or(0.0, |y| y.ship_q_mean),
+            first_ship_year: w.chronicle.iter().find(|e| e.kind == crate::world::EventKind::FirstShip as u8).map(|e| e.tick as f32 / 4.0),
             seacraft_mean: {
                 let v: Vec<f32> = w.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.seacraft).collect();
                 if v.is_empty() { 0.0 } else { v.iter().sum::<f32>() / v.len() as f32 }

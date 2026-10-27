@@ -198,6 +198,12 @@ pub struct Kit {
     pub pitch: Item,
     /// sealed jars
     pub jar: Item,
+    // inventions step 5
+    /// a nailed, caulked plank ship
+    pub ship: Item,
+    /// (v9 refinement) quality of the recipe that makes the ship (0..1): a well-built ship
+    /// keeps its crew and stores longer at sea
+    pub ship_q: f32,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
     /// cooking known for grain (v5)
@@ -246,6 +252,8 @@ impl Default for Kit {
             ornament: NONE,
             pitch: NONE,
             jar: NONE,
+            ship: NONE,
+            ship_q: 0.0,
             cooked: [NONE; 3],
             cooked_grain: NONE,
             plants_m: 1.0,
@@ -262,12 +270,12 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 27] {
+    pub fn used_items(&self) -> [Item; 28] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
             self.boat, self.net, self.trap, self.cooked_grain, self.bow, self.shield, self.outrigger,
-            self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch,
+            self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch, self.ship,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -575,7 +583,7 @@ pub fn loss_guard(k: &Kit) -> f32 {
 pub fn make_kit(avail: &ItemSet) -> Kit {
     let mut k = Kit::default();
     let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
-    let mut best = [0f32; 22];
+    let mut best = [0f32; 23];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -614,6 +622,7 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
             Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
+            Form::Ship => upd(22, score(boat_q(m), m), &mut k.ship),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,
@@ -654,6 +663,10 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
     if k.plank != NONE {
         k.boat_q = k.boat_q.max((boat_q(mat(k.plank)) + 0.25).min(1.0));
     }
+    // (inventions step 5) a ship is a plank hull too: no sounder, only bigger and better found
+    if k.ship != NONE {
+        k.boat_q = k.boat_q.max((boat_q(mat(k.ship)) + 0.25).min(1.0));
+    }
     k.plants_m = 1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe;
     k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer);
     k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;
@@ -692,7 +705,8 @@ pub fn refine_kit(k: &mut Kit, tk: &Toolkit, known: &[Known]) {
     let q = |it: Item| {
         tk.via(it).and_then(|(i, _, _)| known.get(i as usize)).map(|kn| kn.quality.clamp(0.0, 1.0)).unwrap_or(0.0)
     };
-    let boat = q(k.boat).max(q(k.outrigger)).max(q(k.plank));
+    let boat = q(k.boat).max(q(k.outrigger)).max(q(k.plank)).max(q(k.ship));
+    k.ship_q = if k.ship != NONE { q(k.ship) } else { 0.0 };
     if k.boat_q > 0.0 {
         k.boat_q = (k.boat_q * (1.0 + QUALITY_BOAT * boat)).min(1.0);
     }

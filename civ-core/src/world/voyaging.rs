@@ -53,6 +53,12 @@ pub const WATER_JARS: f32 = 10.0;
 pub const ENDURANCE_PLANK: f32 = 4.0;
 /// Past endurance the crew starves and thirsts: survival falls as exp(-k * over^2).
 pub const ENDURANCE_TOLL: f32 = 0.03;
+/// (inventions step 5) a ship's endurance multiplier, and how much a well-built one adds
+/// (x (1 + SHIP_QUALITY x quality)): about 1.5x at the usual quality 0.33, 1.68x at best
+pub const SHIP_ENDURANCE: f32 = 1.4;
+pub const SHIP_QUALITY: f32 = 0.2;
+/// (inventions step 5) range multiplier of a ship under a usable sail
+pub const SHIP_RANGE: f32 = 1.25;
 /// Drying racks cut spoilage of fresh food (meat and fish) by this share; cold cellars too.
 pub const RACK_KEEP: f32 = 0.25;
 pub const CELLAR_KEEP: f32 = 0.3;
@@ -139,6 +145,10 @@ impl SeaSigns {
     }
 }
 
+/// (inventions step 5) bit of `World::farm_flags` (world firsts with no item of their own) set
+/// once a ship has carried people to another landmass
+pub const FLAG_SHIP_CROSSED: u32 = 1 << 8;
+
 /// A crossing below this many open-water cells is never reported as a record (straits).
 pub const LEG_RECORD_MIN: f32 = 3.0;
 
@@ -155,6 +165,9 @@ impl World {
         }
         if k.plank != NONE {
             t |= TECH_PLANK;
+        }
+        if k.ship != NONE {
+            t |= TECH_SHIP;
         }
         if prepared {
             t |= TECH_PROVISIONED;
@@ -249,7 +262,17 @@ impl World {
         let food = ENDURANCE_FOOD * self.preserved(b, home) * fed;
         let water = if k.jar != NONE { WATER_JARS } else { WATER_SKINS };
         let e = ENDURANCE_BASE + food.min(water) + if plank { ENDURANCE_PLANK } else { 0.0 };
-        (fed, e)
+        (fed, e * Self::ship_endurance(k))
+    }
+
+    /// (inventions step 5) A ship's hold carries a bigger party's food and water: endurance x
+    /// `SHIP_ENDURANCE`, and a well-built one (recipe quality q) x (1 + `SHIP_QUALITY` x q) more.
+    pub fn ship_endurance(k: &Kit) -> f32 {
+        if k.ship == NONE {
+            1.0
+        } else {
+            SHIP_ENDURANCE * (1.0 + SHIP_QUALITY * k.ship_q.clamp(0.0, 1.0))
+        }
     }
 
     /// (inventions step 2) Survival factor for a leg of `sea` cells by a crew whose food and
@@ -281,6 +304,20 @@ impl World {
             if best.map_or(true, |x| leg > x.0) {
                 let boat = if b.d.sailed_tech & TECH_ADRIFT != 0 { NONE } else { b.d.kit.boat };
                 best = Some((leg, b.id, c as u32, self.map.landmass_of(c) as u32, boat));
+            }
+        }
+        // (inventions step 5) the world's first crossing to another landmass made by a ship
+        if self.farm_flags & FLAG_SHIP_CROSSED == 0 {
+            let first = self.bands.iter().find(|b| {
+                b.pop > 0
+                    && b.d.sailed_tech & TECH_SHIP != 0
+                    && b.d.sailed_tech & TECH_ADRIFT == 0
+                    && b.d.sailed_from.is_some_and(|f| self.map.landmass_of(f as usize) != self.map.landmass_of(b.cell(w)))
+            });
+            if let Some(b) = first {
+                let (id, c, ship, leg) = (b.id, b.cell(w), b.d.kit.ship, b.d.sailed_sea);
+                self.farm_flags |= FLAG_SHIP_CROSSED;
+                self.push_event(EventKind::FirstShip, id, self.map.landmass_of(c) as u32, c as u32, ship, leg.round() as u32);
             }
         }
         if let Some((leg, id, c, l, boat)) = best {
@@ -332,6 +369,8 @@ impl World {
         ys.sky_farm_mean = mean(self.bands.iter().filter(|b| b.sow > 0.0).map(|b| b.sky).collect());
         ys.sky_sea_mean = mean(self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| b.sky).collect());
         ys.sky_at_sea_mean = mean(self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(Self::sky_at_sea).collect());
+        ys.ship_bands = self.bands.iter().filter(|b| b.d.kit.ship != NONE).count() as u32;
+        ys.ship_q_mean = mean(self.bands.iter().filter(|b| b.d.kit.ship != NONE).map(|b| b.d.kit.ship_q).collect());
         ys.dried_bands = self.bands.iter().filter(|b| self.dries_food(b, b.cell(w))).count() as u32;
         ys.cellar_bands = self.bands.iter().filter(|b| self.cold_cellar(b, b.cell(w))).count() as u32;
         let mut es: Vec<f32> = self.bands.iter().filter(|b| b.d.kit.boat_q > 0.0).map(|b| self.provisions(b, b.cell(w)).1).collect();

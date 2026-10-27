@@ -261,6 +261,13 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Bellows, mat(bag)), 0.04);
         }
     }
+    // (inventions step 5) at the water, a plank hull fastened with metal nails or rivets and
+    // its seams paid with pitch: a ship (copper, bronze or iron points serve as the nails)
+    if ctx.water && n == 3 && count(Form::Plank) == 1 && raw(Mat::Pitch) {
+        if items.iter().any(|&i| form(i) == Form::Point && is_metal(mat(i))) {
+            return o(item(Form::Ship, mat(find(Form::Plank)?)), 0.2);
+        }
+    }
     // (inventions) a fired pot whose mouth and seams are sealed with pitch: a sealed jar
     if n == 2 && raw(Mat::Pitch) {
         if let Some(pot) = items.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i) == Mat::Ceramic) {

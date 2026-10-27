@@ -201,6 +201,9 @@ pub enum EventKind {
     /// (inventions step 0) a crossing to another landmass over more open water than any before
     /// it (major; other = landmass reached, recipe = open-water cells, item = the boat)
     LongestCrossing,
+    /// (inventions step 5) the world's first crossing to another landmass by ship (major;
+    /// other = landmass reached, recipe = open-water cells, item = the ship)
+    FirstShip,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -209,11 +212,11 @@ impl EventKind {
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
-            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing,
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 36;
+    pub const COUNT: usize = 37;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -233,6 +236,7 @@ impl EventKind {
                 | EventKind::FirstPlough
                 | EventKind::FirstRiding
                 | EventKind::LongestCrossing
+                | EventKind::FirstShip
         )
     }
 }
@@ -348,6 +352,9 @@ pub struct YearStats {
     pub sky_farm_mean: f32,
     pub sky_sea_mean: f32,
     pub sky_at_sea_mean: f32,
+    /// (inventions step 5) bands with a ship, and the mean recipe quality of their ships
+    pub ship_bands: u32,
+    pub ship_q_mean: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -436,6 +443,8 @@ counters! {
         /// (inventions step 4) planned voyages whose crew steered by the stars (sky lore at sea
         /// >= 0.2: the ledger's `sky` bit)
         sky_voyages,
+        /// (inventions step 5) planned voyages made in a ship (the ledger's `ship` bit)
+        ship_voyages,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -563,7 +572,8 @@ pub struct World {
     pub crop: Vec<f32>,
     /// where and when farming began independently: (tick, cell, band)
     pub farm_starts: Vec<(u32, u32, u32)>,
-    /// world firsts with no item of their own (bit 0: ard, bit 1: herding)
+    /// world firsts with no item of their own (bit 0: ard, bit 1: herding, bit 2: riding;
+    /// bit 8: first crossing by ship, `FLAG_SHIP_CROSSED`)
     pub farm_flags: u32,
     /// (v10) the history store: tiered per-year frames, band genealogy, recent weddings
     pub archive: Archive,
@@ -1411,13 +1421,13 @@ impl World {
         let mut used = Vec::with_capacity(17);
         // (inventions step 1) pitch is boiled up only for something that needs it: hulls by the
         // water to caulk, or jars to seal; while it is about, hafts are glued with it too
-        let has_craft = [kit.boat, kit.outrigger, kit.sail, kit.plank].iter().any(|&i| i != NONE);
+        let has_craft = [kit.boat, kit.outrigger, kit.sail, kit.plank, kit.ship].iter().any(|&i| i != NONE);
         let pitch = kit.pitch != NONE && ((wet && has_craft) || kit.jar != NONE);
         for &it in kit.used_items().iter() {
             if it == NONE {
                 continue;
             }
-            let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank;
+            let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank || it == kit.ship;
             // ornaments are kept for show, not worn out at work
             if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament || (it == kit.pitch && !pitch) {
                 continue;
@@ -1895,8 +1905,14 @@ impl World {
             let cold = (b.d.cold * 2.0).clamp(0.0, 1.5);
             let ci = b.cell(self.map.w);
             let store = ((5.0 - self.map.temp_winter(ci)) / 10.0).clamp(0.0, 1.0) + if self.near_water(ci) { 0.0 } else { 1.0 };
+            // (inventions step 5) seafarers with a plank hull on the shore work at it: they reach
+            // for the hull, pitch for its seams and metal points to fasten it, the more the
+            // better they know the sea
+            let hull = if b.d.kit.plank != NONE && self.near_water(ci) { NEED_FORM * b.seacraft } else { 0.0 };
             move |i: Item| match form(i) {
-                Form::Point => 1.0 + sh(1) + NEED_FORM * 0.5 * cold,
+                Form::Point => 1.0 + sh(1) + NEED_FORM * 0.5 * cold + if mat(i).is_metal() { hull } else { 0.0 },
+                Form::Plank => 1.0 + hull,
+                Form::Raw if mat(i) == Mat::Pitch => 1.0 + hull,
                 Form::Edge => 1.0 + 0.8 * sh(1),
                 Form::Shaft => 1.0 + 0.5 * sh(1) + sh(3),
                 Form::Cord => 1.0 + 0.5 * sh(3) + sh(2) + 0.3 * NEED_FORM * cold,
@@ -2084,7 +2100,10 @@ impl World {
     /// (v8) How far a band can go: a sail carries it 1.6 times as far, for people who know the
     /// sea well enough to use the wind (seacraft above 0.4).
     pub fn boat_range(kit: &Kit, xp: f32) -> f32 {
-        Self::sea_range(kit.boat_q, xp) * if kit.sail != NONE && xp > 0.4 { 1.6 } else { 1.0 }
+        let sail = kit.sail != NONE && xp > 0.4;
+        // (inventions step 5) a ship under sail holds its course on a long leg
+        let ship = if sail && kit.ship != NONE { SHIP_RANGE } else { 1.0 };
+        Self::sea_range(kit.boat_q, xp) * if sail { 1.6 } else { 1.0 } * ship
     }
 
     /// A trip out over open water: pick a heading from a coastal camp and paddle until land shows
@@ -2186,6 +2205,9 @@ impl World {
         }
         if b.d.sailed_tech & TECH_SKY != 0 {
             fx.counters.sky_voyages += 1;
+        }
+        if b.d.sailed_tech & TECH_SHIP != 0 {
+            fx.counters.ship_voyages += 1;
         }
         if rng.chance(p) {
             // a crossing made is a lesson learned, (v9) the more so the longer it was
@@ -3242,6 +3264,8 @@ impl World {
                 d.d.kit.outrigger = b.d.kit.outrigger;
                 d.d.kit.sail = b.d.kit.sail;
                 d.d.kit.plank = b.d.kit.plank;
+                d.d.kit.ship = b.d.kit.ship;
+                d.d.kit.ship_q = b.d.kit.ship_q;
                 // (inventions step 2) and what keeps their food and water on the way
                 d.d.kit.jar = b.d.kit.jar;
                 d.d.kit.cut = b.d.kit.cut;
@@ -3650,6 +3674,10 @@ impl World {
                 let by = if it.is_empty() { String::new() } else { format!(" by {it}") };
                 format!("Y{yr}: band {} comes ashore at ({cx},{cy}) on landmass #{} after {} cells of open water{by}, the longest crossing yet", e.band, e.other, e.recipe)
             }
+            EventKind::FirstShip => format!(
+                "Y{yr}: band {} comes ashore at ({cx},{cy}) on landmass #{} in a {it} after {} cells of open water, the first crossing by ship",
+                e.band, e.other, e.recipe
+            ),
         }
     }
 }

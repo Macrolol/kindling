@@ -1435,3 +1435,90 @@ fn farmers_learn_sky_lore() {
     assert!(top > 0.005 && top < 0.2, "settled farmers learn the sky, slowly: {top}");
     assert!(w.bands.iter().all(|b| (0.0..=1.0).contains(&b.sky)));
 }
+
+/// (inventions step 5) Ships: a plank hull, metal nails and pitch, put together at the water.
+/// A ship is no more seaworthy than a plank boat, but it lasts longer at sea (more so when well
+/// built) and, under a usable sail, goes further.
+#[test]
+fn ships_recipe_and_reach() {
+    use crate::world::*;
+    let plank = item(Form::Plank, Mat::Wood);
+    let pitch = item(Form::Raw, Mat::Pitch);
+    let nail = item(Form::Point, Mat::Copper);
+    let ship = item(Form::Ship, Mat::Wood);
+    let comb = |inp, water| {
+        let ctx = Ctx { dryness: 0.5, water };
+        physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &ctx).map(|o| o.out)
+    };
+    assert_eq!(comb([plank, pitch, nail, NONE], true), Some(ship));
+    assert_eq!(comb([nail, plank, pitch, NONE], true), Some(ship));
+    assert_eq!(comb([plank, pitch, item(Form::Point, Mat::Iron), NONE], true), Some(ship));
+    // not away from the water, not pegged with stone points, not without pitch
+    assert_ne!(comb([plank, pitch, nail, NONE], false), Some(ship));
+    assert_ne!(comb([plank, pitch, item(Form::Point, Mat::Flint), NONE], true), Some(ship));
+    assert_ne!(comb([plank, item(Form::Raw, Mat::Wood), nail, NONE], true), Some(ship));
+    assert_eq!(item_name(ship), "nailed plank ship");
+    assert_eq!(ALL_FORMS[NFORM - 1], Form::Ship);
+    assert!(valid_item(ship));
+
+    // the kit: a ship is a plank hull, no sounder
+    let mut s = ItemSet::default();
+    for it in [plank, pitch, nail] {
+        s.add(it);
+    }
+    let k0 = crate::band::make_kit(&s);
+    s.add(ship);
+    let k1 = crate::band::make_kit(&s);
+    assert_eq!(k1.ship, ship);
+    assert!(k1.used_items().contains(&ship));
+    assert_eq!(k0.boat_q, k1.boat_q);
+    assert_eq!(World::ship_endurance(&k0), 1.0);
+    let mut k = k1;
+    k.ship_q = 0.0;
+    assert!((World::ship_endurance(&k) - SHIP_ENDURANCE).abs() < 1e-6);
+    k.ship_q = 1.0;
+    assert!((World::ship_endurance(&k) - SHIP_ENDURANCE * (1.0 + SHIP_QUALITY)).abs() < 1e-6);
+    // range: the same as the plank boat without a sail (or seamen to use it); x1.25 with
+    assert_eq!(World::boat_range(&k0, 0.8), World::boat_range(&k1, 0.8));
+    let (mut s0, mut s1) = (k0, k1);
+    s0.sail = item(Form::Sail, Mat::Flax);
+    s1.sail = item(Form::Sail, Mat::Flax);
+    assert_eq!(World::boat_range(&s0, 0.3), World::boat_range(&s1, 0.3));
+    assert!((World::boat_range(&s1, 0.8) - SHIP_RANGE * World::boat_range(&s0, 0.8)).abs() < 1e-4);
+
+    // endurance in a band's provisions, and the ledger bit
+    let mut w = small();
+    let mut b = w.bands[0].clone();
+    let c = b.cell(w.map.w);
+    b.d.kit = k0;
+    let e0 = w.provisions(&b, c).1;
+    b.d.kit = k1;
+    let e1 = w.provisions(&b, c).1;
+    assert!((e1 - e0 * World::ship_endurance(&k1)).abs() < 1e-4);
+    assert!(World::voyage_tech(&b, true) & TECH_SHIP != 0);
+    assert_eq!(tech_names(TECH_SHIP), vec!["ship"]);
+
+    // the first crossing by ship is a major event, once
+    use crate::world::EventKind;
+    let m = &w.map;
+    let home = w.bands[0].cell(m.w);
+    let lh = m.landmass_of(home);
+    let other = (0..m.w * m.h).find(|&c| m.is_land(c) && m.landmass_of(c) != lh && m.landmass_of(c) != 0);
+    if let Some(other) = other {
+        let mw = w.map.w;
+        let count = |w: &World| w.chronicle.iter().filter(|e| e.kind == EventKind::FirstShip as u8).count();
+        for tech in [TECH_PLANK, TECH_SHIP, TECH_SHIP] {
+            let bb = &mut w.bands[0];
+            bb.x = (other % mw) as u16;
+            bb.y = (other / mw) as u16;
+            bb.d.sailed_from = Some(home as u32);
+            bb.d.sailed_sea = 30.0;
+            bb.d.sailed_tech = tech;
+            bb.d.kit.ship = ship;
+            w.track_leg_record();
+            assert_eq!(count(&w), if tech == TECH_PLANK { 0 } else { 1 });
+        }
+        assert!(EventKind::FirstShip.major());
+        assert_eq!(EventKind::from_u8(EventKind::FirstShip as u8) as u8, EventKind::FirstShip as u8);
+    }
+}
