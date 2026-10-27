@@ -555,7 +555,7 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   collapse (499246298 dies out at Y31, as in every step). No tuning.
 - Checkpoint: step 9 done; step 10 (feasts and ale) not started.
 
-## Step 10: feasts and ale (in progress)
+## Step 10: feasts and ale (done; prestige ~ size goal missed, guard rails fine)
 
 - Plan (approved Oct 27: ale and feasts now, a small step, prestige in proportion to giving):
   a band with food stored beyond what it needs hosts a neighbour at a feast and gives part of
@@ -595,4 +595,77 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   Y100. Pop 120,751 / 123,856 (step 9: 103,489 / 119,870). Killed 0.412 / 0.467 %/yr (step 9
   0.370 / 0.452); disease 0.084 / 0.109 %/yr. Guard rails fine; r below the 0.4 goal on 256x160.
 - GitHub checks dispatched (commit e248dc8): (a) run 40514735908, (b) run 40514750187.
-- Checkpoint: checks running; next: download summaries, write results files, compare with step 9.
+- Check (a), run [40514735908](https://github.com/Macrolol/kindling/actions/runs/40514735908)
+  (`docs/results-inv-step10-seeds1-10-500y.txt`, commit e248dc8): feasts in 10/10 worlds, first
+  Y22-Y62; 16,420,842 feasts giving 27.5M person-seasons of food; food to the hungry 272,859
+  (step 9 158,354). Ale in 2/10 worlds (seed 5 Y436, seed 3 Y456; peak 15,817 / 5,664 bands;
+  1,126,881 ale feasts). Prestige ~ size r 0.19 (last-100y mean; per seed 0.07-0.34; end 0.21);
+  by century it is 0.35-0.5 in the first two centuries and falls to 0.1-0.3 from Y200 on (section
+  8). Prestige Gini 0.37 -> 0.53, top-10% share 26% -> 37%; top band 0.24% of all prestige at the
+  end, most from Y100 18.1% (seed 7 at Y100 with 58 bands, under 8% by Y113). Crossings 4/10 (Y126,
+  Y178, Y188, Y246; step 9 Y106, Y176, Y187, Y255), none before Y100. War 0.414%/yr (0.373, +11%),
+  disease 0.130 (0.119), items 74.8 (73.8), population 1,150,261 (1,136,998, +1.2%; seed 10
+  56k -> 89k, seed 9 84k -> 65k). Sim time 903 s (914 s).
+- Check (b), run [40514750187](https://github.com/Macrolol/kindling/actions/runs/40514750187)
+  (`docs/results-inv-step10-750y-800x800.txt`): feasts in all 9 living worlds, first Y28-Y66;
+  118,837,820 feasts giving 221.0M person-seasons; food to the hungry 3,079,803 (2,059,908). Ale
+  in 7/10 worlds, first Y369-Y668 (369, 380, 450, 538, 594, 658, 668; never in 295, 301 and the
+  dead 298); peak ale bands 10,728-64,494 per world; 40.5M ale feasts. **Prestige ~ size r 0.25**
+  (last-100y mean over the 9 living worlds; per seed 0.09-0.37; end 0.26): below the 0.4-0.6
+  goal. Prestige Gini 0.44 -> 0.63 (living worlds), top-10% share 32% -> 48%; top band 0.05% at
+  the end, most from Y100 in a world of 100+ bands 8.5% (499246299 at Y107); no hub. (499246301's
+  "max 100%" is the world's 2-3 bands at Y66-Y134.) Crossings 1/10 (499246293 at Y663; step 9
+  Y637), none before Y100. War 0.305%/yr (0.289, +6%), disease 0.185 (0.171, +8%), items 78.8
+  (77.6), population 7,536,822 (7,370,782, +2.3%), steel worlds 2 (3). Sim time 9943 s (7599 s,
+  +31%; slowest seed 2695 s, 1627 s): the biggest rises are the two worlds with the most ale
+  feasts (499246297 1523 -> 2695 s, 499246299 449 -> 819 s), the rest within runner noise.
+- Totals, step 9 -> step 10 (prestige figures over living worlds; step 9 did not measure prestige
+  ~ size, the v9 analysis found 0.08-0.28 per seed):
+
+  | | (a) s9 | (a) s10 | (b) s9 | (b) s10 |
+  |---|---|---|---|---|
+  | prestige ~ size r (last 100 y) | - | 0.19 (0.07-0.34) | - | 0.25 (0.09-0.37) |
+  | prestige Gini (end) | 0.37 | 0.53 | 0.44 | 0.63 |
+  | top-10% share of prestige | 26% | 37% | 32% | 48% |
+  | top band share, end (most from Y100) | - | 0.24% (18.1%) | - | 0.05% (8.5%) |
+  | worlds with feasts / first | - | 10/10 / Y22-62 | - | 9/9 / Y28-66 |
+  | feasts | - | 16.4M | - | 118.8M |
+  | food given at feasts (person-seasons) | - | 27.5M | - | 221.0M |
+  | food to the hungry | 158,354 | 272,859 | 2,059,908 | 3,079,803 |
+  | ale worlds / first | - | 2/10 / Y436, Y456 | - | 7/10 / Y369-668 |
+  | ale bands peak (max world) / ale feasts | - | 15,817 / 1.1M | - | 64,494 / 40.5M |
+  | continent crossings | 4/10 | 4/10 | 1/10 | 1/10 |
+  | first crossings | Y106-255 | Y126-246 | Y637 | Y663 |
+  | war deaths % | 0.373 | 0.414 | 0.289 | 0.305 |
+  | disease % | 0.119 | 0.130 | 0.171 | 0.185 |
+  | items (mean, end) | 73.8 | 74.8 | 77.6 | 78.8 |
+  | population | 1,136,998 | 1,150,261 | 7,370,782 | 7,536,822 |
+  | run time sum (max seed) | 914 s (246) | 903 s (265) | 7599 s (1627) | 9943 s (2695) |
+
+- Reading: feasting is everywhere and early (every world by Y66), ale comes late and only in warm
+  grain country (7 of 9 living worlds on (b), 2 of 10 on (a)), and it is a big flow: food given at
+  feasts is about 90x the food given to the hungry. Standing is more unequal than in step 9 (Gini
+  +0.16 to +0.19) but spread over many bands: no hub (top band well under 1% from Y200 on).
+  Food to the hungry rose by half. Population, items, crossings, disease and war are near step 9
+  (war +6% to +11%, within the guard rail).
+- **Goal missed: prestige ~ size r 0.25 on (b), 0.19 on (a), against 0.4-0.6.** Diagnosis (from
+  the by-century figures and the code; not probed further, as no more tuning was allowed):
+  - r is in or near the goal (0.35-0.5) while worlds have tens to hundreds of bands, in the first
+    one or two centuries, and falls to 0.1-0.3 from about Y200 on, as bands number in the
+    thousands, and stays there.
+  - The fall comes as bone beads spread (first Y44-Y202). Ornament standing
+    (`PRESTIGE_FINE` 0.01 x (0.5 + fine) a season, fading x0.99) settles at 0.5-1.5 per
+    ornament band whatever its size, about the size of all the standing (mean 0.58 on (a), 1.00
+    on (b)), so it adds size-free noise to every band.
+  - A gift is capped at one season of the guest's need (`FEAST_EAT`), so a big host gives no
+    more to a small neighbour than a small host would; and standing fades in ~17 years while
+    bands keep splitting, so a band's size and what it gave lately drift apart.
+- Options (for Michael; not done):
+  1. Accept the miss and keep step 10 as built: giving now drives standing, no hub, guard rails
+     fine; but r 0.19-0.25 is inside the pre-feast range (v9: 0.08-0.28), so little gained there.
+  2. One more, separately approved tuning round aimed at the cause: scale ornament standing with
+     the band's size and lift the guest cap so a big
+     host can feast more than one neighbour's worth; then rerun (a) and (b).
+- Guard rails: no crossing before Y100, (b) 1/10, (a) 4/10, war +6% / +11% (not doubling), no
+  population collapse (499246298 dies out at Y31, as in every step). No further tuning.
+- Checkpoint: step 10 done (goal missed, reported); step 11 (native gold) not started.
