@@ -923,4 +923,14 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   9e25e55 (archive off): (a) seeds 1-10, 500 y, 256x160, run 40547673594; (b) seeds
   499246292-301, 750 y, 800x800, one seed per job, run 40547619310. (A first (a) dispatch,
   40547604125, was cancelled at once: a wrong input.)
+- First (a) result (run 40547673594, 9e25e55): a gold ring in only 2/10 worlds (seeds 4 Y276
+  and 8 Y262), none worn at Y500, although every world had a fired mould and 5 a crucible.
+  Cause, found with a temporary trace on seed 5: the crucible was always offered the *first*
+  mould in the pool, which is the raw `clay mould` (clay sorts before ceramic), so the pour
+  almost always failed. Fix (a bug fix, not a retune): offer a fired mould first, the raw one
+  only if there is no fired one. Summary also gains `gold.first_fired_mould_year`. Tests: 60
+  passed (+2 ignored). Local seeds 5 and 8 (500 y): seed 5 now rings at Y313 (crucible Y294,
+  copper Y254, fired mould Y121; none in the first run), seed 8 at Y237 (crucible Y227, copper
+  Y259, fired mould Y54). The (b) run 40547619310 on the buggy code was cancelled; (a) and (b)
+  rerun on the fix (see below).
 

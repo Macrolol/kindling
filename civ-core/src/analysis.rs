@@ -117,6 +117,8 @@ pub struct GoldSummary {
     /// fired), a charged gold crucible, a gold ring, and first smelted copper, for comparison
     /// (null = never)
     pub first_mould_year: Option<f32>,
+    /// first fired (pour-ready) mould
+    pub first_fired_mould_year: Option<f32>,
     pub first_crucible_year: Option<f32>,
     pub first_ring_year: Option<f32>,
     pub first_copper_year: Option<f32>,
@@ -939,6 +941,7 @@ pub fn summarize(w: &World) -> Summary {
             gold_held: h.last().map_or(0, |y| y.gold_held),
             gold_prestige_x_100: if tail.is_empty() { 0.0 } else { tail.iter().sum::<f32>() / tail.len() as f32 },
             first_mould_year: first_of(&|i| form(i) == Form::Mould),
+            first_fired_mould_year: first_of(&|i| form(i) == Form::Mould && mat(i).props().fires_to.is_none()),
             first_crucible_year: first_of(&|i| form(i) == Form::Crucible),
             first_ring_year: first_of(&|i| i == item(Form::Ornament, Mat::Gold)),
             first_copper_year: first_of(&|i| i == item(Form::Raw, Mat::Copper)),

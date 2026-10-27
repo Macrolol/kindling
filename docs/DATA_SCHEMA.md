@@ -383,7 +383,7 @@ span, tallies are summed over it.
 - `summary.json` `gold.`: `gold_cells`, `first_gold_year`, `gold_bands`, `gold_bands_peak`,
   `gold_held`, `gold_prestige_x_100` (mean over the last 100 years with any gold wearer); a
   "gold" line in the multi-seed text report.
-- (inventions step 11b) `summary.json` `gold.` also has `first_mould_year`,
+- (inventions step 11b) `summary.json` `gold.` also has `first_mould_year`, `first_fired_mould_year`,
   `first_crucible_year`, `first_ring_year` (first gold ring made) and `first_copper_year`
   (first smelted copper), in years (null = never). Gold rings are now cast: a clay mould cut
   with an edge and fired, gold charged into a fired pot (`crucible of gold`), and both heated

@@ -2105,7 +2105,12 @@ impl World {
             let mut t2 = t2;
             // (inventions step 11b) metal melting in a crucible wants somewhere to be poured
             if t2 == NONE && form(t1) == Form::Crucible && rng.chance(0.5) {
-                if let Some(md) = pool.iter().copied().find(|&i| form(i) == Form::Mould) {
+                // a fired mould before a raw clay one: a mould that has already been through the
+                // fire is the one that takes the pour (fixes the 11b first run, which always
+                // reached for the unfired clay mould and so never cast)
+                let fired = |i: Item| form(i) == Form::Mould && mat(i).props().fires_to.is_none();
+                let pick = pool.iter().copied().find(|&i| fired(i)).or_else(|| pool.iter().copied().find(|&i| form(i) == Form::Mould));
+                if let Some(md) = pick {
                     t2 = md;
                 }
             }
