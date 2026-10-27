@@ -1060,7 +1060,9 @@ impl World {
     /// are never taught, inherited or captured. Pitch boiled from wood is the one recipe carried
     /// over: it becomes the same recipe with resinous wood (the know-how is the same; the band
     /// needs pine or birch at hand to use it). The cold-gold ring recipe of step 11 stays with
-    /// the bands that know it (step 11b). Kits are then re-derived from the toolkit that is left
+    /// the bands that know it (step 11b). Steel soaked alone in the blown furnace is dropped too
+    /// (step 13: steel is now worked under the hammer at the open charcoal hearth); the steel
+    /// a band holds stays in its stores. Kits are then re-derived from the toolkit that is left
     /// (`refresh_toolkit`, below in `after_load`). Idempotent: a second pass changes nothing.
     /// Returns (recipes repointed, known entries dropped).
     pub fn clean_recipes(&mut self) -> (usize, usize) {
@@ -2205,6 +2207,15 @@ impl World {
             if t2 == NONE && (forgeable || (form(t1) == Form::Bloom && rng.chance(0.5))) {
                 if let Some(hm) = pool.iter().copied().find(|&i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0) {
                     t2 = hm;
+                }
+            }
+            // (inventions step 13) a smith who has bellows works the bar under the hammer at the
+            // open charcoal hearth they blow, as often as in the closed furnace: the bellows go
+            // where the chamber would be (see `physics::smith_hearth`)
+            let mut k = k;
+            if forgeable && t2 != NONE && form(t2) == Form::Hammer && mat(fire).props().fuel_t >= 900.0 && rng.chance(0.5) {
+                if let Some(bw) = pool.iter().copied().find(|&i| form(i) == Form::Bellows) {
+                    k = bw;
                 }
             }
             // (inventions step 12b) resinous wood in the fire sweats sticky tar that begs to be

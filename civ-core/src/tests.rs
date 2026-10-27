@@ -1728,8 +1728,9 @@ fn farming_iron(b: &crate::band::Band) -> bool {
     crate::world::farming::iron_tools(b)
 }
 
-/// (inventions step 7) Steel: wrought iron soaked in a blown charcoal furnace and quenched in
-/// water, at a low chance per try. It is shaped like iron (a hammerstone still works it hot),
+/// (inventions step 7) Steel: wrought iron carburised and quenched in water, at a low chance per
+/// try; (inventions step 13) worked under the hammer at the open charcoal hearth blown by
+/// bellows, no longer soaked alone in the furnace. It is shaped like iron (a hammerstone still works it hot),
 /// wins the kit's cutting and weapon slots from iron and bronze, and makes fights deadlier only
 /// through the edge: weapon quality rises a little, armour (shields, bows) is unchanged.
 #[test]
@@ -1743,21 +1744,36 @@ fn steel_recipe_kit_and_weapons() {
         physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx)
     };
     let steel = raw(Mat::Steel);
-    let got = heat([raw(Mat::Iron), bel, ch, clay], true).expect("carburised and quenched");
+    // (inventions step 13) steel is a smith's work: a bar of wrought iron beaten under a hard
+    // hammer on the open charcoal hearth the bellows blow (the bellows in the chamber's place),
+    // quenched in water
+    let ham = item(Form::Hammer, Mat::Stone);
+    let got = heat([raw(Mat::Iron), ham, ch, bel], true).expect("carburised under the hammer and quenched");
     assert_eq!(got.out, steel);
     assert_eq!(got.p, physics::STEEL_P);
-    assert_eq!(heat([bel, raw(Mat::Iron), ch, clay], true).map(|o| o.out), Some(steel));
-    // no quench away from water, no carbon without the blown charcoal chamber
-    assert_eq!(heat([raw(Mat::Iron), bel, ch, clay], false).map(|o| o.out), None);
+    assert_eq!(heat([ham, raw(Mat::Iron), ch, bel], true).map(|o| o.out), Some(steel));
+    // no quench away from water; no carbon (or heat) in a wood fire; no soft hammer; the bar on
+    // its own in a blown furnace (the step 7 recipe) is just hot iron now
+    assert_eq!(heat([raw(Mat::Iron), ham, ch, bel], false).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), ham, item(Form::Fire, Mat::Wood), bel], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), item(Form::Hammer, Mat::Wood), ch, bel], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), bel, ch, clay], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Iron), NONE, ch, bel], true).map(|o| o.out), None);
     assert_eq!(heat([raw(Mat::Iron), NONE, ch, clay], true).map(|o| o.out), None);
-    assert_eq!(heat([raw(Mat::Iron), bel, ch, NONE], true).map(|o| o.out), None);
-    assert_eq!(heat([raw(Mat::Iron), bel, item(Form::Fire, Mat::Wood), clay], true).map(|o| o.out), None);
+    // in the closed forge the hammer still makes an iron knife, as before
+    assert_eq!(heat([raw(Mat::Iron), ham, ch, clay], true).map(|o| o.out), Some(item(Form::Edge, Mat::Iron)));
+    // the hearth does nothing but forging
+    assert_eq!(heat([raw(Mat::IronOre), NONE, ch, bel], true).map(|o| o.out), None);
+    assert_eq!(heat([item(Form::Bloom, Mat::Iron), ham, ch, bel], true).map(|o| o.out), None);
+    assert_eq!(heat([raw(Mat::Copper), ham, ch, bel], true).map(|o| o.out), None);
+    // and forges iron blades and steel there as in the closed forge
+    assert_eq!(heat([item(Form::Edge, Mat::Iron), ham, ch, bel], false).map(|o| o.out), Some(item(Form::Point, Mat::Iron)));
+    assert_eq!(heat([steel, ham, ch, bel], false).map(|o| o.out), Some(item(Form::Edge, Mat::Steel)));
     // the old iron recipes are untouched
     assert_eq!(heat([raw(Mat::IronOre), bel, ch, clay], true).map(|o| o.out), Some(item(Form::Bloom, Mat::Iron)));
     // (inventions step 12) forged hot with a hammerstone into a knife, drawn into a point,
     // hafted; never beaten cold
     let ctx = Ctx { dryness: 0.5, water: false };
-    let ham = item(Form::Hammer, Mat::Stone);
     let edge = item(Form::Edge, Mat::Steel);
     assert_eq!(physics::apply(Action::Shape, &[steel, ham, NONE, NONE], &ctx).map(|o| o.out), None);
     assert_eq!(physics::apply(Action::Shape, &[edge, ham, NONE, NONE], &ctx).map(|o| o.out), None);
@@ -2824,4 +2840,31 @@ fn probe_step12() {
             );
         }
     }
+}
+
+/// (inventions step 13) A save from before step 13, whose bands learned steel by soaking a bar
+/// alone in the blown furnace, loads with no format change: that recipe is retired and dropped
+/// on load (`World::clean_recipes`), the steel the band holds stays in its stores, and the
+/// smith's recipe (hammer at the open charcoal hearth) is allowed.
+#[test]
+fn step13_old_furnace_steel_is_retired_on_load() {
+    use crate::knowledge::{Known, Recipe};
+    let bytes = include_bytes!("../tests/fixtures/v12_seed9_y170_64x40.civsave");
+    let (mut w, _, _) = World::load_bytes(bytes).expect("fixture loads");
+    let (iron, steel) = (item(Form::Raw, Mat::Iron), item(Form::Raw, Mat::Steel));
+    let (bel, ch, clay) = (item(Form::Bellows, Mat::Hide), item(Form::Fire, Mat::Charcoal), item(Form::Kiln, Mat::Clay));
+    let ham = item(Form::Hammer, Mat::Stone);
+    let old = physics::canonical(Action::Heat, [iron, bel, ch, clay]);
+    let new = physics::canonical(Action::Heat, [iron, ham, ch, bel]);
+    let r_old = w.reg.insert(Recipe { action: Action::Heat as u8, inputs: old, output: steel, p: physics::STEEL_P, ..Default::default() });
+    let r_new = w.reg.insert(Recipe { action: Action::Heat as u8, inputs: new, output: steel, p: physics::STEEL_P, ..Default::default() });
+    assert!(w.reg.retired(r_old) && !w.reg.retired(r_new));
+    w.bands[0].known.push(Known { recipe: r_old, skill: 0.9, ..Default::default() });
+    w.bands[1].known.push(Known { recipe: r_new, skill: 0.9, ..Default::default() });
+    w.bands[0].stock[Mat::Steel as usize] = 0.8;
+    let (w2, _, info) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(info.format_version, crate::save::FORMAT_VERSION);
+    assert!(!w2.bands[0].knows(r_old), "furnace steel dropped");
+    assert!(w2.bands[1].knows(r_new), "smith's steel kept");
+    assert_eq!(w2.bands[0].stock[Mat::Steel as usize], 0.8, "the steel itself stays");
 }

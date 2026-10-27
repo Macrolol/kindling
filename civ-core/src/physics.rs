@@ -439,6 +439,39 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     None
 }
 
+/// (inventions step 13) The smith's hearth: hot iron worked with a hard hammer on an open bed
+/// of glowing charcoal that bellows blow to white heat (charcoal + `BELLOWS_HEAT`, past
+/// `FORGE_T`). Heat after heat in the charcoal the bar takes up carbon at its skin
+/// (carburising), and folded and beaten it spreads through; plunged hot into water it hardens:
+/// steel. Needs the charcoal fire (the carbon), the bellows (the heat), a hard hammer and water
+/// at hand for the quench; most bars are spoiled (`STEEL_P`). Away from water there is no
+/// quench and nothing comes of it. A bar or blade of steel, and a blade of iron, are forged here
+/// as in the closed forge (to a blade, to a point). Nothing else is done at the hearth.
+fn smith_hearth(t1: Item, t2: Item, fire: Item, ctx: &Ctx) -> Option<Outcome> {
+    if t1 == NONE || t2 == NONE || mat(fire).props().fuel_t < 900.0 {
+        return None;
+    }
+    if fire_temp(mat(fire), None) + BELLOWS_HEAT < FORGE_T {
+        return None;
+    }
+    let (mt, hm) = if form(t2) == Form::Hammer { (t1, t2) } else { (t2, t1) };
+    if form(hm) != Form::Hammer || mat(hm).props().hard < 5.0 || !hot_worked(mat(mt)) {
+        return None;
+    }
+    match (form(mt), mat(mt)) {
+        (Form::Raw, Mat::Iron) => {
+            if ctx.water {
+                o(item(Form::Raw, Mat::Steel), STEEL_P)
+            } else {
+                None
+            }
+        }
+        (Form::Raw, m) => o(item(Form::Edge, m), 0.10),
+        (Form::Edge, m) => o(item(Form::Point, m), 0.10),
+        _ => None,
+    }
+}
+
 /// extra heat from bellows blowing into a closed charcoal furnace (deg C)
 pub const BELLOWS_HEAT: f32 = 250.0;
 /// heat at which an iron bloom can be hammered into wrought iron (deg C)
@@ -446,15 +479,21 @@ pub const FORGE_T: f32 = 1100.0;
 /// (inventions) heat at which resinous wood in a closed pot gives off pitch (deg C)
 pub const PITCH_T: f32 = 350.0;
 
-/// (inventions step 7) Chance per try that wrought iron, soaked in a blown charcoal furnace and
-/// quenched, comes out as true steel: the carbon is taken up unevenly and most bars are spoiled
-/// or merely iron again, so it takes many heats.
+/// (inventions step 7) Chance per try that wrought iron comes out as true steel: the carbon is
+/// taken up unevenly and most bars are spoiled or merely iron again, so it takes many heats.
+/// (inventions step 13) The try is a smith's: the bar is worked under the hammer, heat after
+/// heat, in the open charcoal hearth blown by bellows, and quenched (see `heat`).
 pub const STEEL_P: f32 = 0.03;
 
 fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     let (t1, t2, fire, kiln) = (inp[0], inp[1], inp[2], inp[3]);
     if fire == NONE || form(fire) != Form::Fire || t1 == NONE {
         return None;
+    }
+    // (inventions step 13) the smith's hearth: an open bed of charcoal with bellows blowing
+    // into it, in the slot of the closed chamber. Only the hammer is worked there (below)
+    if kiln != NONE && form(kiln) == Form::Bellows {
+        return smith_hearth(t1, t2, fire, ctx);
     }
     if kiln != NONE && form(kiln) != Form::Kiln {
         return None;
@@ -466,7 +505,6 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
     let reducing = lining.is_some() && fuel.props().fuel_t >= 900.0;
     // bellows worked into a closed charcoal furnace force the draught: a few hundred degrees
     // more. In an open or wood fire the blast only fans the flames
-    let blown = (t1 != NONE && form(t1) == Form::Bellows) || (t2 != NONE && form(t2) == Form::Bellows);
     let (t1, t2) = match (t1 != NONE && form(t1) == Form::Bellows, t2 != NONE && form(t2) == Form::Bellows) {
         (false, false) => (t1, t2),
         (true, true) => return None,
@@ -564,12 +602,10 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             }
         }
         if f == Form::Raw {
-            // (inventions step 7) wrought iron left long in a blown charcoal furnace takes up
-            // carbon from the fuel; plunged hot into water it hardens into steel. Needs the
-            // closed charcoal chamber, the bellows, and water at hand for the quench
-            if m == Mat::Iron && blown && reducing && ctx.water && temp >= FORGE_T {
-                return o(item(Form::Raw, Mat::Steel), STEEL_P);
-            }
+            // (inventions step 7) wrought iron left long in a blown charcoal furnace took up
+            // carbon and was quenched into steel. (inventions step 13) no longer: a bar heated
+            // on its own is just hot iron. Steel is a smith's work under the hammer at the
+            // charcoal hearth (`smith_hearth`); the old recipe is retired on load
             // wood heated without enough air chars instead of burning
             if m == Mat::Wood && lining.is_some() {
                 return o(item(Form::Raw, Mat::Charcoal), 0.15);

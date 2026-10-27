@@ -1218,3 +1218,24 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   scale (med Y296, Y156 in 11b); cloth clothing in (a) (3/10, 5/10 in 11b).
 - Save format: 14 (step 12); 12b changed experiments only, no format change.
 - Checkpoint: step 12 (with 12b) done. Nothing is in progress.
+
+## Step 13 (2026-10-27): steel at the smith's hearth; pitch and jars at scale
+
+- 13.1 steel (done, physics + experiments, no format change). Steel was "heat a wrought-iron
+  bar alone with bellows over charcoal in a kiln, at water"; 12b only gave the bar a hammer
+  half the time, which made the old furnace steel tuple rarer still (2/9 on 800x800).
+  Now steel is the smith's work, as it was: carburise the bar in an open charcoal hearth blown
+  by bellows, hammer it, quench it. Recipe `heat [iron bar, hammer (hard >= 5), charcoal
+  fire, bellows]` (bellows in the kiln slot = the open blown hearth; charcoal 950 + bellows
+  250 >= FORGE_T 1100), at water only (the quench), p = STEEL_P 0.03 unchanged. The same hearth
+  also draws an edge or a point from any hot-workable bar (p 0.10, like the closed forge). Wood
+  fires, soft hammers, ore, blooms and copper do nothing there. The old solo-furnace steel
+  tuple is gone from physics, so `clean_recipes` retires and drops it on load (bands keep the
+  steel they hold; registry ids stable). Experiments: a smith already pairing a bar with a hard
+  hammer (12b rule) works at the hearth half the time when the band has bellows and a charcoal
+  fire. Water gates success only (never the output), so the registry keeps one output per
+  tuple. Steel's effect is unchanged: deadlier fights through edges and armour only. No new
+  events or counters (`steel_made` still counts band-seasons with steel producible), so
+  DATA_SCHEMA.md is unchanged. Tests: `steel_recipe_kit_and_weapons` rewritten for the hearth,
+  new `step13_old_furnace_steel_is_retired_on_load`; all 64 civ-core tests pass, v10 fixture
+  hash unchanged. Smoke: seed 3 500 y standard map runs (118 s, no steel, as in 12b).
