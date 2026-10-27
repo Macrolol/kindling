@@ -1010,3 +1010,27 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 - Not done here (awaits Michael's decision): the other recipe fixes from the recipe review
   (wool shafts, tin tools, casting bronze, and so on). Copper and bronze are still hammered.
 - Checkpoint: step 11b done. Nothing is in progress.
+
+## Step 12: recipe realism (in progress)
+
+- Approved by Michael (Oct 27) after the recipe review (`kindling-recipe-review.md`): fix all
+  nine issues and clean old saves on load. Emergent, no dates; new forms and materials appended.
+  1. Only woody material is carved into a shaft; only a wooden shaft is sharpened into a spear.
+  2. Copper is still cold-hammered; bronze tools are cast (bronze melted in a fired-pot crucible,
+     poured into the fired mould of 11b); iron and steel tools are hot-forged (forge heat and a
+     hammer, like the bloom), not cold-hammered.
+  3. Tin makes no edge, point, needle or nail (they need metal at least as hard as copper).
+  4. Bronze from the metals needs copper-melting heat (charcoal) and a crucible; bronze straight
+     from the two ores is unchanged.
+  5. Sails are made from cloth, not clothing; every sail works only on plank hulls and ships.
+  6. Linen and wool cloth need yarn of the same fibre and a simple loom.
+  7. Obsidian pendants are ground, not hammered.
+  8. Renames (names only, ids kept): "rawhide-strung bow", "sherd-lined kiln".
+  9. Pitch only from resinous wood (pine, birch), found in forest that has it.
+- Save cleanup: on load, recipes the new rules forbid are dropped from the bands that know them
+  (or retired, never taught), and kits are re-derived from what remains.
+- v13 fixture for the cleanup test written first by the step 11b build (1e9e445):
+  `v13_seed3_y350_96x60.civsave` (new world, seed 3, 96x60, 350 years). It holds naturally
+  learned forbidden recipes: tin knife (1150 bands), tin point, tin-tipped spear (518 bands),
+  hide net made with a tin point, clay token marked with a tin point, a cold-hammered iron
+  knife (in the registry), wood + pot -> pitch (all bands).
