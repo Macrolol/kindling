@@ -1118,3 +1118,23 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   - Sails: mostly follow plank boats (cloth sails need a plank hull, a mast and cloth). In seed
     3, 753 bands have plank hull + cloth + shaft at the water by Y475 but only mat sails exist:
     nothing makes a seafarer reach for cloth or a mast. Artefact (need weighting).
+- Sub-step 12b, one round of realistic tuning (need-weighted experimentation only; resinous
+  wood placement left as is, it is already sensible; no dates, caps or boosts):
+  - Tar pot: a heat experiment on resinous wood with no second item reaches for a fired pot from
+    the band's own stock half the time (people boil resin in a pot, they do not try it alone).
+  - Forge hammer: hot iron or steel (raw or edge) always takes the band's hard hammer if it has
+    one (the bloom keeps its 50%), and hot iron weighs as much as a bloom in heat picks (8, was 4).
+  - Mast and sail: seafaring bands with a plank hull near water weight shafts, cloth and fibre
+    baskets higher in combine picks (half the hull need), as they already did for hulls.
+  - `probe_step12` after the tuning: seed 5 has 152 pitch bands at Y200 (pitch Y456 before),
+    seed 8 83 at Y250 (none before), seed 3 pitch at Y200-250 (Y313); seed 5 ~4,000 bands with
+    forged iron edges by Y300; seed 3 ~4,900 bands with sails at Y500. Seeds 3 and 8 made no
+    bloom in the probe run (chance).
+  - v10 run-on hash updated (experiments changed). All workspace tests pass (64, 3 ignored);
+    the wasm build is fine (one old warning).
+  - Local smoke (seeds 8 and 5, 500 y, default map, 3 threads; step 12 in brackets): seed 8
+    pop 58,672 (62,860), items 33.9 (32.8), 59 s; pitch Y208 (never), bronze knife Y351 (none),
+    one bloom Y238 that died out, no wrought iron (Y495), no plank boat (Y481). Seed 5 pop
+    253,320 (232,451), items 43.8 (40.6), 262 s; pitch Y191 (Y456), wrought iron Y268 (Y409),
+    iron knife Y273 (none), plank boat Y332 (none), mat sail Y373 (none), sealed jar Y386, linen
+    sail Y438 (none). Rerunning (a) and (b) next.

@@ -1117,7 +1117,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xc7d4b528dafc4f49); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast) and step 12 (recipe realism)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x5ad578b60ed4ac44); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2738,5 +2738,90 @@ fn v13_fixture_cleans_forbidden_recipes() {
     // and it runs on
     for _ in 0..8 {
         w.step();
+    }
+}
+
+/// (inventions step 12, diagnostic) What stands between bands and pitch, forged iron and cloth
+/// sails: every 25 years, how many bands have each ingredient at hand. Run with
+/// `PROBE_SEEDS=5,8 PROBE_YEARS=500 cargo test --release -p civ-core probe_step12 -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn probe_step12() {
+    let seeds: Vec<u64> = std::env::var("PROBE_SEEDS").unwrap_or("5".into()).split(',').map(|s| s.trim().parse().unwrap()).collect();
+    let years: u32 = std::env::var("PROBE_YEARS").ok().and_then(|s| s.parse().ok()).unwrap_or(500);
+    let (mw, mh): (usize, usize) = (std::env::var("PROBE_W").ok().and_then(|s| s.parse().ok()).unwrap_or(256), std::env::var("PROBE_H").ok().and_then(|s| s.parse().ok()).unwrap_or(160));
+    for seed in seeds {
+        let mut w = World::new(Config { seed, map_w: mw, map_h: mh, ..Default::default() }, Params::default());
+        let m = &w.map;
+        let n = m.w * m.h;
+        let land = (0..n).filter(|&i| m.is_land(i)).count();
+        let resin = (0..n).filter(|&i| m.resin_wood(i)).count();
+        let wood = (0..n).filter(|&i| m.is_land(i) && m.k_wood[i] > 2.0).count();
+        println!("seed {seed}: land {land}, wooded {wood}, resinous {resin} ({:.1}% of land, {:.1}% of wood)", 100.0 * resin as f32 / land as f32, 100.0 * resin as f32 / wood.max(1) as f32);
+        println!("  year bands | resin here near3 stock | pot fire pitchrdy pitch | biome(top) | iron hamr5 kiln chfire ironrdy ironedge | plank cloth shaft water sailrdy sail");
+        for t in 0..years * 4 {
+            w.step();
+            if w.bands.is_empty() {
+                break;
+            }
+            if (t + 1) % 100 != 0 {
+                continue;
+            }
+            let m = &w.map;
+            let near = |c: usize, r: i64| {
+                let (x, y) = ((c % m.w) as i64, (c / m.w) as i64);
+                (-r..=r).any(|dy| (-r..=r).any(|dx| {
+                    let (nx, ny) = (x + dx, y + dy);
+                    nx >= 0 && ny >= 0 && (nx as usize) < m.w && (ny as usize) < m.h && m.resin_wood(ny as usize * m.w + nx as usize)
+                }))
+            };
+            let mut c = [0u32; 20];
+            let mut biomes = std::collections::BTreeMap::<String, u32>::new();
+            for b in &w.bands {
+                let a = &b.d.tk.avail;
+                let ci = b.cell(m.w);
+                let has = |i: Item| a.has(i);
+                let any = |f: &dyn Fn(Item) -> bool| a.iter().any(|i| f(i));
+                let rh = has(item(Form::Raw, Mat::ResinWood));
+                let pot = has(item(Form::Vessel, Mat::Ceramic));
+                let fire = any(&|i| form(i) == Form::Fire);
+                c[0] += 1;
+                c[1] += rh as u32;
+                c[2] += near(ci, 3) as u32;
+                c[3] += (b.stock[Mat::ResinWood as usize] > 0.05) as u32;
+                c[4] += pot as u32;
+                c[5] += fire as u32;
+                c[6] += (rh && pot && fire) as u32;
+                c[7] += has(item(Form::Raw, Mat::Pitch)) as u32;
+                *biomes.entry(format!("{:?}", m.biome_at(ci))).or_default() += 1;
+                let iron = has(item(Form::Raw, Mat::Iron));
+                let hm = any(&|i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0);
+                let kiln = any(&|i| form(i) == Form::Kiln);
+                let chf = any(&|i| form(i) == Form::Fire && mat(i) == Mat::Charcoal);
+                c[8] += iron as u32;
+                c[9] += hm as u32;
+                c[10] += kiln as u32;
+                c[11] += chf as u32;
+                c[12] += (iron && hm && kiln && chf) as u32;
+                c[13] += has(item(Form::Edge, Mat::Iron)) as u32;
+                let plank = b.d.kit.plank != NONE;
+                let cloth = any(&|i| form(i) == Form::Cloth);
+                let shaft = any(&|i| form(i) == Form::Shaft);
+                let water = w.near_water(ci);
+                c[14] += plank as u32;
+                c[15] += cloth as u32;
+                c[16] += shaft as u32;
+                c[17] += water as u32;
+                c[18] += (plank && cloth && shaft && water) as u32;
+                c[19] += any(&|i| form(i) == Form::Sail) as u32;
+            }
+            let mut bv: Vec<_> = biomes.into_iter().collect();
+            bv.sort_by(|a, b| b.1.cmp(&a.1));
+            let top: Vec<String> = bv.iter().take(3).map(|(k, v)| format!("{k} {}%", 100 * v / c[0].max(1))).collect();
+            println!(
+                "  Y{:<4} {:>5} | {:>5} {:>5} {:>5} | {:>5} {:>5} {:>5} {:>5} | {} | {:>4} {:>5} {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>5} {:>5} {:>4}",
+                (t + 1) / 4, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], top.join(", "), c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19]
+            );
+        }
     }
 }

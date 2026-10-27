@@ -2111,7 +2111,9 @@ impl World {
                     let unfinished = if matches!(form(i), Form::Bloom | Form::Crucible) {
                         8.0
                     } else if matches!(form(i), Form::Raw | Form::Edge) && physics::hot_worked(m) {
-                        4.0
+                        // (inventions step 12b) a smith with a bar of iron keeps it in the fire
+                        // as he does the bloom it came from: there is nothing else to do with it
+                        8.0
                     } else {
                         1.0
                     };
@@ -2141,11 +2143,14 @@ impl World {
                 Form::Plank => 1.0 + hull,
                 Form::Raw if mat(i) == Mat::Pitch => 1.0 + hull,
                 Form::Edge => 1.0 + 0.8 * sh(1),
-                Form::Shaft => 1.0 + 0.5 * sh(1) + sh(3),
+                Form::Shaft => 1.0 + 0.5 * sh(1) + sh(3) + 0.5 * hull,
                 Form::Cord => 1.0 + 0.5 * sh(3) + sh(2) + 0.3 * NEED_FORM * cold,
-                Form::Vessel => 1.0 + 0.5 * NEED_FORM * store,
+                Form::Vessel => 1.0 + 0.5 * NEED_FORM * store + if mat(i) == Mat::Fibre { 0.5 * hull } else { 0.0 },
                 // (inventions step 12) the cold reach for the loom and its cloth, as for needles
-                Form::Loom | Form::Cloth => 1.0 + NEED_FORM * 0.5 * cold,
+                // (inventions step 12b) and seafarers with a plank hull reach for a mast and
+                // something to hang from it: cloth or plaited matting
+                Form::Loom => 1.0 + NEED_FORM * 0.5 * cold,
+                Form::Cloth => 1.0 + NEED_FORM * 0.5 * cold + 0.5 * hull,
                 _ => 1.0,
             }
         };
@@ -2196,9 +2201,18 @@ impl World {
             // a hot spongy lump from the furnace invites a blow with the hammer stone
             // (inventions step 12) so does a bar or blade of iron or steel at white heat
             let forgeable = matches!(form(t1), Form::Raw | Form::Edge) && physics::hot_worked(mat(t1));
-            if t2 == NONE && (form(t1) == Form::Bloom || forgeable) && rng.chance(0.5) {
+            // (inventions step 12b) a bar at white heat is only ever worked under the hammer
+            if t2 == NONE && (forgeable || (form(t1) == Form::Bloom && rng.chance(0.5))) {
                 if let Some(hm) = pool.iter().copied().find(|&i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0) {
                     t2 = hm;
+                }
+            }
+            // (inventions step 12b) resinous wood in the fire sweats sticky tar that begs to be
+            // caught: it goes into a fired pot to be cooked out (the hearth-side trick behind
+            // birch and pine tar), as a charged crucible invites its mould
+            if t2 == NONE && form(t1) == Form::Raw && mat(t1).props().resin >= 5.0 && rng.chance(0.5) {
+                if let Some(pot) = pool.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i) == Mat::Ceramic) {
+                    t2 = pot;
                 }
             }
             if t2 == NONE && k != NONE && form(t1) != Form::Bellows && mat(fire).props().fuel_t >= 900.0 && rng.chance(0.5) {
