@@ -175,7 +175,7 @@ Checks:
   0.298 %/y (0.299), items 73.9 (75.1), pop 7.34M (7.31M), farmed food share within a few
   points per seed, lost at sea 228 568 (226 578).
 
-## Step 5. Ships (built; checks running)
+## Step 5. Ships (done, 7b1f3d5; crossing target not met: 1/10 in check (b), see below)
 - Form `Ship` (id 26, appended; "nailed plank ship" for wood). Recipe, by the water only:
   plank boat + raw pitch + a metal point (copper, bronze or iron) -> ship of the plank's
   material, success 0.2. New kit slot `ship` and `ship_q`; daughters inherit them; ships need
@@ -208,3 +208,48 @@ Checks:
   range p90 27.8 vs 18-21 elsewhere), so the ships' range bonus barely acts; 2.5% of voyages
   by ship (seeds 1-5). Ship quality mean 0.02-0.24, so hull refinement has room again. Pop
   1 117 446 (-2.8% on step 4), war 0.408 %/y (0.402), items 68.2 (68.0).
+- Check (b), run [40424612153](https://github.com/Macrolol/kindling/actions/runs/40424612153),
+  `docs/results-inv-step5-750y-800x800.txt`: **1/10 crossed** (seed 499246293, Y692, leg 22,
+  gap 14, outrigger+plank+provisioned+jar: not by ship); step 4 0/10, v10 baseline 1/10. None
+  before Y100, not all. The 4-6/10 target is **not met**. Ships built in 4/10 seeds (292 Y504,
+  293 Y552, 294 Y432, 297 Y506), 9k-29k ship bands by Y750, quality mean 0.13-0.22. War 0.294
+  %/y (0.298), items 74.4 (73.9), pop 7.22M (7.34M, -1.5%), lost at sea 225 851 (228 568).
+- Why crossings still do not happen (section 5 of the results file has the per-seed table):
+  - **Range, not endurance, is the wall.** Endurance p90 is 46-47 cells wherever there are ships,
+    but range p90 is only 20-21 cells without a sail and 29-30 with one. A leg ends when the
+    boat's range runs out, so the step 2 and step 5 endurance never binds. Range = (2 + 10 q +
+    12 xp q) x 1.6 with a usable sail x 1.25 for a ship x e^(0.25 ambition). For a typical good
+    band (q 0.9, seacraft 0.6, ambition 0.3) that is about 38 cells with ship and sail, 61 at
+    the very most (q, seacraft and ambition all at 1). Seacraft p90 sits at 0.52-0.66 all run.
+  - **Geography.** The narrowest hop to an unreached continent (step 3, `hop_chain`) is 47 (297),
+    50 (295), 54 (301), 66 (294), 85 (292), 97 (296), 160 (299), 171 (300) cells; 293's is 14
+    (crossed) and 298 dies out in Y39. Only 297, 295 and 301 are within ship-and-sail reach at
+    all.
+  - **Ship + sail come together late, and only where both exist.** The parts are not late:
+    pitch Y94-Y222 and a metal point Y191-Y390 in every seed with metal. The slow gates are the
+    plank boat (needs a metal axe: Y233-Y648, never in 295 and 301) and cloth sails (need linen
+    or wool cloth: Y512-Y722, never in 295, 298 and 301), then the three-part combine 34-273
+    years after the plank boat. Seed 297, the one in reach, had ship + sail only from Y584; its
+    record leg went 26 -> 34 (Y650) -> 38.5 (Y750), still short of 47. Seed 293's record went
+    27 -> 45.5 cells within 40 years of its first sail (Y709), so ship + sail do lengthen legs
+    as designed.
+  - **Aiming.** An unreached continent 47+ cells off is never seen and so never rumoured, and
+    pilot p90 0.04-0.17 means signs reach only 0.4-1.7 cells: these legs sail a random heading.
+- Candidate fixes for Michael (none implemented; all emergent, no caps, dates or extra reach for
+  primitive boats):
+  1. **Planned expeditions bounded by provisions.** A fully provisioned ship crew on a deliberate
+     voyage sails until its food and water (endurance) run out, not the coastal day-range, so
+     the step 2 and 5 work (jars, dried and salted food, ship quality) sets the reach of long
+     voyages: about 45-54 cells for ships only. Within reach: 297 (47), and 295/301 only if they
+     ever get ships.
+  2. **Mat sails stepped on plank hulls.** A sail of woven plant-fibre matting (as Austronesian
+     pandanus sails) on a plank hull or ship, so sail use no longer waits for linen or wool
+     cloth (Y512-Y722 or never). Restricted to plank hulls so dugouts and canoes gain nothing.
+  3. **Deep-water seamanship from long legs.** Seacraft and pilotage grow faster on legs out of
+     sight of land in a ship (as step 3 does for pilotage), so ship crews push range (12 x xp x
+     q) and sign radius up over generations instead of sitting at seacraft 0.55 and pilot 0.1.
+  - Caveat: even with all three, 292, 296, 299 and 300 need 85-171-cell legs and 298 dies out,
+    so this seed set allows at most about 4-5 of 10 (293, 297, 295, 301, maybe 294); 295 and 301
+    also need metal axes for plank boats first. Reaching 4-6/10 may mean accepting the top of that
+    or reviewing the (b) seed set and map generator with Michael.
+- Checkpoint: steps 0-5 milestone reached; step 6 not started (waiting for Michael).
