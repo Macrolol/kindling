@@ -1064,4 +1064,15 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   - New tests: `recipe_realism_rules` (all nine fixes), `resin_wood_on_the_map`. Existing tests
     updated for the new rules and appended positions. The v10 run-on hash changes (new physics).
   - All workspace tests pass; the wasm build is fine.
-- Next: local smoke run, then the (a) and (b) runs.
+- Local smoke (6fa70dd, seeds 8 and 5, 500 y, default map, 4 threads; 11b in brackets): seed 8
+  pop 62,860 (67,942), items 32.8 (36.0), 48 s; copper knife Y257 (Y270), copper axe Y286
+  (Y342), bronze metal Y240 (Y414) but no cast bronze tool yet (bronze knife Y429), plank boat
+  Y481 (Y378), wrought iron Y495 (Y258), no pitch (Y165: no resinous wood near the early bands).
+  Seed 5 pop 232,451 (291,637), items 40.6 (48.1), 202 s; woollen cloth Y229, linen cloth Y291,
+  linen clothing Y486 (Y386), cast bronze knife Y424 (bronze metal Y376, crucible of bronze
+  Y416), pitch Y456 (Y60), wrought iron Y409 (Y222) and no hot-forged iron tool by Y500
+  (iron knife Y236, steel Y263 in 11b), no plank boat (Y351), no sail (Y362). The old wool
+  shaft and wool-tipped spear are gone. Iron and the boats come later; the CI runs check how
+  much.
+- Dispatched on 6fa70dd: (a) run 40565364332 (seeds 1-10, 500 y), (b) run 40565375593 (seeds
+  499246292-301, 750 y, 800x800).
