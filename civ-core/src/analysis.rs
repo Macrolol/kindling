@@ -272,7 +272,15 @@ pub struct FarmSummary {
     pub forager_density: f32,
     /// landmasses with farmers / with foragers at the end
     pub landmasses_farming: u32,
-    pub landmasses_foraging: u32,
+    pub landmasses_foraging: u32,    /// (inventions step 6) first year a farming band had iron tools; at the end: farming bands
+    /// with iron tools, fields more than half opened with iron, fields in forest and on heavy
+    /// wet ground; band-seasons spent opening ground with iron (counter `iron_clearing`)
+    pub first_iron_farm_year: Option<f32>,
+    pub iron_farm_bands: u32,
+    pub opened_fields: u32,
+    pub forest_fields: u32,
+    pub wet_fields: u32,
+    pub iron_clearing: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -709,6 +717,14 @@ pub fn summarize(w: &World) -> Summary {
             farming.forager_density = h.forager_density;
         }
         farming.peak_farm_food_share = w.history.iter().map(|h| h.farm_food_share).fold(0.0, f32::max);
+        farming.first_iron_farm_year = w.history.iter().find(|h| h.iron_farm_bands > 0).map(|h| h.year as f32);
+        farming.iron_clearing = w.counters.iron_clearing;
+        if let Some(h) = last {
+            farming.iron_farm_bands = h.iron_farm_bands;
+            farming.opened_fields = h.opened_fields;
+            farming.forest_fields = h.forest_fields;
+            farming.wet_fields = h.wet_fields;
+        }
     }
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();

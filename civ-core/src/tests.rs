@@ -1615,3 +1615,90 @@ fn expeditions_mat_sails_and_deep_water() {
     World::sea_lessons(&mut p2, 4.0);
     assert_eq!((a2.seacraft, a2.pilot), (p2.seacraft, p2.pilot));
 }
+
+/// (inventions step 6) Iron in the fields: iron tools let farmers open forest and heavy wet
+/// ground (raising its crop potential, slowly lost again when it is no longer farmed), and make
+/// field work faster; bands without iron see and work the ground as before.
+#[test]
+fn iron_opens_forest_and_heavy_ground() {
+    use crate::map::Biome;
+    use crate::world::*;
+    let mut w = small();
+    let n = w.map.w * w.map.h;
+    assert_eq!(w.opened.len(), n);
+    assert!(w.opened.iter().all(|&o| o == 0.0));
+    // forest cells gain potential once opened; open dry grassland gains nothing
+    let forest = (0..n).find(|&i| w.map.biome_at(i) == Biome::TempForest && w.crop_pot[i] > 0.05).expect("a farmable forest cell");
+    assert!(w.open_pot[forest] > 1.3 * w.crop_pot[forest], "{} vs {}", w.open_pot[forest], w.crop_pot[forest]);
+    for i in 0..n {
+        assert!(w.open_pot[i] >= w.crop_pot[i]);
+        if w.map.biome_at(i) == Biome::Grassland && w.map.rain[i] < 0.6 {
+            assert_eq!(w.open_pot[i], w.crop_pot[i]);
+        }
+    }
+    // iron tools: an iron axe or an iron edge the band can make
+    let mut b = w.bands[0].clone();
+    assert!(!farming_iron(&b));
+    for f in [Form::Axe, Form::Edge] {
+        let mut raws = ItemSet::default();
+        raws.add(item(f, Mat::Iron));
+        b.d.tk = crate::knowledge::closure(&w.reg, &[], &raws, false);
+        assert!(farming_iron(&b));
+    }
+    let mut bronze = ItemSet::default();
+    bronze.add(item(Form::Axe, Mat::Bronze));
+    let mut nb = b.clone();
+    nb.d.tk = crate::knowledge::closure(&w.reg, &[], &bronze, false);
+    assert!(!farming_iron(&nb));
+    // potentials as seen by each band; a cell's crop cap rises as it is opened
+    assert_eq!(w.band_pot(false, forest), w.crop_pot[forest]);
+    assert_eq!(w.band_pot(true, forest), w.open_pot[forest]);
+    w.tend[forest] = 1.0;
+    let cap0 = w.crop_cap(forest);
+    w.opened[forest] = 1.0;
+    assert!((w.pot_at(forest) - w.open_pot[forest]).abs() < 1e-6);
+    assert!(w.crop_cap(forest) > 1.3 * cap0);
+    // field work goes faster with iron
+    b.sow = 0.8;
+    nb.sow = 0.8;
+    let cells = [(b.cell(w.map.w), 1.0)];
+    let fi = w.farm_terms(&b, &cells, 15.0).plough;
+    let fs = w.farm_terms(&nb, &cells, 15.0).plough;
+    assert!((fi / fs - farming::IRON_FIELD_WORK).abs() < 1e-5);
+    // opened ground under fields stays open; left to scrub it slowly goes back
+    let other = (0..n).find(|&i| i != forest && w.map.biome_at(i) == Biome::TempForest && w.crop_pot[i] > 0.05).unwrap();
+    w.opened[other] = 1.0;
+    w.tend[other] = 0.0;
+    w.regrow_fields();
+    assert_eq!(w.opened[forest], 1.0);
+    assert!(w.opened[other] < 1.0 && w.opened[other] > 0.98);
+    // a farming band with iron on forest ground opens it (and counts the season); without iron not
+    let mut wf = small();
+    let mut fb = b.clone();
+    fb.x = (forest % wf.map.w) as _;
+    fb.y = (forest / wf.map.w) as _;
+    let ec = wf.economy(&fb, 1);
+    let mut fx = crate::world::fx::Fx::default();
+    wf.farm_season(&mut fb, &ec, &mut crate::rng::Rng::new(1), &mut fx);
+    assert_eq!(fx.counters.iron_clearing, 1);
+    assert!(fx.ops.iter().any(|o| matches!(o, crate::world::fx::Op::Toward { l: crate::world::fx::Layer::Opened, .. })));
+    let mut sb = nb.clone();
+    sb.x = fb.x;
+    sb.y = fb.y;
+    let ec = wf.economy(&sb, 1);
+    let mut fx = crate::world::fx::Fx::default();
+    wf.farm_season(&mut sb, &ec, &mut crate::rng::Rng::new(1), &mut fx);
+    assert_eq!(fx.counters.iron_clearing, 0);
+    // the layer survives a save round trip, and a save without it loads with nothing opened
+    wf.opened[forest] = 0.5;
+    let bytes = wf.save_bytes(None, "test", "now").unwrap();
+    let back = World::load_bytes(&bytes).unwrap().0;
+    assert_eq!(back.opened[forest], 0.5);
+    wf.opened.clear();
+    wf.ensure_farm_layers();
+    assert_eq!(wf.opened.len(), n);
+}
+
+fn farming_iron(b: &crate::band::Band) -> bool {
+    crate::world::farming::iron_tools(b)
+}

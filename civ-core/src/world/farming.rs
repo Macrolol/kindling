@@ -14,6 +14,9 @@
 //!   slowly tame; tame herds give wool in cool lands and pull ards for farmers with axes.
 //! * Bands give it all up again when it stops paying (moved to poor land, soil worn out, seed
 //!   eaten in a famine).
+//! * (inventions step 6) Farmers with iron axes or iron edges grub out forest and break heavy wet
+//!   ground that stone and bronze could hardly work (`World::opened`), and their field work goes
+//!   faster. Opened ground goes back to scrub and wood slowly once nobody farms it.
 use super::*;
 
 const FLAG_PLOUGH: u32 = 1;
@@ -22,6 +25,14 @@ const FLAG_RIDE: u32 = 4;
 
 /// Standing crop of a full, fertile, fully domestic field of potential 1 (food units per cell).
 pub const CROP_K: f32 = 300.0;
+
+/// (inventions step 6) how fast a farming band with iron tools opens forest and heavy ground
+/// (per season, times its sowing practice and the cell's weight in its range)
+pub const IRON_OPEN_RATE: f32 = 0.06;
+/// (inventions step 6) field work with iron axes and shares goes this much faster
+pub const IRON_FIELD_WORK: f32 = 1.15;
+/// (inventions step 6) opened ground not under fields goes back to scrub and wood (per season)
+pub const OPENED_FADE: f32 = 0.995;
 
 /// How well grain plants grow in a cell (0 = not at all). Big-seeded annuals belong to lands with
 /// a marked bad season, enough water and warmth; rivers water and renew the ground.
@@ -48,6 +59,33 @@ pub fn crop_potential(m: &Map, i: usize) -> f32 {
     let water = if m.river[i] { 1.0 } else { ((m.rain[i] - 0.15) / 0.35).clamp(0.0, 1.0) };
     let warm = ((m.temp[i] - 4.0) / 8.0).clamp(0.0, 1.0);
     base * season * water * warm * if m.river[i] { 1.3 } else { 1.0 }
+}
+
+/// (inventions step 6) How well grain grows in a cell once iron tools have cleared it of
+/// forest and broken its heavy ground: forest soils, grubbed of roots and stumps, crop nearly as
+/// well as open land, and heavy wet clays (hard to work with wood, stone or bronze) are among the
+/// richest once turned. Never below `crop_potential`.
+pub fn opened_potential(m: &Map, i: usize) -> f32 {
+    let base = crop_potential(m, i);
+    if base <= 0.0 {
+        return 0.0;
+    }
+    use crate::map::Biome::*;
+    let forest = match m.biome_at(i) {
+        TempForest => 0.9 / 0.6,
+        TropForest => 0.55 / 0.35,
+        Taiga => 0.3 / 0.15,
+        _ => 1.0,
+    };
+    let heavy = ((m.rain[i] - 0.6) / 0.3).clamp(0.0, 1.0);
+    base * forest * (1.0 + 0.25 * heavy)
+}
+
+/// (inventions step 6) Does the band have iron tools for the fields: an iron axe or an iron
+/// cutting edge it can make or holds (iron ore is common, so anyone who can make one can
+/// make enough; a kit slot may still hold a bronze tool that cuts as well)?
+pub fn iron_tools(b: &Band) -> bool {
+    [Form::Axe, Form::Edge].iter().any(|&f| b.d.tk.via(item(f, Mat::Iron)).is_some())
 }
 
 /// Bit flags for where the wild ancestors of crops and herd animals live (derived from the map,
@@ -119,7 +157,7 @@ impl World {
     /// Size the per-cell farming layers (older saves start fresh) and derive the potentials.
     pub(crate) fn ensure_farm_layers(&mut self) {
         let n = self.map.w * self.map.h;
-        for v in [&mut self.camp, &mut self.tend, &mut self.dom, &mut self.crop] {
+        for v in [&mut self.camp, &mut self.tend, &mut self.dom, &mut self.crop, &mut self.opened] {
             if v.len() != n {
                 *v = vec![0.0; n];
             }
@@ -127,10 +165,32 @@ impl World {
         if self.fert.len() != n {
             self.fert = vec![1.0; n];
         }
-        if self.crop_pot.len() != n || self.wild.len() != n {
+        if self.crop_pot.len() != n || self.wild.len() != n || self.open_pot.len() != n {
             self.crop_pot = (0..n).map(|i| crop_potential(&self.map, i)).collect();
+            self.open_pot = (0..n).map(|i| opened_potential(&self.map, i)).collect();
             self.graze_pot = (0..n).map(|i| graze_potential(&self.map, i)).collect();
             self.wild = (0..n).map(|i| wild_progenitors(&self.map, i)).collect();
+        }
+    }
+
+    /// A cell's crop potential as it stands: its natural potential, raised toward the opened
+    /// potential by the share of it iron tools have opened (inventions step 6).
+    #[inline]
+    pub fn pot_at(&self, i: usize) -> f32 {
+        let p = self.crop_pot.get(i).copied().unwrap_or(0.0);
+        match (self.opened.get(i), self.open_pot.get(i)) {
+            (Some(&o), Some(&q)) if o > 0.0 => p + o * (q - p),
+            _ => p,
+        }
+    }
+
+    /// The crop potential a band sees in a cell: with iron tools it can open it fully.
+    #[inline]
+    pub fn band_pot(&self, iron: bool, i: usize) -> f32 {
+        if iron {
+            self.open_pot.get(i).copied().unwrap_or(0.0).max(self.pot_at(i))
+        } else {
+            self.pot_at(i)
         }
     }
 
@@ -140,13 +200,13 @@ impl World {
         if cult <= 0.0 {
             return 0.0;
         }
-        CROP_K * self.params.farm_yield * self.crop_pot[i] * cult * (0.45 + 0.55 * self.dom[i]) * self.fert[i]
+        CROP_K * self.params.farm_yield * self.pot_at(i) * cult * (0.45 + 0.55 * self.dom[i]) * self.fert[i]
     }
 
     /// What a farming band would make of a cell (for choosing where to live): its fields, or the
     /// fields it could clear there.
     pub(super) fn farm_prospect(&self, b: &Band, i: usize) -> f32 {
-        let pot = self.crop_pot.get(i).copied().unwrap_or(0.0);
+        let pot = self.band_pot(iron_tools(b), i);
         if pot <= 0.0 {
             return 0.0;
         }
@@ -156,15 +216,19 @@ impl World {
 
     /// Seasonal change in the farming layers: crops grow and die back, untended fields go back to
     /// the wild, soils rest and recover.
-    pub(super) fn regrow_fields(&mut self) {
+    pub(crate) fn regrow_fields(&mut self) {
         let s = self.season();
         let n = self.map.w * self.map.h;
         if self.tend.len() != n {
             self.ensure_farm_layers();
         }
+        if self.opened.len() != n || self.open_pot.len() != n {
+            self.ensure_farm_layers();
+        }
         let fy = CROP_K * self.params.farm_yield;
         let m = &self.map;
         let pot = &self.crop_pot;
+        let opot = &self.open_pot;
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
@@ -176,11 +240,13 @@ impl World {
                     .zip(self.dom.par_chunks_mut(CH))
                     .zip(self.fert.par_chunks_mut(CH))
                     .zip(self.crop.par_chunks_mut(CH))
+                    .zip(self.opened.par_chunks_mut(CH))
                     .enumerate()
-                    .for_each(|(ci, ((((ca, te), dm), fe), cr))| {
+                    .for_each(|(ci, (((((ca, te), dm), fe), cr), op))| {
                         for j in 0..ca.len() {
                             let i = ci * CH + j;
-                            field_cell(m, s, fy, pot[i], i, &mut ca[j], &mut te[j], &mut dm[j], &mut fe[j], &mut cr[j]);
+                            let pt = open_cell(pot[i], opot[i], te[j], &mut op[j]);
+                            field_cell(m, s, fy, pt, i, &mut ca[j], &mut te[j], &mut dm[j], &mut fe[j], &mut cr[j]);
                         }
                     });
                 return;
@@ -188,13 +254,14 @@ impl World {
         }
         for i in 0..n {
             let (mut ca, mut te, mut dm, mut fe, mut cr) = (self.camp[i], self.tend[i], self.dom[i], self.fert[i], self.crop[i]);
-            field_cell(m, s, fy, pot[i], i, &mut ca, &mut te, &mut dm, &mut fe, &mut cr);
+            let pt = open_cell(pot[i], opot[i], te, &mut self.opened[i]);
+            field_cell(m, s, fy, pt, i, &mut ca, &mut te, &mut dm, &mut fe, &mut cr);
             (self.camp[i], self.tend[i], self.dom[i], self.fert[i], self.crop[i]) = (ca, te, dm, fe, cr);
         }
     }
 
     /// Labour, food and plough terms of a band's fields and herd this season.
-    pub(super) fn farm_terms(&self, b: &Band, cells: &[(usize, f32)], t: f32) -> FarmTerms {
+    pub(crate) fn farm_terms(&self, b: &Band, cells: &[(usize, f32)], t: f32) -> FarmTerms {
         let mut ft = FarmTerms { labour: 0.0, plough: 1.0, herd_food: 0.0, fields: 0.0 };
         if b.sow > 0.0 && !self.tend.is_empty() {
             let f: f32 = cells.iter().map(|&(c, wt)| wt * cultivated(self.tend.get(c).copied().unwrap_or(0.0))).sum();
@@ -205,6 +272,10 @@ impl World {
             }
             if b.tame > 0.6 && b.herd > 0.15 && b.d.kit.axe != NONE {
                 ft.plough = 1.4;
+            }
+            // (inventions step 6) iron axes, hoes and shares: field work goes faster
+            if iron_tools(b) {
+                ft.plough *= IRON_FIELD_WORK;
             }
             // (inventions step 4) sowing at the right time by the stars and the sun
             ft.plough *= 1.0 + SKY_SOW * b.sky;
@@ -240,7 +311,7 @@ impl World {
     }
 
     /// A band's season with its stands, fields and animals (after the harvest is taken).
-    pub(super) fn farm_season(&self, b: &mut Band, ec: &Econ, rng: &mut Rng, fx: &mut Fx) {
+    pub(crate) fn farm_season(&self, b: &mut Band, ec: &Econ, rng: &mut Rng, fx: &mut Fx) {
         let n = self.map.w * self.map.h;
         if self.tend.len() != n || b.pop == 0 {
             return;
@@ -255,7 +326,11 @@ impl World {
         let plant_share = (ec.h[0] * dg[0] / food).clamp(0.0, 1.0);
         let crop_share = (ec.h[4] * dg[4] / food).clamp(0.0, 1.0);
         let farm_share = (ec.farm_food / food).clamp(0.0, 1.0);
-        let pot = self.crop_pot[ci];
+        // (inventions step 6) a farming band with iron tools sees what it could make of forest and
+        // heavy ground once opened; others see the ground as it stands
+        let iron = iron_tools(b);
+        let pot = self.band_pot(iron, ci);
+        let mut opening = false;
         // ---- camp memory and the tending of wild stands
         // (the shared farm layers are read as they stood at the start of the season and the
         // changes buffered; `tend_ci` / `dom_ci` / `fert_ci` track this band's own cell)
@@ -278,17 +353,25 @@ impl World {
                 td += k * (0.4 - td);
                 fx.toward(Layer::Tend, c, k, 0.4, true);
             }
-            if b.sow > 0.0 && self.crop_pot[c] > 0.05 {
+            if b.sow > 0.0 && self.band_pot(iron, c) > 0.05 {
                 // clearing and sowing: the home cell most, the edges of the range less
                 let k = 0.25 * b.sow * wt * (0.5 + 0.5 * kit.farm_m.min(1.5) / 1.5);
                 td += k * (1.0 - td);
                 fx.toward(Layer::Tend, c, k, 1.0, false);
+                // (inventions step 6) grubbing out stumps and breaking heavy ground with iron
+                if iron && self.open_pot[c] > self.crop_pot[c] + 0.02 && self.opened[c] < 0.99 {
+                    fx.toward(Layer::Opened, c, IRON_OPEN_RATE * b.sow * wt, 1.0, false);
+                    opening = true;
+                }
             }
             td = td.min(1.0);
             my_tend.push(td);
             if c == ci {
                 tend_ci = td;
             }
+        }
+        if opening {
+            fx.counters.iron_clearing += 1;
         }
         // settling in: people who stay put build lasting houses, stores, field walls
         // (living off fields and herds most; a long-used camp a little; it fades if neither)
@@ -551,7 +634,7 @@ impl World {
     pub(super) fn share_farming(&self, bands: &mut Pair, src: usize, dst: usize, rng: &mut Rng, fx: &mut Fx) {
         let dc = bands[dst].cell(self.map.w);
         let (ssow, sstrain, sgrain) = (bands[src].sow, bands[src].strain, bands[src].stock[Mat::Grain as usize]);
-        let dpot = self.crop_pot.get(dc).copied().unwrap_or(0.0);
+        let dpot = self.band_pot(iron_tools(&bands[dst]), dc);
         // seeing it done is not enough: people take up field work only on good ground, and
         // mostly when foraging is getting hard for them
         let push = if ssow > 0.3 && bands[dst].sow <= 0.0 && dpot > 0.25 {
@@ -582,6 +665,21 @@ impl World {
             fx.counters.herds_started += 1;
         }
     }
+}
+
+/// (inventions step 6) One cell's opened ground: it goes back to scrub and wood slowly while
+/// it is not under fields. Returns the cell's crop potential as it stands.
+#[inline]
+fn open_cell(pot: f32, opot: f32, tend: f32, opened: &mut f32) -> f32 {
+    let o = *opened;
+    if o <= 0.0 {
+        return pot;
+    }
+    if tend < 0.4 {
+        let no = o * OPENED_FADE;
+        *opened = if no < 1e-3 { 0.0 } else { no };
+    }
+    pot + o * (opot - pot)
 }
 
 /// One cell's seasonal change in the farming layers.

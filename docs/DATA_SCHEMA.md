@@ -211,6 +211,27 @@ span, tallies are summed over it.
 - No save format change: no new saved band fields; counters and year stats default to 0 in
   older saves.
 
+### Iron in the fields (inventions step 6)
+
+- New saved per-cell layer `World::opened` (0..1, serde default empty, so older saves load and
+  the layer is sized on first use): how far a cell's forest or heavy ground has been opened for
+  fields. Derived (not saved) `open_pot`: the crop potential the cell would have once fully
+  opened (crop potential with the forest penalty mostly lifted - TempForest 0.9, TropForest 0.55,
+  Taiga 0.3 of the way up - and up to x1.25 on heavy wet ground, rain 0.6-0.9).
+- A band whose toolkit can make an iron axe or edge (`iron_tools`) farms against the opened
+  potential; others farm against `crop_pot + opened x (open_pot - crop_pot)`, so ground opened
+  by iron users stays better for all. Iron-using farmers open 0.06 x sow x weather of the gap per
+  season and plough 1.15x as well. Opened ground fades (x0.995 a year) where fields are no
+  longer tended (tend < 0.4).
+- `metrics.csv` / `YearStats`: `iron_farm_bands` (farming bands with iron tools),
+  `opened_fields` (field cells with opened > 0.1), `forest_fields` (field cells in forest
+  biomes), `wet_fields` (field cells with rain >= 0.75).
+- Counter `iron_clearing` (band-seasons that opened ground). `summary.json` `farm.first_iron_farm_year`
+  (first year with an iron-farming band, null if never), `farm.iron_farm_bands`,
+  `farm.opened_fields`, `farm.forest_fields`, `farm.wet_fields`, `farm.iron_clearing`; an
+  "iron in the fields" line in the multi-seed text report.
+- No save format change (the new layer defaults to empty).
+
 ## What a save keeps (format v11)
 
 | what | resolution | kept |

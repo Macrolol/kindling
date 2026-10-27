@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 mod cell_first;
 pub use cell_first::CellFirst;
 mod conflict;
-mod fx;
+pub(crate) mod fx;
 use fx::{Fx, Layer, Op, Pair};
 /// Most meetings a band has time for in one season (v5).
 const MAX_MEETINGS: u8 = 4;
@@ -357,6 +357,13 @@ pub struct YearStats {
     pub ship_q_mean: f32,
     /// (inventions step 5b) bands whose sail is woven matting (usable only on a plank hull or ship)
     pub mat_sail_bands: u32,
+    /// (inventions step 6) farming bands with iron tools; cultivated cells more than half opened
+    /// with iron; cultivated cells in forest (temperate, tropical, taiga) and on heavy wet
+    /// ground (rain >= 0.75)
+    pub iron_farm_bands: u32,
+    pub opened_fields: u32,
+    pub forest_fields: u32,
+    pub wet_fields: u32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -453,6 +460,8 @@ counters! {
         /// (inventions step 5b) ship legs out of sight of land (>= `PILOT_OUT` cells) made alive,
         /// each a lesson in deep-water seamanship
         deep_water_legs,
+        /// (inventions step 6) band-seasons spent opening forest or heavy ground with iron tools
+        iron_clearing,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -578,6 +587,10 @@ pub struct World {
     pub fert: Vec<f32>,
     /// standing crop
     pub crop: Vec<f32>,
+    /// (inventions step 6) per cell, 0..1: share of its forest and heavy ground opened with iron
+    /// tools (raises its crop potential toward `open_pot`; fades slowly when not under fields;
+    /// absent in older saves and built empty on load)
+    pub opened: Vec<f32>,
     /// where and when farming began independently: (tick, cell, band)
     pub farm_starts: Vec<(u32, u32, u32)>,
     /// world firsts with no item of their own (bit 0: ard, bit 1: herding, bit 2: riding;
@@ -591,6 +604,9 @@ pub struct World {
     /// crop potential per cell (derived from the map)
     #[serde(skip)]
     pub crop_pot: Vec<f32>,
+    /// (inventions step 6) crop potential once fully opened with iron tools (derived, not saved)
+    #[serde(skip)]
+    pub open_pot: Vec<f32>,
     #[serde(skip)]
     pub graze_pot: Vec<f32>,
     /// where wild crop / herd ancestors live (`farming::WILD_*` bits; derived, not saved)
@@ -3522,7 +3538,7 @@ impl World {
         self.fade_grudges();
         self.build_walls();
         // farming
-        let (mut farmers, mut farmer_pop, mut herders) = (0u32, 0u32, 0u32);
+        let (mut farmers, mut farmer_pop, mut herders, mut iron_farm_bands) = (0u32, 0u32, 0u32, 0u32);
         let (mut ff, mut fall) = (0.0f32, 0.0f32);
         let mut fcells = std::collections::HashSet::new();
         let mut gcells = std::collections::HashSet::new();
@@ -3539,14 +3555,27 @@ impl World {
             if b.herd > 0.0 {
                 herders += 1;
             }
+            if b.sow > 0.0 && farming::iron_tools(b) {
+                iron_farm_bands += 1;
+            }
             ff += b.d.farm_food;
             fall += b.d.food;
         }
         let (mut fields, mut dom_fields, mut fsum) = (0u32, 0u32, 0.0f32);
+        let (mut opened_fields, mut forest_fields, mut wet_fields) = (0u32, 0u32, 0u32);
         for i in 0..self.tend.len() {
             if self.tend[i] > 0.4 {
                 fields += 1;
                 fsum += self.fert[i];
+                if self.opened.get(i).is_some_and(|&o| o > 0.5) {
+                    opened_fields += 1;
+                }
+                if matches!(self.map.biome_at(i), crate::map::Biome::TempForest | crate::map::Biome::TropForest | crate::map::Biome::Taiga) {
+                    forest_fields += 1;
+                }
+                if self.map.rain[i] >= 0.75 {
+                    wet_fields += 1;
+                }
                 if self.dom[i] > 0.6 {
                     dom_fields += 1;
                 }
@@ -3584,6 +3613,10 @@ impl World {
             lineages: lin.len() as u32,
             top_lineage_pct,
             eff_lineages: crate::analysis::effective_number(lin.values().map(|&p| p as u64)),
+            iron_farm_bands,
+            opened_fields,
+            forest_fields,
+            wet_fields,
             ..acc
         });
         self.archive_year();

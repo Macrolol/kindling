@@ -410,6 +410,18 @@ pub fn run(a: &Args) {
                 100.0 * fp as f32 / tp.max(1) as f32
             );
             println!("  people per occupied cell at end, farmers/foragers: {}", fd.join(", "));
+            // (inventions step 6) iron in the fields, per seed: first year a farming band had iron
+            // tools, iron-farming bands / fields opened with iron / forest fields / wet fields / all
+            // fields at the end, band-seasons spent opening ground
+            let ir: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.farming;
+                    let y = g.first_iron_farm_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!("s{} {y} {}b {}/{}/{}/{} c{}", s.seed, g.iron_farm_bands, g.opened_fields, g.forest_fields, g.wet_fields, g.fields, g.iron_clearing)
+                })
+                .collect();
+            println!("  iron in the fields (first year, iron-farming bands, opened/forest/wet/all fields, clearing seasons): {}", ir.join(", "));
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

@@ -15,6 +15,8 @@ pub(crate) enum Layer {
     Tend,
     Dom,
     Fert,
+    /// (inventions step 6) forest and heavy ground opened with iron tools
+    Opened,
 }
 
 #[derive(Clone, Debug)]
@@ -208,6 +210,7 @@ impl World {
                         Layer::Tend => self.tend.get_mut(c),
                         Layer::Dom => self.dom.get_mut(c),
                         Layer::Fert => self.fert.get_mut(c),
+                        Layer::Opened => self.opened.get_mut(c),
                     };
                     if let Some(v) = v {
                         if !below || *v < to {
@@ -222,6 +225,7 @@ impl World {
                         Layer::Tend => self.tend.get_mut(c),
                         Layer::Dom => self.dom.get_mut(c),
                         Layer::Fert => self.fert.get_mut(c),
+                        Layer::Opened => self.opened.get_mut(c),
                     };
                     if let Some(v) = v {
                         *v += d;

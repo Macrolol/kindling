@@ -274,3 +274,21 @@ Checks:
   same range as linen on a plank hull, expedition reach only for stocked ship crews, ship legs
   out of sight of land teach more). All 46 civ-core tests pass. No save format change.
 - Local smoke (seeds 1-2, 500y): mat sails Y419/Y471; 4 expeditions, 152 deep-water ship legs.
+
+## Step 6: iron in the fields (in progress)
+
+- Added: iron axes and edges open forest and heavy wet ground for farming (PROPOSAL 3.1).
+  - New saved layer `opened` (0..1 per cell, defaults empty; no format bump) and derived
+    `open_pot` (forest penalty mostly lifted; up to +25% on heavy wet soil).
+  - Bands whose toolkit makes an iron axe or edge farm against the opened potential, open
+    0.06 x sow x weather of the gap a season, and plough 1.15x. Everyone else benefits from
+    ground already opened. Opened ground fades slowly where fields are abandoned.
+  - Iron is checked in the toolkit, not the kit slot (bronze cut 0.65 beats iron 0.64, so the
+    kit keeps bronze axes).
+  - YearStats `iron_farm_bands`, `opened_fields`, `forest_fields`, `wet_fields`; counter
+    `iron_clearing`; farm summary fields and an "iron in the fields" headless line.
+- Test `iron_opens_forest_and_heavy_ground` (potentials, iron vs bronze, crop cap, plough,
+  clearing via fx, fade, save round trip, old save with no layer). All civ-core tests pass.
+- Local smoke (seeds 1-2, 500y): iron reached ever in both but no band holds iron at Y500
+  (stage now copper), so no iron farming yet; fields 5480/3649, forest 2149/1347, wet 599/384
+  as baseline. Effects should show in the 750y (b) runs.
