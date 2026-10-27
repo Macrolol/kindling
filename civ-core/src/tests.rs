@@ -1085,6 +1085,7 @@ fn v10_fixture_loads_and_runs() {
         assert_eq!(b.stock[Mat::Pitch as usize], 0.0);
         assert_eq!(b.pilot, 0.0); // (inventions step 3) an additive field: older rows load at 0
         assert_eq!(b.sky, 0.0); // (inventions step 4) likewise
+        assert_eq!((b.records, b.owed), (0.0, 0.0)); // (inventions step 8) likewise
     }
     assert_eq!((w.tick, w.bands.len()), (600, 606));
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
@@ -1095,7 +1096,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x37162920eef6e5f8);
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xc5fb539244dd576); // run-on changed by step 8 (records, no partner cap)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1459,7 +1460,7 @@ fn ships_recipe_and_reach() {
     assert_ne!(comb([plank, pitch, item(Form::Point, Mat::Flint), NONE], true), Some(ship));
     assert_ne!(comb([plank, item(Form::Raw, Mat::Wood), nail, NONE], true), Some(ship));
     assert_eq!(item_name(ship), "nailed plank ship");
-    assert_eq!(ALL_FORMS[NFORM - 1], Form::Ship);
+    assert_eq!(ALL_FORMS[NFORM - 2], Form::Ship);
     assert!(valid_item(ship));
 
     // the kit: a ship is a plank hull, no sounder
@@ -1803,4 +1804,145 @@ fn v11_fixture_gains_steel() {
         w.step();
     }
     assert_eq!(w.tick, 648);
+}
+
+/// (inventions step 8) Counting marks: notches cut with a good edge into a wooden stick or a
+/// bone (a tally), or a lump of soft clay pressed with a point (a token), fired hard like a pot.
+/// The kit keeps the best one, a fired token above all.
+#[test]
+fn tallies_and_tokens() {
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let comb = |inp| physics::apply(Action::Combine, &physics::canonical(Action::Combine, inp), &ctx).map(|o| o.out);
+    let shape = |t, tool| physics::apply(Action::Shape, &[t, tool, NONE, NONE], &ctx).map(|o| o.out);
+    let heat = |inp| physics::apply(Action::Heat, &physics::canonical(Action::Heat, inp), &ctx).map(|o| o.out);
+    let flint = item(Form::Edge, Mat::Flint);
+    let stick = item(Form::Shaft, Mat::Wood);
+    let bone = item(Form::Raw, Mat::Bone);
+    let tally = item(Form::Mark, Mat::Wood);
+    assert_eq!(comb([flint, stick, NONE, NONE]), Some(tally));
+    assert_eq!(comb([stick, flint, NONE, NONE]), Some(tally));
+    assert_eq!(comb([flint, bone, NONE, NONE]), Some(item(Form::Mark, Mat::Bone)));
+    // a blunt edge does not notch; a third item makes something else
+    assert_ne!(comb([item(Form::Edge, Mat::Wood), stick, NONE, NONE]), Some(tally));
+    assert_ne!(comb([flint, stick, item(Form::Cord, Mat::Fibre), NONE]), Some(tally));
+    // a clay token, pressed with a point; fired like a pot
+    let token = item(Form::Mark, Mat::Clay);
+    assert_eq!(shape(item(Form::Raw, Mat::Clay), item(Form::Point, Mat::Bone)), Some(token));
+    assert_ne!(shape(item(Form::Raw, Mat::Stone), item(Form::Point, Mat::Bone)), Some(item(Form::Mark, Mat::Stone)));
+    let fire = item(Form::Fire, Mat::Wood);
+    let pot = heat([item(Form::Vessel, Mat::Clay), NONE, fire, NONE]);
+    assert_eq!(pot, Some(item(Form::Vessel, Mat::Ceramic)));
+    assert_eq!(heat([token, NONE, fire, NONE]), Some(item(Form::Mark, Mat::Ceramic)));
+    assert_eq!(item_name(tally), "tally stick");
+    assert_eq!(item_name(item(Form::Mark, Mat::Bone)), "notched bone tally");
+    assert_eq!(item_name(token), "clay token");
+    assert_eq!(item_name(item(Form::Mark, Mat::Ceramic)), "fired clay token");
+    assert_eq!(ALL_FORMS[NFORM - 1], Form::Mark);
+    assert!(valid_item(tally) && valid_item(token));
+    // the kit
+    let mut s = ItemSet::default();
+    s.add(tally);
+    let k = crate::band::make_kit(&s);
+    assert_eq!(k.mark, tally);
+    assert!(k.used_items().contains(&tally));
+    s.add(item(Form::Mark, Mat::Ceramic));
+    assert_eq!(crate::band::make_kit(&s).mark, item(Form::Mark, Mat::Ceramic));
+    assert_eq!(crate::band::make_kit(&ItemSet::default()).mark, NONE);
+}
+
+/// (inventions step 8) Records: a band keeps count only with something to count (a big store,
+/// three or more real partners, a herd, tribute); only then is its mark used (and so kept),
+/// and records cut spoilage. Trade ties have no fixed cap any more.
+#[test]
+fn records_need_something_to_count() {
+    use crate::world::*;
+    let w = small();
+    let mut b = w.bands[0].clone();
+    b.store = 0.0;
+    b.herd = 0.0;
+    b.owed = 0.0;
+    b.partners.clear();
+    b.d.need = 2.0;
+    assert!(!World::keeps_count(&b));
+    let mut t = b.clone();
+    t.store = 2.0 * RECORDS_STORE;
+    assert!(World::keeps_count(&t));
+    let mut t = b.clone();
+    t.herd = 0.5;
+    assert!(World::keeps_count(&t));
+    let mut t = b.clone();
+    t.owed = 1.0;
+    assert!(World::keeps_count(&t));
+    let mut t = b.clone();
+    for k in 0..RECORDS_PARTNERS as u32 {
+        t.bond(1000 + k, 0.6 * RECORDS_PARTNER_TIE, 0.0, 0);
+    }
+    assert!(!World::keeps_count(&t), "weak ties are not worth counting");
+    for k in 0..RECORDS_PARTNERS as u32 {
+        t.bond(1000 + k, 0.6 * RECORDS_PARTNER_TIE, 0.0, 0);
+    }
+    assert!(World::keeps_count(&t));
+    // no partner cap
+    for k in 0..20u32 {
+        t.bond(2000 + k, 0.1, 0.0, 0);
+    }
+    assert_eq!(t.partners.len(), RECORDS_PARTNERS + 20);
+
+    // the mark counts as used (kept up) only with something to count
+    let tally = item(Form::Mark, Mat::Wood);
+    b.d.kit.mark = tally;
+    let s = 1;
+    assert!(!w.economy(&b, s).used.contains(&tally));
+    let mut t = b.clone();
+    t.owed = 1.0;
+    assert!(w.economy(&t, s).used.contains(&tally));
+    // records cut spoilage
+    let mut r = t.clone();
+    r.store = 3.0;
+    let e0 = w.economy(&r, s);
+    r.records = 1.0;
+    let e1 = w.economy(&r, s);
+    assert!(e1.spoil <= e0.spoil);
+    if e0.spoil > 0.0 {
+        assert!(e1.spoil < e0.spoil);
+    }
+}
+
+/// (inventions step 8) Records fade without a mark, the first band to keep them is chronicled,
+/// and they are saved with the band (as is tribute owed).
+#[test]
+fn records_fade_event_and_save() {
+    use crate::world::*;
+    let mut w = small();
+    for b in &mut w.bands {
+        b.records = 0.6;
+    }
+    for _ in 0..4 {
+        w.step();
+    }
+    for b in &w.bands {
+        assert!((0.0..=1.0).contains(&b.records));
+        if b.d.kit.mark == NONE {
+            assert!(b.records <= 0.6 * RECORDS_FADE.powi(4) + 1e-5, "no mark, records fade: {}", b.records);
+        }
+    }
+    assert_eq!(w.chronicle.iter().filter(|e| e.kind == EventKind::FirstRecords as u8).count(), 1);
+    assert!(EventKind::FirstRecords.major());
+    assert_eq!(EventKind::from_u8(EventKind::FirstRecords as u8) as u8, EventKind::FirstRecords as u8);
+    for _ in 0..8 {
+        w.step();
+    }
+    assert_eq!(w.chronicle.iter().filter(|e| e.kind == EventKind::FirstRecords as u8).count(), 1, "only the first");
+    let mut w = small();
+    w.bands[0].records = 0.37;
+    w.bands[0].owed = 0.5;
+    let (w2, _, _) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!((w2.bands[0].records, w2.bands[0].owed), (0.37, 0.5));
+    let (w3, _, _) = World::load_bytes(w.save_json(None, "t", "t").unwrap().as_bytes()).unwrap();
+    assert_eq!((w3.bands[0].records, w3.bands[0].owed), (0.37, 0.5));
+    // old saves: records and owed load as 0
+    let (w4, _, _) = World::load_bytes(include_bytes!("../tests/fixtures/v11_seed9_y160_64x40.civsave")).unwrap();
+    assert!(w4.bands.iter().all(|b| b.records == 0.0 && b.owed == 0.0));
+    let s = crate::analysis::summarize(&w2);
+    assert_eq!(s.records.marks_used, w2.counters.marks_used);
 }

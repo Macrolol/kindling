@@ -50,6 +50,29 @@ pub const PITCH_GLUE: f32 = 0.9;
 /// (inventions step 1) spoilage of stored food in sealed jars, and the extra store they hold
 /// (per person)
 pub const JAR_SPOIL: f32 = 0.8;
+/// (inventions step 8) records: a season's growth (share of the way to 1) while a band keeps
+/// count with a mark; the seasonal fade; and what full records do: stored food spoils this
+/// share less, unused recipes are forgotten this share more slowly, and a trade tie keeps
+/// `0.8 + RECORDS_TIE` of its strength a year instead of 0.8
+pub const RECORDS_GAIN: f32 = 0.04;
+pub const RECORDS_FADE: f32 = 0.97;
+pub const RECORDS_SPOIL: f32 = 0.05;
+pub const RECORDS_FORGET: f32 = 0.25;
+pub const RECORDS_TIE: f32 = 0.1;
+/// (inventions step 8) trade ties a band keeps up at full care; past that, every tie fades
+/// faster with the square of how thinly care is spread (records widen it by `RECORDS_SPAN`)
+pub const TIE_SPAN: f32 = 2.0;
+pub const RECORDS_SPAN: f32 = 0.5;
+/// (inventions step 8) what is worth keeping count of: a store of at least this many seasons'
+/// food, at least `RECORDS_PARTNERS` partners with ties of `RECORDS_PARTNER_TIE` or more, a
+/// herd, or tribute owed or owing (`Band::owed` above 0.2)
+pub const RECORDS_STORE: f32 = 2.0;
+pub const RECORDS_PARTNERS: usize = 4;
+pub const RECORDS_PARTNER_TIE: f32 = 0.5;
+/// (inventions step 8) `FirstRecords` fires when a band's records first reach this
+pub const RECORDS_FIRST: f32 = 0.3;
+/// (inventions step 8) `farm_flags` bit: the first band keeping records has been reported
+pub const FLAG_RECORDS: u32 = 1 << 9;
 pub const JAR_STORE: f32 = 0.2;
 /// (v9) Ambition (log scale) is clamped to +-this, drifts by this sd at each split, and founders
 /// start with this sd.
@@ -204,6 +227,9 @@ pub enum EventKind {
     /// (inventions step 5) the world's first crossing to another landmass by ship (major;
     /// other = landmass reached, recipe = open-water cells, item = the ship)
     FirstShip,
+    /// (inventions step 8) the world's first band to keep records (records >= `RECORDS_FIRST`;
+    /// major; item = its counting mark)
+    FirstRecords,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -212,11 +238,11 @@ impl EventKind {
             FirstInvention, Invention, Learned, Forgot, LostWorldwide, FireCaptured, FireLost, Split, Merged, Died, Founded,
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
-            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip,
+            FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 37;
+    pub const COUNT: usize = 38;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -237,6 +263,7 @@ impl EventKind {
                 | EventKind::FirstRiding
                 | EventKind::LongestCrossing
                 | EventKind::FirstShip
+                | EventKind::FirstRecords
         )
     }
 }
@@ -368,6 +395,13 @@ pub struct YearStats {
     /// weapon quality (`band::weapon_q`, what fight losses scale with)
     pub steel_bands: u32,
     pub weapon_q_mean: f32,
+    /// (inventions step 8) bands with a counting mark in their kit; bands with records above
+    /// 0.1; mean records over all bands; mean and most trade partners per band
+    pub mark_bands: u32,
+    pub records_bands: u32,
+    pub records_mean: f32,
+    pub partners_mean: f32,
+    pub partners_max: u32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -469,6 +503,9 @@ counters! {
         /// (inventions step 7) band-seasons a band forged a fresh batch of steel (its steel
         /// stock topped up from its own smithy)
         steel_made,
+        /// (inventions step 8) band-seasons a band kept count with a tally or token (it had one
+        /// and something worth counting)
+        marks_used,
         /// (v5, diagnostic) band pairs within meeting range, summed over seasons
         pairs_seen,
         meetings,
@@ -1462,7 +1499,9 @@ impl World {
             }
             let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank || it == kit.ship;
             // ornaments are kept for show, not worn out at work
-            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament || (it == kit.pitch && !pitch) {
+            // (inventions step 8) a tally is only kept (and so remembered) with something to count
+            let idle_mark = it == kit.mark && !Self::keeps_count(b);
+            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament || (it == kit.pitch && !pitch) || idle_mark {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
@@ -1552,7 +1591,7 @@ impl World {
             * (1.0 - if cellar { CELLAR_KEEP * fresh } else { 0.0 });
         // (inventions step 1) sealed jars keep out damp, air and vermin
         let jar = kit.jar != NONE;
-        let spoil = base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep * if jar { JAR_SPOIL } else { 1.0 };
+        let spoil = (1.0 - RECORDS_SPOIL * b.records) * base * (1.0 - 0.65 * vq) * if kit.smoke { 0.7 } else { 1.0 } * (1.0 - 0.55 * crop_share) * keep * if jar { JAR_SPOIL } else { 1.0 };
         // (v8) cheese: milk from a tame herd, kept in fired pots, lasts the winter
         let cheese = b.tame > 0.8 && b.herd > 0.1 && kit.vessel != NONE && mat(kit.vessel) == Mat::Ceramic;
         let store_cap = pop
@@ -1716,7 +1755,15 @@ impl World {
         // ---------------- the sea: drift and far shores
         self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
-        let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt());
+        // (inventions step 8) records: kept while a band counts something with its tally or
+        // token; they slow the forgetting of what is not practised
+        if b.d.kit.mark != NONE && Self::keeps_count(b) {
+            b.records += RECORDS_GAIN * (1.0 - b.records);
+            fx.counters.marks_used += 1;
+        }
+        b.records *= RECORDS_FADE;
+        b.owed *= 0.95;
+        let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt()) * (1.0 - RECORDS_FORGET * b.records);
         let mut forgot: Vec<u32> = Vec::new();
         for k in &mut b.known {
             if k.used {
@@ -2507,6 +2554,7 @@ impl World {
             seacraft: b.seacraft,
             pilot: b.pilot + PILOT_DRIFT * (1.0 - b.pilot),
             sky: b.sky,
+            records: b.records,
             flame: b.flame && rng.chance(0.3),
             known,
             stock: b.stock.iter().map(|v| v * 0.3).collect(),
@@ -2959,6 +3007,15 @@ impl World {
         }
     }
 
+    /// (inventions step 8) Whether a band has something worth keeping count of: a big store, a
+    /// few real trade partners, a herd, or tribute owed or owing.
+    pub fn keeps_count(b: &Band) -> bool {
+        b.store >= RECORDS_STORE * b.d.need.max(1.0)
+            || b.herd > 0.1
+            || b.owed > 0.2
+            || b.partners.iter().filter(|p| p.strength >= RECORDS_PARTNER_TIE).count() >= RECORDS_PARTNERS
+    }
+
     /// (v9) Two bands at peace may exchange spouses: a few people move each way (numbers are
     /// unchanged), mixing ancestry and tying the bands together.
     fn marry(&self, bands: &mut Pair, a: usize, c: usize, rng: &mut Rng, fx: &mut Fx) {
@@ -3153,6 +3210,14 @@ impl World {
                 bands[dst].sky += SEA_TEACH_SHARE * gap;
             }
         }
+        // (inventions step 8) and the keeping of records, to people with something to count
+        let gap = bands[src].records - bands[dst].records;
+        if gap > 0.1 && Self::keeps_count(&bands[dst]) {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            if rng.chance(if kin { 2.0 * SEA_TEACH_P } else { SEA_TEACH_P }) {
+                bands[dst].records += SEA_TEACH_SHARE * gap;
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
@@ -3331,6 +3396,7 @@ impl World {
                 seacraft: b.seacraft,
                 pilot: b.pilot,
                 sky: b.sky,
+                records: b.records,
                 herbal: 0.9 * b.herbal,
                 ride: b.ride,
                 ..Default::default()
@@ -3526,8 +3592,14 @@ impl World {
         let (mut gd, mut gn, mut gmax) = (0.0f32, 0u32, 0.0f32);
         let w = self.map.w;
         for b in &mut self.bands {
+            // (inventions step 8) ties that are written down are kept up longer; and a band can
+            // only keep up so many: past `TIE_SPAN` (more with records) every tie fades faster,
+            // more so the thinner its care is spread. No fixed cap.
+            let span = TIE_SPAN * (1.0 + RECORDS_SPAN * b.records);
+            let spread = (b.partners.len() as f32 / span).max(1.0);
+            let keep = (0.8 + RECORDS_TIE * b.records).powf(spread * spread);
             for p in &mut b.partners {
-                p.strength *= 0.8;
+                p.strength *= keep;
                 p.married *= MARRIAGE_FADE;
             }
             // (v9) marriage ties outlast trade
@@ -3547,11 +3619,20 @@ impl World {
                 }
             }
         }
+        // (inventions step 8) the world's first band to keep records
+        if self.farm_flags & FLAG_RECORDS == 0 {
+            if let Some(b) = self.bands.iter().find(|b| b.records >= RECORDS_FIRST) {
+                let (id, c, mk) = (b.id, b.cell(w), b.d.kit.mark);
+                self.farm_flags |= FLAG_RECORDS;
+                self.push_event(EventKind::FirstRecords, id, 0, c as u32, mk, u32::MAX);
+            }
+        }
         self.fade_grudges();
         self.build_walls();
         // farming
         let (mut farmers, mut farmer_pop, mut herders, mut iron_farm_bands) = (0u32, 0u32, 0u32, 0u32);
         let (mut steel_bands, mut wq_sum, mut wq_pop) = (0u32, 0.0f64, 0.0f64);
+        let (mut mark_bands, mut records_bands, mut rec_sum, mut np_sum, mut np_max) = (0u32, 0u32, 0.0f64, 0u64, 0u32);
         let (mut ff, mut fall) = (0.0f32, 0.0f32);
         let mut fcells = std::collections::HashSet::new();
         let mut gcells = std::collections::HashSet::new();
@@ -3575,6 +3656,15 @@ impl World {
             if [k.hunt, k.cut, k.axe, k.point].iter().any(|&i| i != NONE && mat(i) == Mat::Steel) {
                 steel_bands += 1;
             }
+            if k.mark != NONE {
+                mark_bands += 1;
+            }
+            if b.records > 0.1 {
+                records_bands += 1;
+            }
+            rec_sum += b.records as f64;
+            np_sum += b.partners.len() as u64;
+            np_max = np_max.max(b.partners.len() as u32);
             wq_sum += crate::band::weapon_q(k) as f64 * b.pop as f64;
             wq_pop += b.pop as f64;
             ff += b.d.farm_food;
@@ -3635,6 +3725,11 @@ impl World {
             iron_farm_bands,
             steel_bands,
             weapon_q_mean: (wq_sum / wq_pop.max(1.0)) as f32,
+            mark_bands,
+            records_bands,
+            records_mean: (rec_sum / nb.max(1) as f64) as f32,
+            partners_mean: np_sum as f32 / nb.max(1) as f32,
+            partners_max: np_max,
             opened_fields,
             forest_fields,
             wet_fields,
@@ -3787,6 +3882,7 @@ impl World {
                 "Y{yr}: band {} comes ashore at ({cx},{cy}) on landmass #{} in a {it} after {} cells of open water, the first crossing by ship",
                 e.band, e.other, e.recipe
             ),
+            EventKind::FirstRecords => format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep count of its goods and dealings, with {it}s", e.band),
         }
     }
 }

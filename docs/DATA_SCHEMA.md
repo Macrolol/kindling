@@ -250,6 +250,34 @@ span, tallies are summed over it.
   `steel_bands_peak`, `steel_made`, `weapon_q_mean`, `weapon_q_peak`, `fights`,
   `deaths_per_fight`; a "steel" line in the multi-seed text report.
 
+### Tallies, tokens and records (inventions step 8)
+
+- New form `Mark` (id 27; no format bump: appended, so older item ids are unchanged). Recipes:
+  Combine a good edge (cut > 0.3) with a wooden stick or a raw bone: a tally (p 0.3); Shape soft
+  clay with a point: a clay token (p 0.3); Heat a clay token like a pot: a fired clay token.
+  Names "tally stick", "notched bone tally", "clay token", "fired clay token". The kit keeps
+  the best in `Kit::mark` (a fired token first).
+- Band fields (saved, appended after `sky`; older saves load them as 0):
+  - `records` (0..1): grows by `RECORDS_GAIN` (0.04) of the way to 1 each season a band with a
+    mark has something to count (`World::keeps_count`: a store of `RECORDS_STORE` = 2 seasons'
+    need, `RECORDS_PARTNERS` = 4 ties of 0.5 or more, a herd, or tribute owed); fades by
+    `RECORDS_FADE` (0.97) a season. Full records: stored food spoils 5% less, unused recipes are
+    forgotten 25% more slowly, trade ties fade 0.9 a year instead of 0.8 and the band keeps
+    up 1.5x as many. Records spread by teaching to bands that have something to count.
+  - `owed` (0..1): tribute paid or taken sets it to 1 on both sides; fades 0.95 a season.
+- The 8-partner cap is gone. Ties fade yearly by `keep^(spread^2)` where `keep` = 0.8 (+0.1 x
+  records) and `spread` = partners / (`TIE_SPAN` = 2 x (1 + 0.5 x records)), at least 1; ties
+  under 0.05 (and not married) are dropped. No fixed limit.
+- An unused mark (nothing to count) is not practised, so it can be forgotten like any idle item.
+- Event `FirstRecords` (kind 37, major): the first band with records >= 0.3 (item = its mark).
+- Counter `marks_used` (band-seasons a band kept count with its mark).
+- `metrics.csv` / `YearStats`: `mark_bands`, `records_bands` (records > 0.1), `records_mean`,
+  `partners_mean`, `partners_max`.
+- `summary.json` `records.`: `first_records_year`, `first_mark_year`, `mark_bands`,
+  `records_bands`, `records_bands_peak`, `records_mean`, `marks_used`, `counting_bands`,
+  `records_where_counting`, `partners_mean`, `partners_max`, `partners_mean_peak`; a "records"
+  line in the multi-seed text report.
+
 ## What a save keeps (format v12)
 
 | what | resolution | kept |

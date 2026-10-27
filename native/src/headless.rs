@@ -433,6 +433,28 @@ pub fn run(a: &Args) {
                 })
                 .collect();
             println!("  steel (first year, steel bands at end (peak), forging seasons, weapon quality, killed per fight): {}", st.join(", "));
+            let rc: Vec<String> = sums
+                .iter()
+                .map(|s| {
+                    let g = &s.records;
+                    let y = g.first_records_year.map_or("-".to_string(), |y| format!("Y{y:.0}"));
+                    format!(
+                        "s{} {y} {}m {}b({}) u{} c{:.0}% p{:.1}/{}",
+                        s.seed,
+                        g.mark_bands,
+                        g.records_bands,
+                        g.records_bands_peak,
+                        g.marks_used,
+                        100.0 * g.records_where_counting,
+                        g.partners_mean,
+                        g.partners_max
+                    )
+                })
+                .collect();
+            println!(
+                "  records (first year, bands with a mark, record-keeping bands at end (peak), seasons a mark was used, share of record keepers with something to count, partners per band mean/max): {}",
+                rc.join(", ")
+            );
             let pop_sum: u32 = tp;
             println!("  total population at end (sum over seeds): {pop_sum}");
         }

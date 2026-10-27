@@ -136,6 +136,15 @@ pub struct Band {
     /// who farm or pilot, inherited by daughters, fades when not used. Helps sowing a little;
     /// at sea it steadies an aimed heading, but only as far as the crew has pilotage to use it.
     pub sky: f32,
+    /// (inventions step 8) records, 0..1: keeping count with tallies and tokens. Grows while a
+    /// band has a counting mark and something to keep track of (a big store, three or more
+    /// partners, a herd, or tribute owed or owing); taught to neighbours who keep accounts,
+    /// inherited by daughters, fades when not used. Stores are kept a little better, recipes
+    /// and trade ties are forgotten more slowly.
+    pub records: f32,
+    /// (inventions step 8) tribute owed or owing, 0..1: set by a tribute paid either way and
+    /// fading year by year (one of the things worth keeping count of)
+    pub owed: f32,
 }
 
 /// A standing exchange relationship with another band (grows with use, fades without).
@@ -204,6 +213,8 @@ pub struct Kit {
     /// (v9 refinement) quality of the recipe that makes the ship (0..1): a well-built ship
     /// keeps its crew and stores longer at sea
     pub ship_q: f32,
+    /// (inventions step 8) a counting mark (tally or token)
+    pub mark: Item,
     /// cooking known for plants / meat / fish
     pub cooked: [Item; 3],
     /// cooking known for grain (v5)
@@ -254,6 +265,7 @@ impl Default for Kit {
             jar: NONE,
             ship: NONE,
             ship_q: 0.0,
+            mark: NONE,
             cooked: [NONE; 3],
             cooked_grain: NONE,
             plants_m: 1.0,
@@ -270,12 +282,12 @@ impl Default for Kit {
     }
 }
 impl Kit {
-    pub fn used_items(&self) -> [Item; 28] {
+    pub fn used_items(&self) -> [Item; 29] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
             self.cord, self.hammer, self.point, self.cooked[0], self.cooked[1], self.cooked[2],
             self.boat, self.net, self.trap, self.cooked_grain, self.bow, self.shield, self.outrigger,
-            self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch, self.ship,
+            self.sail, self.plank, self.frame, self.ornament, self.jar, self.pitch, self.ship, self.mark,
         ]
     }
     /// mean food value per unit across the four wild food kinds (for display)
@@ -398,7 +410,8 @@ pub struct Derived {
     pub sailed_tech: u16,
 }
 
-pub const MAX_PARTNERS: usize = 8;
+/// (inventions step 8) There is no longer a fixed number of partners: ties fade unless kept up
+/// by visits, trade or marriage (`World` yearly fade, slowed by records).
 /// (v9) Founding lineages kept in a band's ancestry (the smallest shares are dropped).
 pub const ANCESTRY_SLOTS: usize = 8;
 
@@ -453,25 +466,13 @@ impl Band {
         self.partner(id).map(|p| p.married).unwrap_or(0.0)
     }
 
-    /// Strengthen (or start) a partnership; the weakest link is dropped when there are too many.
+    /// Strengthen (or start) a partnership. (inventions step 8) No cap: ties that are not kept
+    /// up fade away on their own.
     pub fn bond(&mut self, id: u32, by: f32, traded: f32, tick: u32) {
         if let Some(p) = self.partners.iter_mut().find(|p| p.id == id) {
             p.strength = (p.strength + by).min(1.0);
             p.traded += traded;
             return;
-        }
-        if self.partners.len() >= MAX_PARTNERS {
-            let (wi, wp) = self
-                .partners
-                .iter()
-                .enumerate()
-                .min_by(|a, b| a.1.strength.total_cmp(&b.1.strength))
-                .map(|(i, p)| (i, p.strength))
-                .unwrap();
-            if wp >= by {
-                return;
-            }
-            self.partners.swap_remove(wi);
         }
         self.partners.push(Partner { id, strength: by.min(1.0), since: tick, traded, married: 0.0 });
     }
@@ -583,7 +584,7 @@ pub fn loss_guard(k: &Kit) -> f32 {
 pub fn make_kit(avail: &ItemSet) -> Kit {
     let mut k = Kit::default();
     let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
-    let mut best = [0f32; 23];
+    let mut best = [0f32; 24];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -624,6 +625,8 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             Form::Ornament => upd(20, m.props().hard + 1.0, &mut k.ornament),
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
             Form::Ship => upd(22, score(boat_q(m), m), &mut k.ship),
+            // (inventions step 8) the mark that lasts: fired token, bone, stick, raw clay
+            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,

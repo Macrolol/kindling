@@ -111,6 +111,9 @@ impl World {
             let tick = self.tick;
             bands[a].bond(cid, 0.1, 0.0, tick);
             bands[c].bond(aid, 0.1, 0.0, tick);
+            // (inventions step 8) a debt both sides will remember (and may keep count of)
+            bands[a].owed = 1.0;
+            bands[c].owed = 1.0;
             fx.acc.tributes += 1;
             fx.counters.tributes += 1;
             fx.push_event(EventKind::Tribute, cid, aid, cell, NONE, u32::MAX);

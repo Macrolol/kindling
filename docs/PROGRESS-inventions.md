@@ -355,3 +355,27 @@ Checks:
   disease 0.175 (0.183), items 77.3 (74.9), population 8,107,740 (7,648,642). Steel made in 7
   of the 9 worlds that ever reached iron (Y295-Y731), held at the end in 6. Killed per fight,
   living worlds: 2.84 (2.67), x1.06; largest per-seed rise x1.12. Targets met; no tuning.
+
+## Step 8: tallies, tokens and records (in progress)
+
+- Form `Mark` (id 27, no format bump): tally (good edge + wooden stick or bone), clay token
+  (point pressed into soft clay), fired clay token (fired like a pot). Kit slot `mark`.
+- Band `records` (0..1, saved after `sky`): grows while a band with a mark has something to
+  count (store of 2 seasons' need, 4 ties of 0.5+, a herd, or tribute owed: new saved field
+  `owed`, set to 1 on both sides by tribute); fades 3% a season. Effects at full records: 5%
+  less spoilage, 25% slower forgetting of unused recipes, trade ties fade 0.9 instead of 0.8
+  a year and 1.5x as many are kept up. Taught to bands with something to count.
+- Partner cap removed (Michael's decision). First smoke with plain fading: partners ran away
+  (mean 105, max 281 per band; 4x slower; items and learning way up). Tie fade now depends on how
+  thinly a band's care is spread: `keep^((partners/span)^2)` past `TIE_SPAN` = 2 partners
+  (records widen it). No fixed cap. Records first made too easy (100% of bands); tightened to
+  the thresholds above and a faster fade.
+- Event `FirstRecords` (major), counter `marks_used`, YearStats `mark_bands`, `records_bands`,
+  `records_mean`, `partners_mean`, `partners_max`; summary `records.*`; headless "records" line.
+- Tests `tallies_and_tokens`, `records_need_something_to_count` (incl. no cap: 24 partners),
+  `records_fade_event_and_save` (incl. v11 fixture loads records 0); v10 run-on hash updated.
+  All civ-core tests pass (51, 1 ignored).
+- Local smoke (seeds 1-2, 500y), against step 7's smoke: population 243k (253k), war 0.409%/yr
+  (0.423), disease 0.094 (0.121), items per band 33-38 (33-37), run time about the same.
+  Records in 54-62% of bands at Y500, 88-91% of them with something to count now; first
+  records Y99-Y106. Partners per band mean 22 (max 61); before, about 7.7 against the cap of 8.

@@ -75,3 +75,9 @@ decision on the inventions proposal (question 6): wells, drains and other public
 come later, together with towns and politics (they need lime or brick, and someone to organise
 the digging). Not part of the inventions plan.
 
+
+## Steel armour (noted Oct 27 2026)
+
+Step 7 makes fights deadlier only through the edge (Michael's decision). Steel (or iron) mail,
+helmets and plate would cut losses (`loss_guard`) and so offset steel weapons; left for a later
+pass, with a war-rate check like step 7's.

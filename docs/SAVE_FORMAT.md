@@ -185,5 +185,9 @@ Current: `FORMAT_VERSION = 11` (Kindling 0.9 development, inventions). v0.8.0 wr
     JSON v11 saves go through `v11_to_v12`. Both give the same bands.
   - Fixture `v11_seed9_y160_64x40.civsave` (written by the step 6 build: the v10 fixture run 10
     more years) is loaded by `v11_fixture_gains_steel`, which also checks the JSON route.
+  - Inventions step 8 (tallies and records) changes nothing in the format: form `Mark` is
+    appended (id 27), band fields `records` and `owed` are appended after `sky` in the
+    positional band rows (named in JSON) and load as 0 from older saves, and the partner list
+    was always variable length, so lifting the 8-partner cap needs no migration.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

@@ -90,6 +90,35 @@ pub struct Summary {
     pub motives: MotiveSummary,
     /// (inventions step 7) steel and weapons
     pub metal: MetalSummary,
+    /// (inventions step 8) tallies, tokens and records; trade partners per band
+    pub records: RecordsSummary,
+}
+
+/// (inventions step 8) Counting marks and records, and how many trade ties bands keep now that
+/// there is no fixed cap.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct RecordsSummary {
+    /// year of the world's first `FirstRecords` event (records >= 0.3 anywhere)
+    pub first_records_year: Option<f32>,
+    /// first year any band made a counting mark (tally or token)
+    pub first_mark_year: Option<f32>,
+    /// bands with a counting mark in their kit, and with records above 0.1: at the end, and
+    /// the most in any year
+    pub mark_bands: u32,
+    pub records_bands: u32,
+    pub records_bands_peak: u32,
+    /// mean records over all bands at the end
+    pub records_mean: f32,
+    /// band-seasons a band kept count with its mark (counter `marks_used`)
+    pub marks_used: u64,
+    /// at the end: bands with something to count (big store, 3+ real partners, herd, tribute),
+    /// and the share of record-keeping bands that have something to count
+    pub counting_bands: u32,
+    pub records_where_counting: f32,
+    /// trade partners per band at the end (mean and most), and the highest yearly mean
+    pub partners_mean: f32,
+    pub partners_max: u32,
+    pub partners_mean_peak: f32,
 }
 
 /// (inventions step 7) Steel, and the weapons fights are fought with.
@@ -764,6 +793,26 @@ pub fn summarize(w: &World) -> Summary {
             deaths_per_fight: w.counters.conflict_deaths as f32 / w.counters.fights.max(1) as f32,
         }
     };
+    let records = {
+        let last = w.history.last();
+        let rec: Vec<&crate::band::Band> = w.bands.iter().filter(|b| b.records > 0.1).collect();
+        let counting = w.bands.iter().filter(|b| crate::world::World::keeps_count(b)).count() as u32;
+        let rc = rec.iter().filter(|b| crate::world::World::keeps_count(b)).count();
+        RecordsSummary {
+            first_records_year: w.chronicle.iter().find(|e| e.kind == crate::world::EventKind::FirstRecords as u8).map(|e| e.tick as f32 / 4.0),
+            first_mark_year: w.firsts.iter().filter(|f| form(f.item) == Form::Mark).map(|f| f.tick as f32 / 4.0).reduce(f32::min),
+            mark_bands: last.map_or(0, |h| h.mark_bands),
+            records_bands: last.map_or(0, |h| h.records_bands),
+            records_bands_peak: w.history.iter().map(|h| h.records_bands).max().unwrap_or(0),
+            records_mean: last.map_or(0.0, |h| h.records_mean),
+            marks_used: w.counters.marks_used,
+            counting_bands: counting,
+            records_where_counting: if rec.is_empty() { 0.0 } else { rc as f32 / rec.len() as f32 },
+            partners_mean: last.map_or(0.0, |h| h.partners_mean),
+            partners_max: last.map_or(0, |h| h.partners_max),
+            partners_mean_peak: w.history.iter().map(|h| h.partners_mean).fold(0.0, f32::max),
+        }
+    };
     let lineages = {
         let mut all: BTreeMap<u32, u64> = BTreeMap::new();
         let mut per: BTreeMap<u16, BTreeMap<u32, u64>> = BTreeMap::new();
@@ -916,6 +965,7 @@ pub fn summarize(w: &World) -> Summary {
         lineages,
         motives: motive_summary(w),
         metal,
+        records,
     }
 }
 

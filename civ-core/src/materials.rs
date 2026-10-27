@@ -202,7 +202,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 27;
+pub const NFORM: usize = 28;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -264,6 +264,10 @@ pub enum Form {
     /// a plank hull caulked with pitch and fastened with metal nails or rivets: a ship that
     /// carries a big party and its stores (material = the hull's timber)
     Ship,
+    // inventions step 8
+    /// a counting mark: notches cut in a stick or bone (a tally), or a clay token pressed with
+    /// a point, perhaps fired hard (material = what is marked)
+    Mark,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -293,6 +297,7 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Ornament,
     Form::Jar,
     Form::Ship,
+    Form::Mark,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -417,6 +422,13 @@ pub fn item_name(i: Item) -> String {
         Form::Ship => match m {
             Mat::Wood => "nailed plank ship".into(),
             _ => format!("{n} ship"),
+        },
+        Form::Mark => match m {
+            Mat::Wood => "tally stick".into(),
+            Mat::Bone => "notched bone tally".into(),
+            Mat::Clay => "clay token".into(),
+            Mat::Ceramic => "fired clay token".into(),
+            _ => format!("{n} tally"),
         },
     }
 }

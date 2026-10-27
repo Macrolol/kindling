@@ -146,6 +146,11 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
                     return o(item(Form::Point, tm), 0.2 + 0.5 * cut_q(om));
                 }
             }
+            // (inventions step 8) press a lump of soft clay with a point: a token that stands for
+            // a thing counted
+            if of == Form::Point && tp.plastic >= 6.0 {
+                return o(item(Form::Mark, tm), 0.3);
+            }
             None
         }
         Form::Edge => {
@@ -294,6 +299,15 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Garment, mat(fb)), 0.25);
         }
     }
+    // (inventions step 8) notches cut with an edge into a stick or a bone: a tally
+    if n == 2 && count(Form::Edge) == 1 {
+        let e = find(Form::Edge)?;
+        if cut_q(mat(e)) > 0.3 {
+            if let Some(t) = items.iter().copied().find(|&i| (form(i) == Form::Shaft && mat(i) == Mat::Wood) || i == item(Form::Raw, Mat::Bone)) {
+                return o(item(Form::Mark, mat(t)), 0.3);
+            }
+        }
+    }
     // friction fire: rub a shaft against dry wood (tinder helps)
     if items.contains(&item(Form::Shaft, Mat::Wood)) && raw(Mat::Wood) && (n == 2 || raw(Mat::Fibre)) {
         let tinder = if raw(Mat::Fibre) { 0.15 } else { 0.0 };
@@ -394,12 +408,12 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
         if f == Form::Raw && m.is_food() {
             return o(item(Form::Cooked, m), 0.9);
         }
-        // firing a moulded clay vessel
-        if f == Form::Vessel {
+        // firing a moulded clay vessel (or, inventions step 8, a clay token)
+        if f == Form::Vessel || f == Form::Mark {
             if let Some(to) = p.fires_to {
                 if temp >= p.fire_t {
                     let pr = if lining.is_some() { 0.8 } else { 0.35 };
-                    return o(item(Form::Vessel, to), pr);
+                    return o(item(f, to), pr);
                 }
             }
         }
