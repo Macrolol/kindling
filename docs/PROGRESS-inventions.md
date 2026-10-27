@@ -851,3 +851,41 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   `native/src/main.rs`).
 - Checkpoint: step 11 done. All steps of the inventions plan (0-11, with 5b, 8b, 10b) are built
   and checked; nothing is in progress.
+
+## Step 11b: gold is cast, not cold-hammered (in progress)
+
+- Asked by Michael (Oct 27): gold rings should need smelting heat, a crucible and a mould, not a
+  hammerstone and a nugget. The cold-hammered path goes entirely; raw gold is still noticed and
+  wanted (attention, stock, trade) but gives no ornament until a band can cast it. Emergent, no
+  dates; v13 saves keep the rings they hold, no format bump if possible.
+- Diagnosis (step 11 checks, runs 40531284922 and 40531289571). The only gold recipe was
+  `shape gold with stone hammerstone` (physics `shape`: a raw nugget struck by a hammer at
+  least as hard, p 0.4), open to any band with a hammerstone (from Y1-12) and gold at hand or
+  carried. First gold ring, against the first copper smelting, charcoal fire and fired pottery
+  in each world:
+
+  | world | gold ring | copper smelted | charcoal fire | fired pottery |
+  |---|---|---|---|---|
+  | (a) 1 | Y186 | Y237 | Y194 | Y76 |
+  | (a) 2 | Y192 | Y197 | Y159 | Y87 |
+  | (a) 3 | Y234 | Y167 | Y150 | Y42 |
+  | (a) 4 | Y82 | Y147 | Y137 | Y22 |
+  | (a) 5 | Y232 | Y204 | Y184 | Y36 |
+  | (a) 6 | Y151 | Y164 | Y144 | Y27 |
+  | (a) 7 | Y203 | Y212 | Y192 | Y89 |
+  | (a) 8 | **Y21** | Y261 | Y102 | Y42 |
+  | (a) 9 | Y247 | Y244 | Y132 | Y40 |
+  | (a) 10 | **Y4** | Y454 | Y115 | Y87 |
+  | (b) 292 | Y125 | Y288 | Y135 | Y29 |
+  | (b) 293 | Y110 | Y316 | Y115 | Y68 |
+  | (b) 294 | **Y38** | Y257 | Y166 | Y86 |
+  | (b) 295 | Y136 | Y232 | Y172 | Y84 |
+  | (b) 296 | Y251 | Y215 | Y194 | Y27 |
+  | (b) 297 | Y160 | Y227 | Y168 | Y28 |
+  | (b) 299 | Y128 | Y220 | Y156 | Y62 |
+  | (b) 300 | Y176 | Y194 | Y156 | Y107 |
+  | (b) 301 | Y338 | Y344 | Y217 | Y100 |
+
+  The ring came before copper smelting in 7/10 (a) and 8/9 (b) worlds, and before any charcoal
+  fire in 4/10 (a) and 6/9 (b). (Tool: `rings.py`, first years from `summary.firsts`.)
+
