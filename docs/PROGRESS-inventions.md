@@ -1138,3 +1138,5 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
     253,320 (232,451), items 43.8 (40.6), 262 s; pitch Y191 (Y456), wrought iron Y268 (Y409),
     iron knife Y273 (none), plank boat Y332 (none), mat sail Y373 (none), sealed jar Y386, linen
     sail Y438 (none). Rerunning (a) and (b) next.
+- Dispatched on 4606ba0 (12b): (a) run 40573000330 (seeds 1-10, 500 y), (b) run 40573003547
+  (seeds 499246292-301, 750 y, 800x800); baselines are the step 12 results files.
