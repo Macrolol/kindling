@@ -412,7 +412,7 @@ Checks:
     0.3 tie strength that counts as close for food sharing (kin of 0.2+ already count).
 - Checkpoint: step 8 done; step 9 (charts) not started.
 
-## Step 8b: close ties (Michael approved; checks running)
+## Step 8b: close ties (done; guard rails fine)
 
 Fix for step 8's side effects (weak ties, food sharing -90%, less metal trade). Real people keep
 a few close ties and many loose ones, so a band's yearly tie upkeep now goes mostly to the ties
@@ -455,6 +455,36 @@ that already mean most.
   ties) and lowered `LOOSE_KEEP` 0.4 -> 0.3 so the larger budget does not keep extra loose ties
   alive. Close ties doubled (about 2.2 per band, max 8), food sharing up a further 40-50%
   (now about half of step 7), trades and trade distance back near step 7; partners unchanged.
+- GitHub checks (commit bb2595f): (a) run 40501565886
+  (https://github.com/Macrolol/kindling/actions/runs/40501565886,
+  docs/results-inv-step8b-seeds1-10-500y.txt), (b) run 40501575101
+  (https://github.com/Macrolol/kindling/actions/runs/40501575101,
+  docs/results-inv-step8b-750y-800x800.txt). Totals, step 7 / step 8 / step 8b:
+
+  | | (a) s7 | (a) s8 | (a) s8b | (b) s7 | (b) s8 | (b) s8b |
+  |---|---|---|---|---|---|---|
+  | food shared | 303,586 | 27,600 | 159,134 | 4,052,823 | 454,207 | 2,071,843 |
+  | trades | 141.2M | 103.3M | 132.5M | 1200.5M | 879.8M | 1095.5M |
+  | mean trade distance | 2.12 | 1.43 | 1.98 | 2.21 | 1.63 | 2.13 |
+  | worlds with iron / steel | 5 / 2 | 3 / 0 | 7 / 0 | 9 / 7 | 9 / 2 | 9 / 4 |
+  | bands farming with iron (end) | 3,896 | 5,336 | 5,949 | 136,703 | 56,422 | 68,115 |
+  | farmer share of population | 0.62 | 0.47 | 0.52 | 0.67 | 0.59 | 0.62 |
+  | population | 1,171,697 | 1,111,541 | 1,147,334 | 8,107,740 | 7,327,512 | 7,348,876 |
+  | partners per band mean / max | (capped 8) | 21.5 / 66 | 30.8 / 74 | (capped 8) | 18.1 / 71 | 26.8 / 85 |
+  | close ties per band mean / max | - | - | 2.18 / 8 | - | - | 2.07 / 10 |
+  | run time sum (max seed) | 693 s (155) | 674 s (153) | 938 s (247) | 6726 s (1249) | 7745 s (1781) | 8616 s (1764) |
+  | war deaths % | 0.400 | 0.387 | 0.374 | 0.303 | 0.299 | 0.290 |
+  | continent crossings | 4/10 | 4/10 | 4/10 | 1/10 | 1/10 | 1/10 |
+  | first crossings | Y135-274 | Y118-303 | Y106-255 | Y622 | Y636 | Y634 |
+
+- Reading: food sharing is back to about half of step 7 (5-6x step 8), trades to 90-94% of
+  step 7 and trade distance nearly back. Steel recovers on the big map (4 worlds, step 7 had 7,
+  step 8 2) but not on the small one (0, step 7 had 2); iron is at or above step 7. Farmer
+  share and population sit between step 8 and step 7. Partners stay uncapped and varied
+  (more than step 8, since strong ties now last), with about two close ties per band. Run time
+  is up about 40% on (a) and 11% on (b) against step 8 (more live partnerships to visit; the
+  kinship pass is parallel). Guard rails fine: (a) 4/10, (b) 1/10, none before Y100; war a
+  little lower.
 
 ## Step 9: charts (in progress)
 
@@ -479,3 +509,4 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   s2 no charts (its run is identical to step 8b: pop 119,870). s1 pop 103,489 (8b 116,282),
   which is run-to-run divergence after Y414 rather than a real effect of two chart bands.
   Crossings unchanged (2/2, first Y106 / Y187, none before Y100). Run time 77.5 / 68.7 s.
+- GitHub checks dispatched (commit 0a96dd3): (a) run 40504455280, (b) run 40504465166.
