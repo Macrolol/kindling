@@ -919,4 +919,8 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   ring in 500 years; seed 8 (ring Y21) has a mould Y53, a crucible Y227 and its first cast ring
   Y262 (`heat fired clay mould + crucible of gold over charcoal fire in a stone-lined kiln`),
   before copper (Y287), peak 140 gold bands, none left at Y500.
+- Web: the wasm build passes (same one old warning). Checks dispatched at 13:08 EDT on
+  9e25e55 (archive off): (a) seeds 1-10, 500 y, 256x160, run 40547673594; (b) seeds
+  499246292-301, 750 y, 800x800, one seed per job, run 40547619310. (A first (a) dispatch,
+  40547604125, was cancelled at once: a wrong input.)
 
