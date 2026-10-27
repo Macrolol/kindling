@@ -327,7 +327,7 @@ Checks:
   Y100, if (b) reaches 7+/10, or if (a) rises above 6/10. No more crossing tuning (this also
   applies to step 9, charts).
 
-## Step 7: steel (in progress)
+## Step 7: steel (done)
 
 - Material `Steel` (26, save format v12, migration `v11_to_v12`, fixture
   `v11_seed9_y160_64x40.civsave` from the step 6 build). Recipe: Heat of wrought iron with
@@ -346,3 +346,12 @@ Checks:
   run-on hash updated (one more material); `v9_fixture_loads_exactly` skips the new leaning. All
   civ-core tests pass (48, 1 ignored).
 - Local smoke (seeds 1-2, 500y): neither world holds iron at Y500, so no steel; nothing broken.
+- Check (a), run [40486753199](https://github.com/Macrolol/kindling/actions/runs/40486753199)
+  (`docs/results-inv-step7-seeds1-10-500y.txt`): crossings 4/10 (first Y135), war 0.400%/yr
+  (step 6: 0.400), disease 0.129 (0.122), items 70.5 (68.4), population 1,171,697 (1,159,092).
+  Iron in 5 worlds, steel in 2 (seed 4 Y397, seed 7 Y376). Killed per fight 3.01 (2.99).
+- Check (b), run [40486756302](https://github.com/Macrolol/kindling/actions/runs/40486756302)
+  (`docs/results-inv-step7-750y-800x800.txt`): crossings 1/10 (Y622), war 0.303%/yr (0.297),
+  disease 0.175 (0.183), items 77.3 (74.9), population 8,107,740 (7,648,642). Steel made in 7
+  of the 9 worlds that ever reached iron (Y295-Y731), held at the end in 6. Killed per fight,
+  living worlds: 2.84 (2.67), x1.06; largest per-seed rise x1.12. Targets met; no tuning.
