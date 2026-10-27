@@ -935,4 +935,25 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   rerun on the fix (see below).
 - Rerun dispatched at 13:31 EDT on 585dfc6 (archive off): (a) run 40551434999, (b) run
   40551447315.
+- (a) result (run 40551434999, 585dfc6, `docs/results-inv-step11b-seeds1-10-500y.txt`):
+
+  | seed | ring s11 | ring s11b | crucible | fired mould | copper | gold bands end (peak) |
+  |---|---|---|---|---|---|---|
+  | 1 | Y186 | Y320 | Y310 | Y88 | Y205 | 0 (9) |
+  | 2 | Y192 | - | - | Y107 | Y245 | 0 |
+  | 3 | Y234 | - | - | Y55 | Y224 | 0 |
+  | 4 | Y82 | Y241 | Y239 | Y70 | Y160 | 39 (136) |
+  | 5 | Y232 | Y313 | Y294 | Y121 | Y254 | 236 (236) |
+  | 6 | Y151 | Y485 | Y480 | Y50 | Y165 | 48 (119) |
+  | 7 | Y203 | - | - | Y144 | never | 0 |
+  | 8 | Y21 | Y237 | Y227 | Y55 | Y259 | 3 (128) |
+  | 9 | Y247 | - | - | Y77 | Y201 | 0 |
+  | 10 | Y4 | - | - | Y98 | Y239 | 0 |
+
+  Rings in 5/10 worlds (was 10/10), first Y237-Y485 (was Y4-Y247); after copper smelting in
+  4 of 5 (seed 8 casts 22 years before its first copper, in the same charcoal furnace);
+  every world with a crucible cast a ring within 2-26 years, so the crucible (gold meeting a
+  fired pot) is now the bottleneck. Gold-wearer bands peak 9-236 (was 36-792), prestige over
+  the mean 0.77-1.45 (mean 1.01; was 1.51). Guard rails: crossings 5/10 (<= 6), none before
+  Y100; war 0.410%/y (s11 0.408); population 1,159,192 (s11 1,179,481).
 
