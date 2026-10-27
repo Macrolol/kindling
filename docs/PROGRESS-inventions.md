@@ -1087,3 +1087,34 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   Guard rails hold for (a). Pitch, forged iron and sails are the big delays; diagnosing next
   (`probe_step12`, an ignored test that counts per 25 years how many bands have each
   ingredient at hand).
+- (b) results (run 40565375593, 6fa70dd; docs/results-inv-step12-750y-800x800.txt; 9 living
+  worlds, 298 dies out early as always), step 11b in brackets: copper tools 9/9 med Y258 (Y263);
+  bronze metal 6/9 med Y401 (5/9, Y585); cast bronze tools 4/9 med Y623 (5/9, Y601); wrought
+  iron 8/9 med Y279 (8/9, Y312); forged iron tools 8/9 med Y290 (7/9, Y405); steel 7/9 med Y310
+  (5/9, Y533); loom 9/9 med Y204; cloth 9/9 med Y433; cloth clothing 9/9 med Y570 (Y483); any
+  sail 7/9 med Y432 (8/9, Y502); cloth sail 5/9 med Y694 (5/9, Y542); plank boats 7/9 med Y317
+  (7/9, Y451); ships 1/9 (4/9); pitch 9/9 but med Y410 (Y156, range Y106-Y680); sealed jar 7/9
+  med Y518 (9/9, Y208); ale 2/9 (8/9); gold rings 6/9 med Y337 (7/9, Y466). Pop 7.81M (7.94M),
+  items 91.8 (93.0), war 0.293%/y (0.308), crossings 1/10 Y646 (Y658), none before Y100; run
+  8,902 s (9,765 s). Guard rails hold for (b).
+- Diagnosis (`probe_step12`, seeds 3, 5, 8 at 256x160, counts of bands per 25 years):
+  - Pitch is an experiment artefact. Resinous wood is placed sensibly (seed 5: 12.8% of land,
+    17% of wooded land), and bands with resinous wood, a fired pot and a fire at once number
+    57 by Y175 and 281 by Y200 in seed 5 (pitch Y456), 112-348 from Y225 in seed 8 (never), and
+    1,035 at Y275 in seed 3 (pitch Y313). Pitch needs one heat experiment that happens to pick
+    the resinous wood and then, by a 25% chance, a pot from 40-odd items: about 7e-6 per
+    experiment, some 300 years for 300 ready bands. In 11b any wood worked and every band had
+    it, which hid this. Sealed jars, ale and ships follow pitch, so they slipped too.
+  - Forged iron: only a handful of bands ever had wrought iron in the 500-year worlds (seed 3:
+    36 bands at Y275, none at Y300; seeds 5 and 8 almost none), and wrought iron that is not
+    forged into something is not used, so it is forgotten within a generation. The forging
+    try itself (heat iron + hard hammer at forge heat, p 0.10) is reachable (charcoal 950 C in
+    any kiln is 1,110-1,310 C) but needs a 50% hammer pairing on top of picking the iron. At
+    scale (b) iron is fine (8/9 worlds, earlier than 11b). Partly realistic (iron is late and
+    fragile in small worlds), partly the coin flip for the hammer.
+  - Bellows and blooms: later in 5 of 10 (a) worlds, earlier in 3; the bellows recipe is
+    unchanged, so this is noise plus some dilution from new items (loom, cloth, resinous wood)
+    in the combine pool. Realistic consequence, not tuned.
+  - Sails: mostly follow plank boats (cloth sails need a plank hull, a mast and cloth). In seed
+    3, 753 bands have plank hull + cloth + shaft at the water by Y475 but only mat sails exist:
+    nothing makes a seafarer reach for cloth or a mast. Artefact (need weighting).
