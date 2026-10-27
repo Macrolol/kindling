@@ -705,3 +705,12 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   none before Y100; prestige ~ size r last-100y 0.15 / 0.31, mean 0.23 (0.20); Gini (100y) 0.53
   (0.48); top band max from Y100 2.6% / 6.8% (same); 3.77M feasts (3.61M). Run time 189 s
   (153 s; local, one sim at a time).
+- GitHub checks on commit 2fd2579, dispatched 11:08 EDT Oct 27:
+  (a) run 40528043525 https://github.com/Macrolol/kindling/actions/runs/40528043525 (done,
+  `docs/results-inv-step10b-seeds1-10-500y.txt`); (b) run 40528062469
+  https://github.com/Macrolol/kindling/actions/runs/40528062469 (running).
+- (a) seeds 1-10, 500 y, against step 10: pop 1,184,877 (1,150,261); crossings 4/10, first
+  Y162 / Y183 / Y183 / Y248, none before Y100 (4/10, Y126 first); war 0.420 %/yr (0.414);
+  disease 0.138 (0.130); prestige ~ size r last-100y mean 0.261 (0.186), range 0.11-0.41; Gini
+  (100y) 0.479 (0.496); top band max from Y100 18.1% (same: seed 7 at Y121, a world of ~100
+  bands); run 796 s total (903 s).
