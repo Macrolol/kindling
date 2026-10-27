@@ -888,4 +888,35 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
 
   The ring came before copper smelting in 7/10 (a) and 8/9 (b) worlds, and before any charcoal
   fire in 4/10 (a) and 6/9 (b). (Tool: `rings.py`, first years from `summary.firsts`.)
+- Change (built). Gold now follows the copper road, as three inventions found by ordinary
+  experiment, with no dates:
+  - **mould**: shape raw clay with a sharp edge (cut quality > 0.3, e.g. a stone blade) gives a
+    `clay mould` (p 0.3); fired like a pot it is a `fired clay mould` (new form `Mould`).
+    No game moulds existed before, so this is new; it is only used for gold for now (copper
+    and bronze are still hammered from the smelted metal, unchanged, so metals are not
+    rebalanced). A carved stone mould was left out (no soft stone in the material list).
+  - **crucible**: combine raw gold with a fired pot gives a `crucible of gold` (new form
+    `Crucible`, p 0.3); not an unfired pot or a basket.
+  - **cast**: heat a crucible of gold with a fired mould in the closed charcoal furnace that
+    smelts copper (a kiln, charcoal fire, reducing, >= gold's melt 1064 C) gives a `gold ring`
+    (p 0.25). An open fire, a wood-fired kiln, an unfired mould, no mould, or a bare nugget give
+    nothing.
+  - the cold path is gone: `shape gold with hammer` gives nothing. Raw gold is still noticed
+    (attention), stocked and wanted as before.
+  - experiment: a charged crucible gets the bloom's treatment (picked 8x for the fire, put in
+    a kiln with the hottest fire, and offered a mould half the time it goes in alone).
+  - saves: no format bump (forms appended as ids 28-29). The old recipe is kept by bands that
+    know it (their rings stay) but marked retired on load and never taught, absorbed or
+    captured. Summary gains `gold.first_mould_year`, `first_crucible_year`, `first_ring_year`,
+    `first_copper_year`.
+  - tests: `gold_ring_needs_smelting_crucible_and_mould` (each missing piece gives no ring;
+    the whole chain through the toolkit gives one, and none without charcoal or gold),
+    `legacy_cold_gold_rings_are_kept_not_taught`, `gold_ornaments_are_prized` (hammer gives
+    nothing now); form-order asserts moved; the v10 run-on hash changed (0xa3f97d0b3c2fb7f7).
+    `cargo test --release --workspace`: 61 passed.
+- Local smoke (seeds 10 and 8, 500 y, 256x160, one at a time, RAYON_NUM_THREADS=4): seed 10
+  (ring Y4 in step 11) now has a mould from Y93, charcoal fire Y173, copper Y239 and no gold
+  ring in 500 years; seed 8 (ring Y21) has a mould Y53, a crucible Y227 and its first cast ring
+  Y262 (`heat fired clay mould + crucible of gold over charcoal fire in a stone-lined kiln`),
+  before copper (Y287), peak 140 gold bands, none left at Y500.
 

@@ -240,7 +240,8 @@ impl World {
         let tick = self.tick;
         let tb = &mut bands[to];
         for kn in moved {
-            if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.5 * share) {
+            // (inventions step 11b) a retired recipe (cold-hammered gold) is not passed on
+            if !tb.knows(kn.recipe) && !self.reg.retired(kn.recipe) && rng.chance(kn.skill * 0.5 * share) {
                 tb.known.push(Known { skill: kn.skill * 0.6, quality: kn.quality * super::QUALITY_TEACH, from: fid, since: tick, kin: false, ..kn });
                 tb.d.known_ver += 1;
                 fx.counters.transfers += 1;

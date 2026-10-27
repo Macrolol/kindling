@@ -201,5 +201,11 @@ Current: `FORMAT_VERSION = 13` (Kindling 0.9 development, inventions). v0.8.0 wr
   - Fixture `v12_seed9_y170_64x40.civsave` (written by the step 10b build: the v11 fixture run
     10 more years) is loaded by `v12_fixture_gains_gold_vectors_but_no_gold`, which also checks
     the JSON route, the re-save and that no gold appears.
+  - Inventions step 11b (gold is cast) changes nothing in the format: forms `Mould` (id 28)
+    and `Crucible` (id 29) are appended, so every item id is unchanged (`ItemSet` has room for
+    32 forms and is never saved). A recipe learned under step 11 (`shape gold with stone
+    hammerstone`) stays in the registry and with the bands that know it, so their rings stay;
+    on load the registry marks it retired (derived, not saved) and it is never taught,
+    absorbed or captured by another band (`legacy_cold_gold_rings_are_kept_not_taught`).
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

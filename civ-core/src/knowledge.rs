@@ -125,6 +125,16 @@ pub struct Registry {
     pub recipes: Vec<Recipe>,
     #[serde(skip)]
     index: FastMap<(u8, Inputs), u32>,
+    /// (inventions step 11b) recipes found under older rules that physics no longer allows
+    /// (cold-hammered gold): bands that know them from an old save keep them, but they are not
+    /// taught on. Derived on load, never saved
+    #[serde(skip)]
+    retired: Vec<bool>,
+}
+/// (inventions step 11b) a recipe from an older save that today's physics would not allow: a
+/// gold nugget beaten into a ring with a hammerstone (gold is now cast; see `physics::heat`)
+pub fn is_retired(r: &Recipe) -> bool {
+    r.action == Action::Shape as u8 && r.inputs[0] == item(Form::Raw, Mat::Gold)
 }
 impl Registry {
     pub fn rebuild_index(&mut self) {
@@ -134,6 +144,11 @@ impl Registry {
             .enumerate()
             .map(|(i, r)| ((r.action, r.inputs), i as u32))
             .collect();
+        self.retired = self.recipes.iter().map(is_retired).collect();
+    }
+    /// (inventions step 11b) see `retired`
+    pub fn retired(&self, id: u32) -> bool {
+        self.retired.get(id as usize).copied().unwrap_or(false)
     }
     pub fn find(&self, action: Action, inputs: &Inputs) -> Option<u32> {
         self.index.get(&(action as u8, *inputs)).copied()
@@ -141,6 +156,8 @@ impl Registry {
     pub fn insert(&mut self, r: Recipe) -> u32 {
         let id = self.recipes.len() as u32;
         self.index.insert((r.action, r.inputs), id);
+        self.retired.resize(id as usize, false);
+        self.retired.push(is_retired(&r));
         self.recipes.push(r);
         id
     }

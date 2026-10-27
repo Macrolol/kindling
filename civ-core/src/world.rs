@@ -2045,7 +2045,8 @@ impl World {
                     let m = mat(i);
                     let keeps = if matches!(m, Mat::Fibre | Mat::Hide | Mat::Bone) { 0.3 } else if m.is_food() || m.props().fuel_t > 0.0 { 1.0 } else { 1.5 };
                     // a slaggy bloom fresh from the furnace begs to go straight back in the fire
-                    let unfinished = if form(i) == Form::Bloom { 8.0 } else { 1.0 };
+                    // (inventions step 11b) and so does a crucible charged with metal to melt
+                    let unfinished = if matches!(form(i), Form::Bloom | Form::Crucible) { 8.0 } else { 1.0 };
                     att[m as usize].sqrt() * keeps * unfinished
                 })
                 .collect();
@@ -2089,7 +2090,9 @@ impl World {
                 return;
             }
             // a bloom is reworked in the furnace it came out of, in its hottest fire
-            let smithing = form(t1) == Form::Bloom || (t2 != NONE && form(t2) == Form::Bloom);
+            // (inventions step 11b) and so is a charged crucible
+            let hot = |i: Item| i != NONE && matches!(form(i), Form::Bloom | Form::Crucible);
+            let smithing = hot(t1) || hot(t2);
             let k = if !kilns.is_empty() && (smithing || rng.chance(0.6)) { pick(rng, &kilns) } else { NONE };
             // the fire: a band that knows a hotter fire (charcoal) mostly banks that one for
             // firing work; otherwise any fire it keeps
@@ -2100,6 +2103,12 @@ impl World {
             };
             // a band with bellows works them into a hot charcoal furnace
             let mut t2 = t2;
+            // (inventions step 11b) metal melting in a crucible wants somewhere to be poured
+            if t2 == NONE && form(t1) == Form::Crucible && rng.chance(0.5) {
+                if let Some(md) = pool.iter().copied().find(|&i| form(i) == Form::Mould) {
+                    t2 = md;
+                }
+            }
             // a hot spongy lump from the furnace invites a blow with the hammer stone
             if t2 == NONE && form(t1) == Form::Bloom && rng.chance(0.5) {
                 if let Some(hm) = pool.iter().copied().find(|&i| form(i) == Form::Hammer && mat(i).props().hard >= 5.0) {
@@ -3333,7 +3342,7 @@ impl World {
         let cands: Vec<(u32, f32, f32)> = bands[src]
             .known
             .iter()
-            .filter(|k| k.skill >= 0.25)
+            .filter(|k| k.skill >= 0.25 && !self.reg.retired(k.recipe))
             .filter(|k| {
                 let out = self.reg.recipes[k.recipe as usize].output;
                 !bands[dst].d.tk.producible.has(out) && !(maybe_known(k.recipe) && bands[dst].knows(k.recipe))
@@ -3590,7 +3599,8 @@ impl World {
                 let tb = &mut bands[j];
                 tb.pop += pop;
                 for kn in moved {
-                    if !tb.knows(kn.recipe) && rng.chance(kn.skill * 0.6) {
+                    // (inventions step 11b) a retired recipe (cold-hammered gold) is not passed on
+                    if !tb.knows(kn.recipe) && !self.reg.retired(kn.recipe) && rng.chance(kn.skill * 0.6) {
                         tb.known.push(Known { skill: kn.skill * 0.7, quality: kn.quality * QUALITY_TEACH, from: id, since: self.tick, kin: false, ..kn });
                         tb.d.known_ver += 1;
                     }

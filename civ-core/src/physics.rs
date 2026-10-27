@@ -97,12 +97,9 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
     let op = om.props();
     match tf {
         Form::Raw => {
-            // (inventions step 11) native gold: too soft for any edge, but a hammerstone beats a
-            // nugget cold into a bead, a sheet or a ring, kept for show
+            // (inventions step 11b) native gold is too soft for any edge, and it is not hammered
+            // into a ring either: it has to be melted in a crucible and cast (see `heat`)
             if tm == Mat::Gold {
-                if of == Form::Hammer && op.hard >= tp.hard {
-                    return o(item(Form::Ornament, tm), 0.4);
-                }
                 return None;
             }
             // metals: hammer into a blade (cold working) with a harder hammerstone
@@ -153,6 +150,11 @@ fn shape(t: Item, tool: Item, ctx: &Ctx) -> Option<Outcome> {
                     // bone: an awl / point
                     return o(item(Form::Point, tm), 0.2 + 0.5 * cut_q(om));
                 }
+            }
+            // (inventions step 11b) scoop a hollow out of a slab of soft clay with an edge: a mould
+            // (useless until fired hard, and until there is molten metal to pour into it)
+            if of == Form::Edge && tp.plastic >= 6.0 && cut_q(om) > 0.3 {
+                return o(item(Form::Mould, tm), 0.3);
             }
             // (inventions step 8) press a lump of soft clay with a point: a token that stands for
             // a thing counted
@@ -287,6 +289,18 @@ fn combine(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
             return o(item(Form::Ship, mat(find(Form::Plank)?)), 0.2);
         }
     }
+    // (inventions step 11b) a prized soft metal (gold) put into a fired pot that stands great
+    // heat (a crucible) for melting down
+    if n == 2 {
+        if let Some(m) = items.iter().copied().find(|&i| form(i) == Form::Raw && mat(i).props().prized > 0.0 && is_metal(mat(i))) {
+            if let Some(pot) = items.iter().copied().find(|&i| i != m && form(i) == Form::Vessel) {
+                let pp = mat(pot).props();
+                if pp.refractory >= 8.0 && pp.fires_to.is_none() {
+                    return o(item(Form::Crucible, mat(m)), 0.3);
+                }
+            }
+        }
+    }
     // (inventions) a fired pot whose mouth and seams are sealed with pitch: a sealed jar
     if n == 2 && raw(Mat::Pitch) {
         if let Some(pot) = items.iter().copied().find(|&i| form(i) == Form::Vessel && mat(i) == Mat::Ceramic) {
@@ -409,6 +423,17 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
         if wd == item(Form::Raw, Mat::Wood) && form(pot) == Form::Vessel && mat(pot) == Mat::Ceramic {
             return if temp >= PITCH_T { o(item(Form::Raw, Mat::Pitch), 0.2) } else { None };
         }
+        // (inventions step 11b) casting: a charged crucible in a closed furnace hot enough to
+        // melt its metal (gold 1064 C: a charcoal fire in a kiln, the furnace that smelts
+        // copper), poured into a fired mould: a ring. Never in an open fire
+        let (cr, md) = if form(t1) == Form::Crucible { (t1, t2) } else { (t2, t1) };
+        if form(cr) == Form::Crucible {
+            let mp = mat(md).props();
+            if form(md) == Form::Mould && mp.refractory >= 8.0 && mp.fires_to.is_none() && reducing && temp >= mat(cr).props().melt {
+                return o(item(Form::Ornament, mat(cr)), 0.25);
+            }
+            return None;
+        }
         let (bl, hm) = if form(t1) == Form::Bloom { (t1, t2) } else { (t2, t1) };
         if form(bl) == Form::Bloom && form(hm) == Form::Hammer {
             if mat(hm).props().hard >= 5.0 && temp >= FORGE_T {
@@ -423,8 +448,8 @@ fn heat(inp: &Inputs, ctx: &Ctx) -> Option<Outcome> {
         if f == Form::Raw && m.is_food() {
             return o(item(Form::Cooked, m), 0.9);
         }
-        // firing a moulded clay vessel (or, inventions step 8, a clay token)
-        if f == Form::Vessel || f == Form::Mark {
+        // firing a moulded clay vessel (or, inventions step 8, a clay token; step 11b, a mould)
+        if f == Form::Vessel || f == Form::Mark || f == Form::Mould {
             if let Some(to) = p.fires_to {
                 if temp >= p.fire_t {
                     let pr = if lining.is_some() { 0.8 } else { 0.35 };

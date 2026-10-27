@@ -56,8 +56,9 @@ pub enum Mat {
     /// quenched in water. Harder and keener than iron, and as tough
     Steel,
     // inventions step 11: appended so every older index is unchanged
-    /// native gold, picked from quartz veins or panned from river gravel: soft, worked cold with
-    /// a hammer, never tarnishes. Good for nothing but show
+    /// native gold, picked from quartz veins or panned from river gravel: soft, never tarnishes.
+    /// Good for nothing but show, and (step 11b) only made into a ring by melting it in a
+    /// crucible and pouring it into a mould
     Gold,
 }
 pub const ALL_MATS: [Mat; NMAT] = [
@@ -212,7 +213,7 @@ impl Mat {
     }
 }
 
-pub const NFORM: usize = 28;
+pub const NFORM: usize = 30;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Form {
@@ -278,6 +279,12 @@ pub enum Form {
     /// a counting mark: notches cut in a stick or bone (a tally), or a clay token pressed with
     /// a point, perhaps fired hard (material = what is marked)
     Mark,
+    // inventions step 11b
+    /// a hollow carved in a slab of clay (and fired hard), into which molten metal is poured
+    /// (material = the mould's)
+    Mould,
+    /// a fired-clay crucible charged with metal for melting (material = the metal)
+    Crucible,
 }
 pub const ALL_FORMS: [Form; NFORM] = [
     Form::Raw,
@@ -308,6 +315,8 @@ pub const ALL_FORMS: [Form; NFORM] = [
     Form::Jar,
     Form::Ship,
     Form::Mark,
+    Form::Mould,
+    Form::Crucible,
 ];
 
 /// An item = (form, material), packed into a u16. `NONE` = empty slot / bare hands.
@@ -442,6 +451,12 @@ pub fn item_name(i: Item) -> String {
             Mat::Ceramic => "fired clay token".into(),
             _ => format!("{n} tally"),
         },
+        Form::Mould => match m {
+            Mat::Clay => "clay mould".into(),
+            Mat::Ceramic => "fired clay mould".into(),
+            _ => format!("{n} mould"),
+        },
+        Form::Crucible => format!("crucible of {n}"),
     }
 }
 

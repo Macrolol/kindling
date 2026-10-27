@@ -1098,7 +1098,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x70e035d1d1a61827); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen) and step 11 (gold: one more material)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa3f97d0b3c2fb7f7); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material) and step 11b (moulds and crucibles; gold is cast)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -1462,7 +1462,7 @@ fn ships_recipe_and_reach() {
     assert_ne!(comb([plank, pitch, item(Form::Point, Mat::Flint), NONE], true), Some(ship));
     assert_ne!(comb([plank, item(Form::Raw, Mat::Wood), nail, NONE], true), Some(ship));
     assert_eq!(item_name(ship), "nailed plank ship");
-    assert_eq!(ALL_FORMS[NFORM - 2], Form::Ship);
+    assert_eq!(ALL_FORMS[NFORM - 4], Form::Ship); // (step 11b: mould and crucible after it)
     assert!(valid_item(ship));
 
     // the kit: a ship is a plank hull, no sounder
@@ -1840,7 +1840,7 @@ fn tallies_and_tokens() {
     assert_eq!(item_name(item(Form::Mark, Mat::Bone)), "notched bone tally");
     assert_eq!(item_name(token), "clay token");
     assert_eq!(item_name(item(Form::Mark, Mat::Ceramic)), "fired clay token");
-    assert_eq!(ALL_FORMS[NFORM - 1], Form::Mark);
+    assert_eq!(ALL_FORMS[NFORM - 3], Form::Mark); // (step 11b: mould and crucible after it)
     assert!(valid_item(tally) && valid_item(token));
     // the kit
     let mut s = ItemSet::default();
@@ -2296,15 +2296,17 @@ fn gold_leaves_every_other_map_layer_identical() {
     assert!(with_gold >= 2, "gold turns up on most maps");
 }
 
-/// (inventions step 11) Native gold is beaten cold with a hammerstone into an ornament, never a
-/// tool; the kit wears gold before anything else, and gold standing counts above the work.
+/// (inventions step 11) Native gold makes an ornament, never a tool (step 11b: cast, never
+/// beaten cold); the kit wears gold before anything else, and gold standing counts above the work.
 #[test]
 fn gold_ornaments_are_prized() {
     let ctx = Ctx { dryness: 0.5, water: false };
     let shape = |t, tool| physics::apply(Action::Shape, &[t, tool, NONE, NONE], &ctx).map(|o| o.out);
     let nugget = item(Form::Raw, Mat::Gold);
     let ring = item(Form::Ornament, Mat::Gold);
-    assert_eq!(shape(nugget, item(Form::Hammer, Mat::Stone)), Some(ring));
+    // (step 11b) no ring from a nugget and a hammerstone any more, or from any hammer
+    assert_eq!(shape(nugget, item(Form::Hammer, Mat::Stone)), None);
+    assert_eq!(shape(nugget, item(Form::Hammer, Mat::Copper)), None);
     assert_eq!(shape(nugget, NONE), None);
     assert_eq!(shape(nugget, item(Form::Edge, Mat::Flint)), None);
     assert!(!Mat::Gold.is_metal(), "gold is no metal for tools or fields");
@@ -2317,6 +2319,117 @@ fn gold_ornaments_are_prized() {
     assert_eq!(crate::band::make_kit(&s).ornament, ring);
     let p = |fine: f32| crate::world::feasting::ornament_prestige(fine, 25.0);
     assert!(p(0.5 + Mat::Gold.props().prized) > 1.6 * p(0.5));
+}
+
+/// (inventions step 11b) A gold ring needs the whole of metalworking: a clay mould cut with an
+/// edge and fired hard, gold charged into a fired pot (a crucible), and the closed charcoal
+/// furnace that smelts copper, hot enough to melt gold. Without any one of them, no ring.
+#[test]
+fn gold_ring_needs_smelting_crucible_and_mould() {
+    let ctx = Ctx { dryness: 0.5, water: false };
+    let shape = |t, tool| physics::apply(Action::Shape, &[t, tool, NONE, NONE], &ctx).map(|o| o.out);
+    let comb = |a: Item, b: Item| {
+        let mut v = [a, b, NONE, NONE];
+        v[..2].sort();
+        physics::apply(Action::Combine, &v, &ctx).map(|o| o.out)
+    };
+    let heat = |a: Item, b: Item, fire: Item, kiln: Item| {
+        let (a, b) = if b != NONE && b < a { (b, a) } else { (a, b) };
+        physics::apply(Action::Heat, &[a, b, fire, kiln], &ctx).map(|o| o.out)
+    };
+    let nugget = item(Form::Raw, Mat::Gold);
+    let ring = item(Form::Ornament, Mat::Gold);
+    let clay = item(Form::Raw, Mat::Clay);
+    let (wet_mould, mould) = (item(Form::Mould, Mat::Clay), item(Form::Mould, Mat::Ceramic));
+    let crucible = item(Form::Crucible, Mat::Gold);
+    let pot = item(Form::Vessel, Mat::Ceramic);
+    let (charcoal, wood_fire) = (item(Form::Fire, Mat::Charcoal), item(Form::Fire, Mat::Wood));
+    let (clay_kiln, stone_kiln) = (item(Form::Kiln, Mat::Clay), item(Form::Kiln, Mat::Stone));
+    // the mould: a hollow cut in soft clay with a sharp edge, then fired like a pot
+    assert_eq!(shape(clay, item(Form::Edge, Mat::Flint)), Some(wet_mould));
+    assert_eq!(shape(clay, NONE), Some(item(Form::Vessel, Mat::Clay)), "bare hands still make a pot");
+    assert_eq!(shape(clay, item(Form::Point, Mat::Bone)), Some(item(Form::Mark, Mat::Clay)), "a point still makes a token");
+    assert_eq!(heat(wet_mould, NONE, wood_fire, NONE), Some(mould));
+    // the crucible: gold in a fired pot (not an unfired one, not a basket)
+    assert_eq!(comb(nugget, pot), Some(crucible));
+    assert_eq!(comb(nugget, item(Form::Vessel, Mat::Clay)), None);
+    assert_eq!(comb(nugget, item(Form::Vessel, Mat::Fibre)), None);
+    assert_eq!(comb(item(Form::Raw, Mat::Copper), pot), None, "only the prized metal is cast here");
+    // the cast: crucible + fired mould in a closed charcoal furnace
+    assert_eq!(heat(crucible, mould, charcoal, clay_kiln), Some(ring));
+    assert_eq!(heat(crucible, mould, charcoal, stone_kiln), Some(ring));
+    assert_eq!(heat(crucible, mould, charcoal, NONE), None, "an open fire does not melt gold");
+    assert_eq!(heat(crucible, mould, wood_fire, clay_kiln), None, "a wood-fired kiln is not hot enough");
+    assert_eq!(heat(crucible, wet_mould, charcoal, clay_kiln), None, "an unfired mould cracks");
+    assert_eq!(heat(crucible, NONE, charcoal, clay_kiln), None, "molten gold needs a mould");
+    assert_eq!(heat(crucible, pot, charcoal, clay_kiln), None);
+    assert_eq!(heat(nugget, mould, charcoal, clay_kiln), None, "a bare nugget needs a crucible");
+    assert_eq!(heat(nugget, NONE, charcoal, clay_kiln), None);
+    // the furnace that melts gold is the one that smelts copper
+    assert_eq!(heat(item(Form::Raw, Mat::CopperOre), NONE, charcoal, clay_kiln), Some(item(Form::Raw, Mat::Copper)));
+    assert_eq!(heat(item(Form::Raw, Mat::CopperOre), NONE, wood_fire, clay_kiln), None);
+    assert_eq!((item_name(wet_mould), item_name(mould), item_name(crucible)), ("clay mould".into(), "fired clay mould".into(), "crucible of gold".into()));
+    assert_eq!((ALL_FORMS[NFORM - 2], ALL_FORMS[NFORM - 1]), (Form::Mould, Form::Crucible));
+    assert!(NFORM <= 32, "ItemSet has room for 32 forms");
+    assert!(valid_item(mould) && valid_item(crucible));
+    // through the toolkit: a band that knows the whole chain has a ring where gold lies, and
+    // none without the charcoal furnace
+    use crate::knowledge::{closure, Known, Recipe, Registry};
+    let mut reg = Registry::default();
+    let mut known = vec![];
+    let mut learn = |reg: &mut Registry, a: Action, inp: [Item; 4]| {
+        let out = physics::apply(a, &inp, &ctx).expect("recipe works").out;
+        let id = reg.insert(Recipe { action: a as u8, inputs: inp, output: out, ..Default::default() });
+        known.push(Known { recipe: id, skill: 0.5, ..Default::default() });
+    };
+    learn(&mut reg, Action::Shape, [clay, item(Form::Edge, Mat::Flint), NONE, NONE]);
+    learn(&mut reg, Action::Heat, [wet_mould, NONE, wood_fire, NONE]);
+    let mut cv = [nugget, pot, NONE, NONE];
+    cv[..2].sort();
+    learn(&mut reg, Action::Combine, cv);
+    let mut hv = [crucible, mould, charcoal, clay_kiln];
+    hv[..2].sort();
+    learn(&mut reg, Action::Heat, hv);
+    let mut raws = ItemSet::default();
+    for i in [nugget, clay, item(Form::Edge, Mat::Flint), pot, wood_fire, clay_kiln] {
+        raws.add(i);
+    }
+    assert!(!closure(&reg, &known, &raws, false).producible.has(ring), "no charcoal fire, no ring");
+    raws.add(charcoal);
+    assert!(closure(&reg, &known, &raws, false).producible.has(ring));
+    let mut raws = ItemSet::default();
+    for i in [clay, item(Form::Edge, Mat::Flint), pot, wood_fire, clay_kiln, charcoal] {
+        raws.add(i);
+    }
+    assert!(!closure(&reg, &known, &raws, false).producible.has(ring), "no gold, no ring");
+}
+
+/// (inventions step 11b) A v13 save from before step 11b, where bands learned to hammer gold
+/// cold, still loads with no format change: those bands keep the recipe and their rings, but
+/// it is retired, so it is never taught to anyone else.
+#[test]
+fn legacy_cold_gold_rings_are_kept_not_taught() {
+    use crate::knowledge::{closure, Known, Recipe};
+    let bytes = include_bytes!("../tests/fixtures/v12_seed9_y170_64x40.civsave");
+    let (mut w, _, _) = World::load_bytes(bytes).expect("fixture loads");
+    let (nugget, hammer) = (item(Form::Raw, Mat::Gold), item(Form::Hammer, Mat::Stone));
+    let ring = item(Form::Ornament, Mat::Gold);
+    let old = [nugget, hammer, NONE, NONE];
+    assert!(physics::apply(Action::Shape, &old, &Ctx { dryness: 0.5, water: false }).is_none());
+    let pre = w.reg.recipes.len() as u32;
+    assert!((0..pre).all(|r| !w.reg.retired(r)), "nothing else is retired");
+    let rid = w.reg.insert(Recipe { action: Action::Shape as u8, inputs: old, output: ring, p: 0.4, ..Default::default() });
+    assert!(w.reg.retired(rid));
+    w.bands[0].known.push(Known { recipe: rid, skill: 0.9, ..Default::default() });
+    let (w2, _, info) = World::load_bytes(&w.save_bytes(None, "t", "t").unwrap()).unwrap();
+    assert_eq!(info.format_version, crate::save::FORMAT_VERSION);
+    assert!(w2.reg.retired(rid) && w2.bands[0].knows(rid), "kept, and still retired after a reload");
+    assert!((0..pre).all(|r| !w2.reg.retired(r)));
+    let mut raws = ItemSet::default();
+    raws.add(nugget);
+    raws.add(hammer);
+    let kn = w2.bands[0].known.clone();
+    assert!(closure(&w2.reg, &kn, &raws, false).producible.has(ring), "the old ring stays in its kit");
 }
 
 /// (inventions step 11, v13) A v12 save written by the step 10b build loads: every per-material

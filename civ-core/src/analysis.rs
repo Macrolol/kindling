@@ -113,6 +113,13 @@ pub struct GoldSummary {
     /// mean prestige of gold-wearing bands over that of all bands, mean over the last 100 years
     /// in which any band wore gold (0 = none)
     pub gold_prestige_x_100: f32,
+    /// (inventions step 11b) the casting chain: first year any band made a mould (clay or
+    /// fired), a charged gold crucible, a gold ring, and first smelted copper, for comparison
+    /// (null = never)
+    pub first_mould_year: Option<f32>,
+    pub first_crucible_year: Option<f32>,
+    pub first_ring_year: Option<f32>,
+    pub first_copper_year: Option<f32>,
 }
 
 /// (inventions step 8) Counting marks and records, and how many trade ties bands keep now that
@@ -921,6 +928,7 @@ pub fn summarize(w: &World) -> Summary {
     };
     let gold = {
         let h = &w.history;
+        let first_of = |p: &dyn Fn(Item) -> bool| w.firsts.iter().filter(|f| p(f.item)).map(|f| f.tick as f32 / 4.0).reduce(f32::min);
         let with: Vec<f32> = h.iter().filter(|y| y.gold_bands > 0).map(|y| y.gold_prestige_x).collect();
         let tail = &with[with.len().saturating_sub(100)..];
         GoldSummary {
@@ -930,6 +938,10 @@ pub fn summarize(w: &World) -> Summary {
             gold_bands_peak: h.iter().map(|y| y.gold_bands).max().unwrap_or(0),
             gold_held: h.last().map_or(0, |y| y.gold_held),
             gold_prestige_x_100: if tail.is_empty() { 0.0 } else { tail.iter().sum::<f32>() / tail.len() as f32 },
+            first_mould_year: first_of(&|i| form(i) == Form::Mould),
+            first_crucible_year: first_of(&|i| form(i) == Form::Crucible),
+            first_ring_year: first_of(&|i| i == item(Form::Ornament, Mat::Gold)),
+            first_copper_year: first_of(&|i| i == item(Form::Raw, Mat::Copper)),
         }
     };
     let lineages = {
