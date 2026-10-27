@@ -408,6 +408,10 @@ long-crossing goal.
 5. **Ale and feasts:** build now, as a small step (prestige from giving).
 6. **Disease:** leave as it is. Wells and drains come later with towns and politics (noted in
    `docs/IDEAS-later.md`).
+8. **Crossing rate accepted (Oct 27 2026):** Michael accepts the rate after steps 5b-6 (about
+   1/10 on the 800x800 750-year runs, 5/10 on the standard map). From step 7 on crossings are a
+   guard rail only: stop and report if any world crosses before Y100, if (b) reaches 7+/10 or
+   if (a) rises above 6/10. No more crossing tuning.
 7. **Sky lore:** one shared practice that helps farming and sailing. Its sea effect is gated
    on pilot / sea practice, so sky lore alone gives no crossings.
 

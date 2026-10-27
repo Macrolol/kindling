@@ -318,3 +318,11 @@ Checks:
   (499246293 at Y670), none before Y100.
 - Reading: the step does what PROPOSAL 3.1 asked - more farmland in forest and wet worlds with
   disease within reason - so no tuning.
+
+## Decision (Oct 27): crossing rate accepted
+
+- Michael accepts the crossing rate after steps 5b-6: about 1/10 on the 800x800 750-year runs
+  (b) and 5/10 on the standard map (a). The 4-6/10 target for (b) is dropped.
+- From step 7 on, crossings are a guard rail only: stop and report if any world crosses before
+  Y100, if (b) reaches 7+/10, or if (a) rises above 6/10. No more crossing tuning (this also
+  applies to step 9, charts).
