@@ -1076,3 +1076,14 @@ Plan 4.4: no new item; records x pilotage keeps and teaches routes.
   much.
 - Dispatched on 6fa70dd: (a) run 40565364332 (seeds 1-10, 500 y), (b) run 40565375593 (seeds
   499246292-301, 750 y, 800x800).
+- (a) results (run 40565364332, 6fa70dd; docs/results-inv-step12-seeds1-10-500y.txt), step 11b
+  in brackets: copper tools 10/10 med Y254 (9/10, Y258); bronze metal 7/10 (2/10); cast bronze
+  tools 2/10 (2/10); wrought iron 3/10 med Y409 (3/10, Y258); forged iron tools 0/10 (2/10);
+  steel 0/10 (1/10); loom 10/10 med Y196; cloth 8/10 med Y353; cloth clothing 3/10 (5/10);
+  sails 2/10, both mat sails (4/10), no cloth sail; plank boats 6/10 med Y391 (6/10, Y365);
+  ships 0/10 (1/10); pitch 5/10 med Y313 (10/10, Y170); sealed jar 1/10 (10/10); ale 0/10
+  (6/10); gold rings 4/10 (5/10). Pop 1,132,162 (1,159,192), items 70.5 (74.0), war 0.385%/y
+  (0.410), crossings 4/10, first Y136 (5/10, Y112), none before Y100; run 915 s (795 s).
+  Guard rails hold for (a). Pitch, forged iron and sails are the big delays; diagnosing next
+  (`probe_step12`, an ignored test that counts per 25 years how many bands have each
+  ingredient at hand).
