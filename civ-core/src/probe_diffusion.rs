@@ -444,3 +444,38 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     println!("probe_diffusion {tag}: {} years, {} bands, pop {}, {} recipes, {:.0}s", (last_tick + 1) / 4, w.bands.len(), w.total_pop(), w.reg.recipes.len(), t0.elapsed().as_secs_f32());
     println!("  state_hash {:016x}", w.state_hash());
 }
+
+/// Read-only: where hides and bones come from. Per year: bands, share whose kit chain needs
+/// hide, share holding hide stock (> 0.05), mean big-game harvest of hide-needing bands, share of
+/// them hunting >= 8 (the break-even of `hunted*0.01` gain vs 0.02+0.06 use when needed and,
+/// as for hide/bone always, not "present"), and total game left vs year 0.
+/// Env as `probe_diffusion` (PROBE_SEEDS, PROBE_YEARS, PROBE_W, PROBE_H).
+#[test]
+#[ignore]
+fn probe_hide() {
+    let seeds: Vec<u64> = env("PROBE_SEEDS", "1".to_string()).split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    let (years, mw, mh): (u32, usize, usize) = (env("PROBE_YEARS", 500), env("PROBE_W", 256), env("PROBE_H", 160));
+    for seed in seeds {
+        let mut w = World::new(Config { seed, map_w: mw, map_h: mh, ..Default::default() }, Params::default());
+        let g0: f32 = w.game.iter().sum();
+        println!("seed {seed}: year bands need_hide has_hide mean_hunt(needers) hunt>=8 game_left");
+        let hide = Mat::Hide as usize;
+        for t in 0..years * 4 {
+            w.step();
+            if w.bands.is_empty() {
+                break;
+            }
+            if (t + 1) % 200 != 0 {
+                continue;
+            }
+            let nb = w.bands.len() as f32;
+            let needers: Vec<_> = w.bands.iter().filter(|b| b.d.needed & (1 << hide) != 0).collect();
+            let has = w.bands.iter().filter(|b| b.stock[hide] > 0.05).count() as f32;
+            let nn = needers.len().max(1) as f32;
+            let hunt: f32 = needers.iter().map(|b| b.d.harvest[1] + 0.3 * b.d.harvest[3]).sum::<f32>() / nn;
+            let ok = needers.iter().filter(|b| b.d.harvest[1] + 0.3 * b.d.harvest[3] >= 8.0).count() as f32 / nn;
+            let g: f32 = w.game.iter().sum();
+            println!("  {:5.0} {:5} {:.2} {:.2} {:6.2} {:.2} {:.2}", w.tick as f32 / 4.0, w.bands.len(), needers.len() as f32 / nb, has / nb, hunt, ok, g / g0);
+        }
+    }
+}

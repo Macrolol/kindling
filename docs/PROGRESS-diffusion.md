@@ -72,3 +72,14 @@ docs/REPORT-diffusion.md.
   forgotten (40% idle_slot) and lost (peak 0.62 → 0).
 - CI runs (probe=true): 40606688049 (128x80, 8 seeds, 1500 y), 40606696457 (192x120,
   8 seeds, 1200 y), 40606704688 (256x160, 5 seeds, 1000 y).
+
+## 5. Hide/bone supply check (`probe_hide`, seed 1, 128x80, 600 y, local)
+
+- Hide/bone stock gains `hunted*0.01` per season and loses 0.02, plus 0.06 when `needed` and
+  not `present`. For hide/bone `present` falls to the DEPOSITS branch and is always false,
+  so a band using hide items needs a big-game harvest of >= 8 per season to break even
+  (>= 2 without the penalty).
+- Hide-needing bands hunt 3.1-4.5 on average; only 3-14% reach 8. That holds even at year
+  100, when 96% of game remains (9%). Game left is 0.61 at y200, 0.40 at y300 and 0.13 at y600.
+- So the hide/bone family is starved structurally, by the stock budget, well before game
+  depletion; depletion adds to it later.
