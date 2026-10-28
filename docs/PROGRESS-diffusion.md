@@ -141,3 +141,20 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   v10 run-on hash updated. Smoke `probe_diffusion` seed 1 128x80 600 y (111 s), share of bands
   able to make it at y600 (D1+D2): hide thong 0.64, bone beads 0.64, cooked meat 0.27 (pre-D probe
   8-seed means: 0.12, 0.09 and 0.28). Full suite 67 passed.
+- D3 kit by expected payoff, with trials (`band::make_kit_for`; `make_kit(avail)` is the fully
+  practised view). Payoff slots (hunt, cut, point, axe, boat, net, trap, bow, shield,
+  outrigger, plank, ship) rank by `q x (0.5+0.5 skill) x (1+QUALITY_YIELD quality) -
+  KIT_UPKEEP x (1.15-dur) x (1+0.3 depth)`, blades by `edge_q` (0.55 cut + 0.45 dur). Edge
+  values: flint 0.55, obsidian 0.51, copper 0.71, bronze 0.81, iron 0.80, steel 0.87. A fresh
+  copper knife (skill 0.3) loses to honed flint and takes over at skill ~0.4.
+  `Kit::trial` holds each slot's challenger; `economy` tries it with `KIT_TRIAL_P` 0.2 a season
+  (hash of seed, band, tick, slot) in seasons the slot is used, adding its wear and stock draw.
+  The kit is re-chosen once a season after skills move (`kit_dirty`) and on toolkit-cache
+  swaps. The probe now reads the real kit choice (`make_kit_for` / `make_kit_among`).
+  Tests `d3_metal_blades_outrank_stone_when_practised`, `d3_newcomer_is_tried_then_takes_over`,
+  `d3_trials_about_one_season_in_five`; v10 run-on hash updated; full suite 70 passed.
+  Smoke: headless seed 1 128x80 600 y in 53 s (2832 bands, pop 54k at y600; D2 probe run had
+  1807 bands, 31.5k). Probe at y600 (one seed, D2 -> D3): steel knife known 0.14 -> 0.99,
+  kit 0.13 -> 0.65; iron knife known 0.26 -> 0.93 (used 0.37, kit 0.03: kept in trial); copper
+  knife gone (displaced by steel); flint-tipped spear kit 0.31 -> 0.05; cooked meat make
+  0.27 -> 0.06 and hide thong 0.64 -> 0.23 (more people on the same game). To watch in the CI checks.

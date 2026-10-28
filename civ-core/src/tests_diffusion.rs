@@ -63,3 +63,71 @@ fn d2_ornament_practised_without_wear() {
     assert_eq!(worn.upkeep.to_bits(), bare.upkeep.to_bits(), "no wear");
     assert_eq!(worn.needed, bare.needed, "no stock drawn");
 }
+
+/// D3: fully practised, a copper knife outranks flint (it keeps its edge and needs little
+/// mending), and so do bronze, iron and steel blades over flint and obsidian.
+#[test]
+fn d3_metal_blades_outrank_stone_when_practised() {
+    use crate::band::make_kit;
+    use crate::materials::ItemSet;
+    for metal in [Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel] {
+        for stone in [Mat::Flint, Mat::Obsidian] {
+            let mut a = ItemSet::default();
+            for f in [Form::Edge, Form::Spear, Form::Point] {
+                a.add(item(f, metal));
+                a.add(item(f, stone));
+            }
+            let k = make_kit(&a);
+            assert_eq!(k.cut, item(Form::Edge, metal), "{metal:?} knife over {stone:?}");
+            assert_eq!(k.hunt, item(Form::Spear, metal), "{metal:?} spear over {stone:?}");
+            assert_eq!(k.point, item(Form::Point, metal));
+            assert_eq!(k.trial, [NONE; 12], "nothing better in prospect");
+        }
+    }
+}
+
+/// D3: a newly learnt copper knife is not yet relied on while the flint one is honed, but it
+/// is tried out; once practised it takes over and flint is no longer in prospect.
+#[test]
+fn d3_newcomer_is_tried_then_takes_over() {
+    use crate::band::make_kit_with;
+    use crate::materials::ItemSet;
+    let (flint, copper) = (item(Form::Edge, Mat::Flint), item(Form::Edge, Mat::Copper));
+    let mut a = ItemSet::default();
+    a.add(flint);
+    a.add(copper);
+    let kit = |sk: f32| make_kit_with(&a, &|it| if it == copper { (sk, 0.0, 3) } else { (1.0, 0.0, 1) });
+    let k = kit(0.3);
+    assert_eq!((k.cut, k.trial[1]), (flint, copper), "newcomer tried beside the honed tool");
+    let k = kit(0.9);
+    assert_eq!((k.cut, k.trial[1]), (copper, NONE), "practised, it takes over");
+}
+
+/// D3: a band using a slot with a challenger tries it about one season in five
+/// (`KIT_TRIAL_P`), deterministically; the trial adds wear and marks it used.
+#[test]
+fn d3_trials_about_one_season_in_five() {
+    let mut w = world();
+    for _ in 0..8 {
+        w.step();
+    }
+    let mut b = w.bands[0].clone();
+    b.d.kit.cut = item(Form::Edge, Mat::Flint);
+    let ch = item(Form::Edge, Mat::Copper);
+    b.d.kit.trial = [NONE; 12];
+    let plain = w.economy(&b, 1);
+    assert!(plain.used.contains(&b.d.kit.cut));
+    b.d.kit.trial[1] = ch;
+    let mut tried = 0;
+    for t in 0..400 {
+        w.tick = 1000 + t;
+        let e = w.economy(&b, 1);
+        if e.used.contains(&ch) {
+            tried += 1;
+            assert!(e.upkeep > plain.upkeep, "a trial wears the tool");
+        }
+        let e2 = w.economy(&b, 1);
+        assert_eq!(e.used, e2.used, "deterministic");
+    }
+    assert!((50..110).contains(&tried), "tried {tried} of 400 seasons");
+}

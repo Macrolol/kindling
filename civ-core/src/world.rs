@@ -5,13 +5,13 @@
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
-use crate::band::{make_kit, refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN};
+use crate::band::{make_kit_for, refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
 use crate::params::{Config, ParamChange, Params, StartCheck};
 use crate::physics::{self, Action, Ctx, Inputs};
-use crate::rng::Rng;
+use crate::rng::{hash3, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -1459,11 +1459,13 @@ impl World {
             b.d.tk_prev = None;
         }
         if b.d.tk_key == Some(key) {
-            if b.d.fin_dirty {
-                let mut kit = make_kit(&b.d.tk.avail);
+            // (diffusion D3) the kit follows skill too, which moves every season
+            if b.d.fin_dirty || b.d.kit_dirty {
+                let mut kit = make_kit_for(&b.d.tk, &b.known);
                 refine_kit(&mut kit, &b.d.tk, &b.known);
                 b.d.kit = kit;
                 b.d.fin_dirty = false;
+                b.d.kit_dirty = false;
             }
             return;
         }
@@ -1479,13 +1481,19 @@ impl World {
             if prev.0 != key {
                 b.d.tk_prev = Some(prev);
             }
+            // (diffusion D3) the cached kit was chosen at older skills
+            let mut kit = make_kit_for(&b.d.tk, &b.known);
+            refine_kit(&mut kit, &b.d.tk, &b.known);
+            b.d.kit = kit;
+            b.d.kit_dirty = false;
             return;
         }
         {
             let tk = closure(&self.reg, &b.known, &raws, b.flame);
-            let mut kit = make_kit(&tk.avail);
+            let mut kit = make_kit_for(&tk, &b.known);
             refine_kit(&mut kit, &tk, &b.known);
             b.d.fin_dirty = false;
+            b.d.kit_dirty = false;
             let old_tk = std::mem::replace(&mut b.d.tk, tk);
             let old_kit = std::mem::replace(&mut b.d.kit, kit);
             b.d.tk_prev = match b.d.tk_key {
@@ -1659,6 +1667,22 @@ impl World {
                 upkeep += 0.01;
             }
             used.push(it);
+        }
+        // (diffusion D3) now and then a band tries the better-in-prospect tool beside the one
+        // it relies on (only in a season it uses that slot): the trial wears it and practises it
+        for j in 0..kit.trial.len() {
+            let (inc, ch) = (kit.slot_item(j), kit.trial[j]);
+            if ch == NONE || !used.contains(&inc) || used.contains(&ch) {
+                continue;
+            }
+            let roll = hash3(self.cfg.seed ^ 0x7121_A15E_D3D3_0001, b.id as i64, (self.tick as i64) * 16 + j as i64);
+            if (roll >> 40) as f32 / (1u64 << 24) as f32 >= KIT_TRIAL_P {
+                continue;
+            }
+            let (_, mask, depth) = b.d.tk.via(ch).unwrap_or((0, 0, 0));
+            needed |= mask;
+            upkeep += p.upkeep * (1.15 - durability(mat(ch))) * (1.0 + 0.3 * depth as f32);
+            used.push(ch);
         }
         let upkeep_l = upkeep * labour;
         // fields and herds: tending fields and minding animals take labour every season
@@ -1929,6 +1953,7 @@ impl World {
                 forgot.push(k.recipe);
             }
         }
+        b.d.kit_dirty = true;
         if !forgot.is_empty() {
             b.known.retain(|k| k.skill >= 0.04);
             b.d.known_ver += 1;

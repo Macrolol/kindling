@@ -238,6 +238,9 @@ pub struct Kit {
     pub protect: f32,
     /// (v9) quality of the band's best ornament recipe (fine work, for prestige)
     pub fine: f32,
+    /// (diffusion D3) per payoff slot (`Kit::slot_item` order): the tool the band is trying
+    /// out beside the one it relies on, or NONE
+    pub trial: [Item; 12],
 }
 impl Default for Kit {
     fn default() -> Self {
@@ -281,10 +284,30 @@ impl Default for Kit {
             boat_q: 0.0,
             protect: 0.0,
             fine: 0.0,
+            trial: [NONE; 12],
         }
     }
 }
 impl Kit {
+    /// (diffusion D3) the item in payoff slot `j` (hunt, cut, point, axe, boat, net, trap,
+    /// bow, shield, outrigger, plank, ship)
+    pub fn slot_item(&self, j: usize) -> Item {
+        match j {
+            0 => self.hunt,
+            1 => self.cut,
+            2 => self.point,
+            3 => self.axe,
+            4 => self.boat,
+            5 => self.net,
+            6 => self.trap,
+            7 => self.bow,
+            8 => self.shield,
+            9 => self.outrigger,
+            10 => self.plank,
+            11 => self.ship,
+            _ => NONE,
+        }
+    }
     pub fn used_items(&self) -> [Item; 30] {
         [
             self.hunt, self.cut, self.dig, self.vessel, self.axe, self.garment, self.fire, self.kiln,
@@ -377,6 +400,8 @@ pub struct Derived {
     pub known_ver: u32,
     /// (v9) recipe qualities changed since the kit was made: rebuild the kit (not the toolkit)
     pub fin_dirty: bool,
+    /// (diffusion D3) skills moved this season: re-choose the kit (not the toolkit)
+    pub kit_dirty: bool,
     /// the band's place in this season's harvest order (valid while `World::seen` uses it)
     pub hk: u32,
     pub kit: Kit,
@@ -603,13 +628,93 @@ pub fn loss_guard(k: &Kit) -> f32 {
     (if has_bow(k) { 0.7 } else { 1.0 }) * (if k.shield != NONE { 0.75 } else { 1.0 })
 }
 
-/// Choose the best item for each task from what a band can produce; compute multipliers.
+/// (diffusion D3) Upkeep of a tool per unit of its quality's worth, for ranking: the economy's
+/// `upkeep` (0.02) over the 0.35 yield a unit of tool quality brings (the cut term in `game_m`).
+pub const KIT_UPKEEP: f32 = 0.06;
+/// (diffusion D3) Chance a season that a band, using a slot, also tries out its challenger.
+pub const KIT_TRIAL_P: f32 = 0.2;
+/// best[] index of each payoff slot, in `Kit::slot_item` order
+const PAYOFF_SLOTS: [usize; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 16, 18, 22];
+
+/// (v8, diffusion D3) a blade's worth in use: sharp and lasting (as in `weapon_q`)
+pub fn edge_q(m: Mat) -> f32 {
+    0.55 * cut_q(m) + 0.45 * durability(m)
+}
+
+/// Choose the best item for each task from what a band can produce, as if every recipe were
+/// fully practised; compute multipliers.
 pub fn make_kit(avail: &ItemSet) -> Kit {
+    make_kit_with(avail, &|_| (1.0, 0.0, 0))
+}
+
+/// (diffusion D3) Choose the kit a band actually relies on: tools are ranked by the payoff
+/// they bring as the band can make them now (skill and quality of the recipe behind them, its
+/// upkeep), and a better-in-prospect tool is marked for trials (`Kit::trial`).
+pub fn make_kit_for(tk: &Toolkit, known: &[Known]) -> Kit {
+    make_kit_among(&tk.avail, tk, known)
+}
+
+/// `make_kit_for` choosing only among `avail` (a subset of `tk.avail`; for probes).
+pub fn make_kit_among(avail: &ItemSet, tk: &Toolkit, known: &[Known]) -> Kit {
+    make_kit_with(avail, &|it| match tk.via(it) {
+        Some((i, _, d)) if i != u16::MAX => {
+            known.get(i as usize).map(|kn| (kn.skill.clamp(0.0, 1.0), kn.quality.clamp(0.0, 1.0), d)).unwrap_or((1.0, 0.0, d))
+        }
+        Some((_, _, d)) => (1.0, 0.0, d),
+        None => (1.0, 0.0, 0),
+    })
+}
+
+/// `info(item)` = (skill, quality, chain depth) of the recipe behind an item.
+pub(crate) fn make_kit_with(avail: &ItemSet, info: &dyn Fn(Item) -> (f32, f32, u8)) -> Kit {
     let mut k = Kit::default();
-    let score = |q: f32, m: Mat| q * (0.75 + 0.25 * durability(m));
     let mut best = [0f32; 24];
+    // (diffusion D3) payoff slots: current payoff and pick, and the two best fully-practised
+    // payoffs (value, item) so the challenger is never the incumbent
+    let mut pay = [f32::NEG_INFINITY; 24];
+    let mut pick = [NONE; 24];
+    let mut pot = [[(f32::NEG_INFINITY, NONE); 2]; 24];
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
+        let (sk, ql, d) = info(it);
+        let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
+        let mut pupd = |slot: usize, qv: f32| {
+            let gain = qv * (1.0 + QUALITY_YIELD * ql);
+            let cur = gain * (0.5 + 0.5 * sk) - up;
+            let full = gain - up;
+            if cur > pay[slot] {
+                pay[slot] = cur;
+                pick[slot] = it;
+            }
+            let p = &mut pot[slot];
+            if full > p[0].0 {
+                p[1] = p[0];
+                p[0] = (full, it);
+            } else if full > p[1].0 {
+                p[1] = (full, it);
+            }
+        };
+        match f {
+            Form::Spear => pupd(0, 0.35 + 0.65 * edge_q(m)),
+            Form::Point => {
+                pupd(0, 0.35 * edge_q(m));
+                pupd(10, edge_q(m));
+            }
+            Form::Edge => {
+                pupd(0, 0.2 * edge_q(m));
+                pupd(1, edge_q(m));
+            }
+            Form::Axe => pupd(4, 0.5 * cut_q(m) + 0.5 * durability(m)),
+            Form::Boat => pupd(11, boat_q(m)),
+            Form::Net => pupd(12, mesh_q(m)),
+            Form::Trap => pupd(13, mesh_q(m)),
+            Form::Bow => pupd(14, m.props().tough + 1.0),
+            Form::Shield => pupd(15, m.props().tough + 1.0),
+            Form::Outrigger => pupd(16, boat_q(m)),
+            Form::Plank => pupd(18, boat_q(m)),
+            Form::Ship => pupd(22, boat_q(m)),
+            _ => {}
+        }
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
             if s > best[slot] {
                 best[slot] = s;
@@ -617,40 +722,21 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
             }
         };
         match f {
-            Form::Spear => upd(0, score(0.35 + 0.65 * cut_q(m), m), &mut k.hunt),
-            Form::Point => {
-                upd(0, score(0.35 * cut_q(m), m), &mut k.hunt);
-                upd(10, score(cut_q(m), m), &mut k.point);
-            }
-            Form::Edge => {
-                upd(0, score(0.2 * cut_q(m), m), &mut k.hunt);
-                upd(1, score(cut_q(m), m), &mut k.cut);
-            }
             Form::Shaft => upd(2, 1.0, &mut k.dig),
             Form::Vessel => upd(3, vessel_q(m), &mut k.vessel),
-            Form::Axe => upd(4, score(0.5 * cut_q(m) + 0.5 * durability(m), m), &mut k.axe),
             Form::Garment => upd(5, garment_q(m), &mut k.garment),
             Form::Fire => upd(6, m.props().fuel_t, &mut k.fire),
             Form::Kiln => upd(7, m.props().refractory, &mut k.kiln),
             Form::Cord => upd(8, m.props().tough + 1.0, &mut k.cord),
             Form::Hammer => upd(9, m.props().hard, &mut k.hammer),
-            Form::Boat => upd(11, score(boat_q(m), m), &mut k.boat),
-            Form::Net => upd(12, score(mesh_q(m), m), &mut k.net),
-            Form::Trap => upd(13, score(mesh_q(m), m), &mut k.trap),
-            // v8 forms: no recipe makes them yet; the slots are ready for the steps that do
-            Form::Bow => upd(14, score(m.props().tough + 1.0, m), &mut k.bow),
-            Form::Shield => upd(15, score(m.props().tough + 1.0, m), &mut k.shield),
-            Form::Outrigger => upd(16, score(boat_q(m), m), &mut k.outrigger),
             // (inventions step 5b) a cloth sail is kept before a mat one: it serves any hull
             Form::Sail => upd(17, m.props().tough + if m == Mat::Fibre { 0.0 } else { 10.0 }, &mut k.sail),
-            Form::Plank => upd(18, score(boat_q(m), m), &mut k.plank),
             Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
             // (inventions step 11) a prized material (gold) is worn before any hard one
             Form::Ornament => upd(20, m.props().hard + 1.0 + 10.0 * m.props().prized, &mut k.ornament),
             // (inventions step 10) a jar of grain left to work is ale, not a store jar
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
-            Form::Ship => upd(22, score(boat_q(m), m), &mut k.ship),
             // (inventions step 8) the mark that lasts: fired token, bone, stick, raw clay
             Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
@@ -662,6 +748,16 @@ pub fn make_kit(avail: &ItemSet) -> Kit {
                 _ => {}
             },
             _ => {}
+        }
+    }
+    let [h, c, pt, ax, bo, ne, tr, bw, sh, ou, pl, shp] = PAYOFF_SLOTS.map(|s| pick[s]);
+    (k.hunt, k.cut, k.point, k.axe, k.boat, k.net, k.trap) = (h, c, pt, ax, bo, ne, tr);
+    (k.bow, k.shield, k.outrigger, k.plank, k.ship) = (bw, sh, ou, pl, shp);
+    for (j, &s) in PAYOFF_SLOTS.iter().enumerate() {
+        let inc = pick[s];
+        let ch = if pot[s][0].1 != inc { pot[s][0] } else { pot[s][1] };
+        if inc != NONE && ch.1 != NONE && ch.0 > pay[s] {
+            k.trial[j] = ch.1;
         }
     }
     let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };

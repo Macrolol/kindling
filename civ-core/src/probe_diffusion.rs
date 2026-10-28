@@ -24,7 +24,7 @@
 //! - `displaced`: the item could fill a kit job but a better item fills it (an old tool after a
 //!   new one);
 //! - `unneeded`: an intermediate nothing the band uses is made from.
-use crate::band::{make_kit, refine_kit, Kit};
+use crate::band::{make_kit, make_kit_among, make_kit_for, refine_kit, Kit};
 use crate::knowledge::{closure, Known, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::materials::*;
 use crate::{Config, Params, World};
@@ -173,7 +173,8 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         let alive: HashSet<u32> = w.bands.iter().map(|b| b.id).collect();
         for b in &w.bands {
             let tk = toolkit(&w, b);
-            let kit = make_kit(&tk.avail);
+            // (diffusion D3) the kit the band relies on, as the world chooses it
+            let kit = make_kit_for(&tk, &b.known);
             let ki = kit_items(&kit);
             let mut item_seen: HashSet<Item> = HashSet::new();
             let mut item_used: HashSet<Item> = HashSet::new();
@@ -266,7 +267,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                         continue;
                     }
                     let avail2 = set_without(&tk.avail, x);
-                    let kit2 = make_kit(&avail2);
+                    let kit2 = make_kit_among(&avail2, &tk, &b.known);
                     let mut kr2 = kit2;
                     refine_kit(&mut kr2, &tk, &b.known);
                     let k2 = kit_items(&kit2);
