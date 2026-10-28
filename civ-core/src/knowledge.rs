@@ -192,6 +192,10 @@ pub struct Known {
     /// (`World::refine`), passes partly to learners and daughters, and fades in small bands.
     /// 0 (older saves, new inventions) = the plain recipe.
     pub quality: f32,
+    /// (diffusion D5, save format v15) the last tick the recipe was practised or all its inputs
+    /// were at hand (traded stock too): while that is recent, the skill fades more slowly.
+    /// 0 (older saves) = long ago.
+    pub last_ok: u32,
     #[serde(skip)]
     pub used: bool,
 }

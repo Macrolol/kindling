@@ -166,3 +166,17 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   updated; full suite 71 passed. Smoke probe seed 1 128x80 600 y (275 s), D3 -> D4: taught
   recipes producible on arrival 49.9% -> 55.4% (D2 run: 64.9%); taught-and-forgotten 66.9% ->
   68.5%; forget reasons no_input 55.4 -> 50.5%, displaced 25.8 -> 31.5%.
+- **D5 done** (recent recipes fade slower). `Known::last_ok` records the last tick a recipe
+  was practised or all its inputs were at hand (`b.d.tk.avail`, so traded stock counts); an
+  unused recipe fades at `RECENT_FADE = 0.5` of the usual rate for `RECENT_SEASONS = 40`
+  seasons after that (`world::practise`). A chain tool is "used" whenever its end product is
+  (`mark_used`), so a loom or mould stays dated while cloth or castings are made. Save format
+  15: the bands blob is layout 2 with a `last_ok` varint column; layout 1 still decodes with
+  `last_ok = 0`; migration `v14_to_v15` is the identity. Tests `d5_recent_recipes_fade_slower`,
+  `d5_last_ok_kept_and_saved`, `d5_old_saves_load_with_no_dates`; v10 run-on hash updated;
+  full suite 74 passed. Smoke probe seed 1 128x80 600 y (278 s), D4 -> D5: taught-and-forgotten
+  68.5% -> 53.8%; forgets within 20 y of being taught 590k -> 173k; forget reasons displaced
+  31.5 -> 17.3%, no_input 50.5 -> 65.3%; taught producible on arrival 55.4 -> 43.9%. At y600
+  (share of bands, make/kit): hide thong 0.17 -> 0.34, cooked meat 0.02 -> 0.16, bone beads
+  0.20 -> 0.43; 2779 bands / 57k people (D4: 2234 / 37k). Steel knives reach 0.76 of bands on
+  this seed by y600, which is worth checking against the step 13 steel figures in the CI run.

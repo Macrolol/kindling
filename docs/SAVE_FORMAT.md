@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 14`, written by Kindling v0.9.0 (formats 9-14 were added during 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 15` (the diffusion step, after v0.9.0). Kindling v0.9.0 writes format 14 (formats 9-14 were added during 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -226,5 +226,13 @@ Current: `FORMAT_VERSION = 14`, written by Kindling v0.9.0 (formats 9-14 were ad
   - Fixture `v13_seed3_y350_96x60.civsave` (written by the step 11b build: seed 3, 96x60, run
     350 years; its bands know tin knives, tin points and tin-tipped spears, and wood pitch) is
     loaded by `v13_fixture_cleans_forbidden_recipes`, which also checks the JSON route.
+- **v15** (the diffusion step, docs/REPORT-diffusion.md section 8). Migration `v14_to_v15`
+  (identity; every change is additive, but old builds cannot read the new bands blob):
+  - `bands[].known[].last_ok` (D5): the last tick the recipe was practised or all its inputs
+    were at hand. A named field in JSON; in the binary bands blob (**layout 2**) it is a varint
+    column appended to the `known` columns, after `quality`. Layout-1 blobs (v10-v14) still
+    decode and give 0 ("long ago"), so old saves forget exactly as before
+    (`d5_old_saves_load_with_no_dates`, `d5_last_ok_kept_and_saved`).
+  - Binary v14 saves are decoded directly; JSON v14 saves go through `v14_to_v15`.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

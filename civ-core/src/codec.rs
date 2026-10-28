@@ -217,7 +217,8 @@ pub mod column {
     }
 }
 
-const BANDS_V: u64 = 1;
+/// layout 2 (save format v15, diffusion D5) appends the `Known::last_ok` column
+const BANDS_V: u64 = 2;
 const FROM_SELF: u64 = 0;
 const FROM_INHERITED: u64 = 1;
 
@@ -234,7 +235,7 @@ pub fn encode_bands(bands: &[Band]) -> Result<Vec<u8>, String> {
     w.bytes(&rows);
     // known
     let mut c = Wr::default();
-    let (mut skill, mut qual, mut kin) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut skill, mut qual, mut kin, mut last) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for b in bands {
         c.u(b.known.len() as u64);
         let (mut pr, mut ps) = (0i64, 0i64);
@@ -254,11 +255,15 @@ pub fn encode_bands(bands: &[Band]) -> Result<Vec<u8>, String> {
             skill.push(k.skill);
             qual.push(k.quality);
             kin.push(k.kin);
+            last.push(k.last_ok);
         }
     }
     c.bits(kin.into_iter());
     c.f32s(&skill);
     c.f32s(&qual);
+    for t in last {
+        c.u(t as u64);
+    }
     w.bytes(&c.0);
     // partners
     let mut c = Wr::default();
@@ -296,7 +301,7 @@ pub fn decode_bands(blob: &[u8]) -> Result<Vec<Band>, String> {
     use crate::knowledge::Known;
     let mut r = Rd::new(blob);
     let v = r.u()?;
-    if v != BANDS_V {
+    if v == 0 || v > BANDS_V {
         return Err(format!("bands blob layout {v} is newer than this build"));
     }
     let rows = r.bytes()?;
@@ -341,6 +346,10 @@ pub fn decode_bands(blob: &[u8]) -> Result<Vec<Band>, String> {
             k.kin = kin[j];
             k.skill = skill[j];
             k.quality = qual[j];
+            // layout 1 (before v15) has no `last_ok`: it stays 0, long ago
+            if v >= 2 {
+                k.last_ok = c.u()? as u32;
+            }
             j += 1;
         }
     }

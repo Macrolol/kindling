@@ -1940,12 +1940,10 @@ impl World {
         b.owed *= 0.95;
         let floss = p.forget_rate * (1.0 + p.small_band_loss / pop.sqrt()) * (1.0 - RECORDS_FORGET * b.records);
         let mut forgot: Vec<u32> = Vec::new();
+        let avail = &b.d.tk.avail;
         for k in &mut b.known {
-            if k.used {
-                k.skill += p.practice * (1.0 - k.skill);
-            } else {
-                k.skill -= floss;
-            }
+            let at_hand = self.reg.recipes[k.recipe as usize].inputs.iter().all(|&i| avail.has(i));
+            practise(k, p.practice, floss, self.tick, at_hand);
             if k.quality > 0.0 {
                 k.quality = (k.quality * (1.0 - QUALITY_FADE * floss)).min(k.skill.max(0.0));
             }
@@ -3534,7 +3532,7 @@ impl World {
         let srcid = bands[src].id;
         let d = &mut bands[dst];
         Self::reinforce_craft(d, &self.reg.recipes[rid as usize], 1.06);
-        d.known.push(Known { recipe: rid, skill: 0.3, quality: (QUALITY_TEACH * tq).min(0.3), since: self.tick, from: srcid, kin: false, used: true });
+        d.known.push(Known { recipe: rid, skill: 0.3, quality: (QUALITY_TEACH * tq).min(0.3), since: self.tick, from: srcid, kin: false, last_ok: self.tick, used: true });
         d.d.known_ver += 1;
         d.learned += 1;
         let (did, dc) = (d.id, d.cell(self.map.w) as u32);
@@ -4192,6 +4190,27 @@ impl World {
                 format!("Y{yr}: band {} at ({cx},{cy}) is the first to keep its sailing directions as a chart{to}", e.band)
             }
         }
+    }
+}
+
+/// (diffusion D5) Seasons since a recipe was last practised or makeable during which it fades
+/// at `RECENT_FADE` of the usual rate.
+pub const RECENT_SEASONS: u32 = 40;
+pub const RECENT_FADE: f32 = 0.5;
+
+/// One season of practice or forgetting for a known recipe. (diffusion D5) What was practised
+/// lately, or could be made with what is at hand (an idle loom while cloth is woven, a mould
+/// while there is metal), fades at `RECENT_FADE` of the usual rate.
+pub fn practise(k: &mut Known, practice: f32, floss: f32, tick: u32, at_hand: bool) {
+    if k.used || at_hand {
+        k.last_ok = tick;
+    }
+    if k.used {
+        k.skill += practice * (1.0 - k.skill);
+    } else if tick.saturating_sub(k.last_ok) <= RECENT_SEASONS {
+        k.skill -= RECENT_FADE * floss;
+    } else {
+        k.skill -= floss;
     }
 }
 

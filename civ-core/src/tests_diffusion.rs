@@ -145,3 +145,55 @@ fn d4_teaching_weighted_to_usable_recipes() {
     assert_eq!(teach_weight(&[a, b, NONE, NONE], &avail), 2.5);
     assert_eq!(teach_weight(&[NONE; 4], &avail), 4.0);
 }
+
+/// D5: an unused recipe fades at half the rate for 40 seasons after it was last practised or
+/// makeable, then at the usual rate; practice and inputs at hand renew the date.
+#[test]
+fn d5_recent_recipes_fade_slower() {
+    use crate::knowledge::Known;
+    use crate::world::{practise, RECENT_FADE, RECENT_SEASONS};
+    let fresh = Known { skill: 0.5, last_ok: 100, ..Default::default() };
+    let (mut a, mut b) = (fresh, Known { last_ok: 0, ..fresh });
+    practise(&mut a, 0.1, 0.01, 100 + RECENT_SEASONS, false);
+    practise(&mut b, 0.1, 0.01, 100 + RECENT_SEASONS, false);
+    assert!((0.5 - a.skill - RECENT_FADE * 0.01).abs() < 1e-6, "recent: half the loss");
+    assert!((0.5 - b.skill - 0.01).abs() < 1e-6, "long ago: the usual loss");
+    let mut c = fresh;
+    practise(&mut c, 0.1, 0.01, 100 + RECENT_SEASONS + 1, false);
+    assert!((0.5 - c.skill - 0.01).abs() < 1e-6, "past the window: the usual loss");
+    // inputs at hand: still unpractised (it fades), but the date renews
+    let mut d = b;
+    practise(&mut d, 0.1, 0.01, 500, true);
+    assert_eq!(d.last_ok, 500);
+    assert!(d.skill < b.skill);
+    let mut e = Known { used: true, ..b };
+    practise(&mut e, 0.1, 0.01, 600, false);
+    assert_eq!(e.last_ok, 600);
+    assert!(e.skill > b.skill);
+}
+
+/// D5: bands' recipes carry their dates in play and through a save (bands blob layout 2).
+#[test]
+fn d5_last_ok_kept_and_saved() {
+    let mut w = world();
+    for _ in 0..4 * 30 {
+        w.step();
+    }
+    let dated = w.bands.iter().flat_map(|b| &b.known).filter(|k| k.last_ok > 0).count();
+    assert!(dated > 0, "recipes in use are dated");
+    let bytes = w.save_bytes(None, "test", "now").unwrap();
+    let (w2, _, info) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(info.format_version, crate::save::FORMAT_VERSION);
+    let dates = |w: &World| w.bands.iter().flat_map(|b| b.known.iter().map(|k| (k.recipe, k.last_ok))).collect::<Vec<_>>();
+    assert_eq!(dates(&w), dates(&w2));
+}
+
+/// D5: a save from before the diffusion step (bands blob layout 1) loads with every date at 0
+/// ("long ago"), so its recipes fade as they did.
+#[test]
+fn d5_old_saves_load_with_no_dates() {
+    let bytes = include_bytes!("../tests/fixtures/v13_seed3_y350_96x60.civsave");
+    let (w, _, _) = World::load_bytes(bytes).expect("v13 save loads");
+    assert!(w.bands.iter().any(|b| !b.known.is_empty()));
+    assert!(w.bands.iter().flat_map(|b| &b.known).all(|k| k.last_ok == 0));
+}
