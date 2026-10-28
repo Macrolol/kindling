@@ -1121,7 +1121,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x47dd4026c2ea8b54); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa98aac82f302b2bd); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does

@@ -2,6 +2,7 @@
 //! the web build. Deterministic per seed; no threads or clocks inside the step.
 pub mod analysis;
 pub mod band;
+pub mod effects;
 pub mod archive;
 pub mod codec;
 pub mod data;
@@ -19,6 +20,8 @@ mod probe_diffusion;
 mod tests;
 #[cfg(test)]
 mod tests_diffusion;
+#[cfg(test)]
+mod tests_skills;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;

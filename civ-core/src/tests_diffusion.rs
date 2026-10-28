@@ -64,43 +64,62 @@ fn d2_ornament_practised_without_wear() {
     assert_eq!(worn.needed, bare.needed, "no stock drawn");
 }
 
-/// D3: fully practised, a copper knife outranks flint (it keeps its edge and needs little
-/// mending), and so do bronze, iron and steel blades over flint and obsidian.
+/// D3, layer 1: a practised knife is ranked by the food `cut_q` adds, minus the food its
+/// upkeep labour would have grown. Every metal knife beats stone on that, and a metal point
+/// beats a stone or glass point because the fish is the same and the metal wears less.
+/// Flint is keener than copper, and that food is worth more than copper's easier upkeep, so
+/// the flint knife stays; iron, bronze and steel are keen enough to take the cut. The hunt
+/// slot is a different choice (a spear's reach) and is not asserted here.
 #[test]
 fn d3_metal_blades_outrank_stone_when_practised() {
     use crate::band::make_kit;
     use crate::materials::ItemSet;
-    for metal in [Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel] {
-        for stone in [Mat::Flint, Mat::Obsidian] {
-            let mut a = ItemSet::default();
-            for f in [Form::Edge, Form::Spear, Form::Point] {
-                a.add(item(f, metal));
-                a.add(item(f, stone));
-            }
-            let k = make_kit(&a);
-            assert_eq!(k.cut, item(Form::Edge, metal), "{metal:?} knife over {stone:?}");
-            assert_eq!(k.hunt, item(Form::Spear, metal), "{metal:?} spear over {stone:?}");
-            assert_eq!(k.point, item(Form::Point, metal));
-            assert_eq!(k.trial, [NONE; 12], "nothing better in prospect");
+    let kit = |metal: Mat, stone: Mat| {
+        let mut a = ItemSet::default();
+        for f in [Form::Edge, Form::Spear, Form::Point] {
+            a.add(item(f, metal));
+            a.add(item(f, stone));
         }
+        make_kit(&a)
+    };
+    for metal in [Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel] {
+        let k = kit(metal, Mat::Stone);
+        assert_eq!(k.cut, item(Form::Edge, metal), "{metal:?} knife over stone");
+        assert_eq!(k.point, item(Form::Point, metal), "{metal:?} point wears less");
+        assert_eq!(k.trial, [NONE; 12], "nothing better in prospect");
     }
+    let k = kit(Mat::Copper, Mat::Flint);
+    assert_eq!(k.cut, item(Form::Edge, Mat::Flint), "flint feeds better than copper");
+    assert_eq!(k.point, item(Form::Point, Mat::Copper), "the point's food does not depend on the stone");
+    assert_eq!(k.trial[1], NONE, "copper is worse even fully practised");
+    for metal in [Mat::Bronze, Mat::Iron, Mat::Steel] {
+        let k = kit(metal, Mat::Flint);
+        assert_eq!(k.cut, item(Form::Edge, metal), "{metal:?} knife over flint");
+        assert_eq!(k.point, item(Form::Point, metal));
+        assert_eq!(k.trial[1], NONE, "flint is not worth trying once {metal:?} is practised");
+    }
+    // obsidian is the keenest stone. Iron's food still clears it; copper's does not.
+    assert_eq!(kit(Mat::Iron, Mat::Obsidian).cut, item(Form::Edge, Mat::Iron));
+    assert_eq!(kit(Mat::Copper, Mat::Obsidian).cut, item(Form::Edge, Mat::Obsidian));
+    assert_eq!(kit(Mat::Copper, Mat::Obsidian).point, item(Form::Point, Mat::Copper));
 }
 
-/// D3: a newly learnt copper knife is not yet relied on while the flint one is honed, but it
-/// is tried out; once practised it takes over and flint is no longer in prospect.
+/// D3: a newly learnt steel knife is not yet relied on while the flint one is honed, but it
+/// is tried out; once practised it takes over and flint is no longer in prospect. Steel, not
+/// copper: a copper knife's food never catches a honed flint one, at any skill.
 #[test]
 fn d3_newcomer_is_tried_then_takes_over() {
     use crate::band::make_kit_with;
     use crate::materials::ItemSet;
-    let (flint, copper) = (item(Form::Edge, Mat::Flint), item(Form::Edge, Mat::Copper));
+    let (flint, steel) = (item(Form::Edge, Mat::Flint), item(Form::Edge, Mat::Steel));
     let mut a = ItemSet::default();
     a.add(flint);
-    a.add(copper);
-    let kit = |sk: f32| make_kit_with(&a, &|it| if it == copper { (sk, 0.0, 3) } else { (1.0, 0.0, 1) });
+    a.add(steel);
+    let kit = |sk: f32| make_kit_with(&a, &|it| if it == steel { (sk, 0.0, 3) } else { (1.0, 0.0, 1) });
     let k = kit(0.3);
-    assert_eq!((k.cut, k.trial[1]), (flint, copper), "newcomer tried beside the honed tool");
+    assert_eq!((k.cut, k.trial[1]), (flint, steel), "newcomer tried beside the honed tool");
     let k = kit(0.9);
-    assert_eq!((k.cut, k.trial[1]), (copper, NONE), "practised, it takes over");
+    assert_eq!((k.cut, k.trial[1]), (steel, NONE), "practised, it takes over");
 }
 
 /// D3: a band using a slot with a challenger tries it about one season in five
