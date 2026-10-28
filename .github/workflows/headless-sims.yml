@@ -104,6 +104,11 @@ on:
         required: false
         default: false
         type: boolean
+      probe:
+        description: "Also run the read-only diffusion probe on the same seeds and map (civ-core/src/probe_diffusion.rs, docs/PROGRESS-diffusion.md)"
+        required: false
+        default: false
+        type: boolean
       runner:
         description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
         required: false
@@ -354,6 +359,68 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  probe:
+    # read-only instrumentation: watches the same worlds as the sim job (same seeds and map,
+    # default params) and writes per-item spread / forgetting tables; uploaded as
+    # results-probe-<chunk>, so the archive keeps them under jobs/
+    name: Probe ${{ matrix.name }}
+    needs: plan
+    if: inputs.probe
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ fromJSON(inputs.sim_timeout || '150') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+
+      - name: Run probe
+        env:
+          FROM: ${{ matrix.from }}
+          TO: ${{ matrix.to }}
+          CHUNK: ${{ matrix.name }}
+          PROBE_YEARS: ${{ inputs.years }}
+          MAP: ${{ inputs.map }}
+          CONFIG: ${{ inputs.config }}
+          RAYON_NUM_THREADS: ${{ inputs.threads || '4' }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CONFIG:-}" ]; then echo "::warning::the probe uses default params"; fi
+          wh="${MAP:-256x160}"
+          export PROBE_W="${wh%x*}" PROBE_H="${wh#*x}" PROBE_OUT="$PWD/probe-out"
+          export PROBE_SEEDS=$(seq -s, "$FROM" "$TO")
+          mkdir -p probe-out
+          cargo test --release --locked -p civ-core probe_diffusion -- --ignored --nocapture 2>&1 | tee "probe-out/probe-${CHUNK}.log"
+          gzip -9 probe-out/*.csv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-probe-${{ matrix.name }}
+          path: probe-out/
+          retention-days: 30
+          if-no-files-found: warn
+
   summary:
     name: Summarise results
     needs: [plan, sim]
@@ -437,7 +504,7 @@ jobs:
     # public pre-release `run-<run id>` (tag on the tested commit). Never marked latest; the
     # version releases (v0.x) are not touched. Only this job may write to the repository.
     name: Archive to pre-release
-    needs: [plan, sim, summary]
+    needs: [plan, sim, summary, probe]
     if: always() && needs.plan.result == 'success' && inputs.archive
     runs-on: ubuntu-latest
     timeout-minutes: 60

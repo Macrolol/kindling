@@ -14,6 +14,8 @@ pub mod rng;
 pub mod save;
 pub mod world;
 #[cfg(test)]
+mod probe_diffusion;
+#[cfg(test)]
 mod tests;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
