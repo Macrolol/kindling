@@ -83,3 +83,31 @@ docs/REPORT-diffusion.md.
   100, when 96% of game remains (9%). Game left is 0.61 at y200, 0.40 at y300 and 0.13 at y600.
 - So the hide/bone family is starved structurally, by the stock budget, well before game
   depletion; depletion adds to it later.
+
+## 6. CI probe results across map sizes
+
+Runs 40606688049 (128x80, 8 seeds, 1500 y) and 40606696457 (192x120, 8 seeds, 1200 y).
+Aggregates: `tools/diffusion_probe_agg.py`, `tools/diffusion_series.py`.
+
+| metric | 128x80 | 192x120 |
+|---|---|---|
+| forgets: no_input / displaced / unneeded / redundant / idle_slot % | 58.7 / 22.9 / 11.2 / 4.6 / 2.7 | 58.6 / 24.6 / 9.3 / 4.3 / 3.1 |
+| taught recipes arriving producible % | 44.5 | 44.0 |
+| taught / inherited / invented gains later forgotten % | 73.6 / 28.9 / 78.4 | 70.8 / 28.5 / 75.8 |
+| forgotten without practice after the learning season % | 75.5 | 77.9 |
+
+So the local seed-1 picture holds across seeds and both sizes.
+
+Metal and other "better" tech (2nd-half means of known / make / kit):
+- copper knife 0.76/0.38/0.14 and 0.76/0.42/0.13: makeable but in the kit only a third of the time.
+  `make_kit` ranks edges by `cut_q*(0.75+0.25*dur)`: flint 0.625, obsidian 0.641, copper 0.480,
+  bronze 0.650, iron 0.640, steel 0.776. Copper loses to flint, and iron loses to obsidian. But
+  `weapon_q` (0.55 cut + 0.45 dur) and upkeep (`1.15 - dur`) both rate metal well above flint.
+- copper-tipped spear 0.68/0.36/0.17 and 0.54/0.33/0.11: flint spear 0.695 vs copper 0.662.
+- copper axe 0.71-0.76 / 0.38-0.40 / 0.24-0.36: copper wins the axe slot (0.740 vs stone 0.449).
+- plank boat 0.74-0.81 / 0.39-0.55 / same; woven mat sail 0.66-0.72 / 0.38-0.48; sealed jar
+  0.81-0.88 / 0.21-0.27 (100% of jar forgets are no_input: pitch); fired clay token kit 0.59-0.72.
+  Wherever these can be made they are used, so their limit is inputs, not incumbency.
+- nailed plank ship: 1 seed (192x120), peak 0.30, 95% of forgets no_input (nails + pitch).
+- There are no drying-rack or chart items in the item table. Smoking and sky lore are flags
+  or skills and are not tracked by the per-recipe probe.
