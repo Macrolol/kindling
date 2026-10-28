@@ -74,3 +74,10 @@ no population collapse.
 - (b) seeds 499246292-301, 750 y, 800x800: run 40712466759 (compare 40620602590)
 - probes: 128x80 seeds 1-8 1500 y run 40712480983; 192x120 seeds 1-8 1200 y run 40712496067;
   256x160 seeds 1-5 1000 y run 40712511412 (sim_timeout 300)
+- The three probe runs were cancelled at 11:3x AM EDT: with (a)/(b) they held all 20 free-plan
+  job slots and starved the others. Re-dispatched one at a time (below).
+- (a) and (b) identical to the pre-step-0 runs (79d5fd4) apart from the new zero fields and
+  timings: `tools/cmp_runs.py OLD NEW` checks every manifest/summary.json/frames/metrics/chronicle
+  field and the per-job text; 0 mismatches, 0 nonzero new fields on both.
+  docs/results-skills-step0-seeds1-10-500y.txt, docs/results-skills-step0-750y-800x800.txt.
+- Probe re-dispatch: 128x80 seeds 1-8 1500 y run 40725221814 (12:21 PM EDT).
