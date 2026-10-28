@@ -43,3 +43,23 @@ fn d1_hide_stock_holds_for_hunters() {
     assert!(hunters > 0, "some bands hunt");
     assert_eq!(kept, hunters, "every band hunting 2.5+ holds hide");
 }
+
+/// D2: a worn ornament counts as practised (it is in the season's `used`, so its making stays
+/// in mind) but takes no upkeep and draws on no stock.
+#[test]
+fn d2_ornament_practised_without_wear() {
+    let mut w = world();
+    for _ in 0..8 {
+        w.step();
+    }
+    let mut b = w.bands[0].clone();
+    b.d.kit.ornament = NONE;
+    let bare = w.economy(&b, 1);
+    let beads = item(Form::Ornament, Mat::Bone);
+    b.d.kit.ornament = beads;
+    let worn = w.economy(&b, 1);
+    assert!(worn.used.contains(&beads), "worn ornament is practised");
+    assert!(!bare.used.contains(&beads));
+    assert_eq!(worn.upkeep.to_bits(), bare.upkeep.to_bits(), "no wear");
+    assert_eq!(worn.needed, bare.needed, "no stock drawn");
+}

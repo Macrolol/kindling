@@ -1630,10 +1630,15 @@ impl World {
                 continue;
             }
             let craft = it == kit.boat || it == kit.outrigger || it == kit.sail || it == kit.plank || it == kit.ship;
-            // ornaments are kept for show, not worn out at work
+            // ornaments are kept for show, not worn out at work; (diffusion D2) but worn, so
+            // their making stays in mind: practised, with no wear and no stock drawn
+            if it == kit.ornament {
+                used.push(it);
+                continue;
+            }
             // (inventions step 8) a tally is only kept (and so remembered) with something to count
             let idle_mark = it == kit.mark && !Self::keeps_count(b);
-            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || it == kit.ornament || (it == kit.pitch && !pitch) || idle_mark {
+            if (craft && !wet) || (it == kit.net && ys[2] < 1.0) || (it == kit.pitch && !pitch) || idle_mark {
                 continue;
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));

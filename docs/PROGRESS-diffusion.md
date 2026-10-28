@@ -133,6 +133,11 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   this season's big-game harvest `h[1]+0.3h[3] > 1`, so the 0.06 missing-input drain stops while
   hunting goes on). Tests `d1_hide_and_bone_at_hand_for_hunters`, `d1_hide_stock_holds_for_hunters`;
   v10 fixture run-on hash updated. Smoke `probe_hide` seed 1 128x80 600 y (81 s): has_hide now
-  tracks need_hide (0.52/0.51 y200, 0.33/0.35 y600; before, few needers held stock). Hunting
+  tracks need_hide (0.52/0.51 y200, 0.33/0.35 y600). Hunting
   pressure about unchanged: game left 0.55 y200 (was 0.61), 0.37 y300 (0.40), 0.19 y600 (0.13).
   Full suite 66 passed.
+- D2 worn ornaments practised (`economy`: the kit's ornament goes into `used`, so `mark_used`
+  walks its chain, with no upkeep and no `needed` bits). Test `d2_ornament_practised_without_wear`;
+  v10 run-on hash updated. Smoke `probe_diffusion` seed 1 128x80 600 y (111 s), share of bands
+  able to make it at y600 (D1+D2): hide thong 0.64, bone beads 0.64, cooked meat 0.27 (pre-D probe
+  8-seed means: 0.12, 0.09 and 0.28). Full suite 67 passed.
