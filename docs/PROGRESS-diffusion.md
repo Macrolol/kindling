@@ -111,3 +111,16 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
 - nailed plank ship: 1 seed (192x120), peak 0.30, 95% of forgets no_input (nails + pitch).
 - There are no drying-rack or chart items in the item table. Smoking and sky lore are flags
   or skills and are not tracked by the per-recipe probe.
+
+### 6b. 256x160 (40606704688, seeds 1-4 of 5)
+
+- Probe artifacts were downloaded directly with `gh run download -n results-probe-<c>`;
+  the seed-5 probe was still running at 21:11 Toronto time (UTC-4).
+- Forget reasons: no_input 61.1, displaced 23.1, unneeded 8.2, redundant 4.0, idle_slot 3.6%.
+- Taught recipes arriving producible: 42.8%. 77% of forgotten recipes were never
+  practised.
+- Copper knife 0.84/0.48/0.15, plank boat make = kit 0.46, bone beads 0.61 → 0.08.
+  Same picture as the other sizes.
+- Charts (summary.json, 128x80 + 192x120): first chart in 10/16 seeds, peak <= 17 bands,
+  0 at end in 14/16.
+- Report written: docs/REPORT-diffusion.md.
