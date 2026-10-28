@@ -187,3 +187,26 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   (unreleased): `item_known`/`item_known_peak` load empty, four-value lore rows load with 0.
   Reporting only; the seed 1 128x80 600y smoke is identical to D5 (2779 bands), with one
   forgotten-everywhere event. tools/diffusion_hist.py reads 4- or 5-value rows.
+- **D checks (CI, build 79d5fd4; report only, nothing tuned).** Full before/after is in
+  REPORT-diffusion.md section 9. Data: docs/results-diff-seeds1-10-500y.txt (a, run 40620593419),
+  docs/results-diff-750y-800x800.txt (b, run 40620602590), docs/results-diff-probes.txt (probes
+  40620611442 128x80, 40620619645 192x120, 40620627632 256x160 vs 40606688049/40606696457/40606704688).
+  New tool tools/diffusion_knives.py.
+  - Guard rails all pass:
+    - no crossing before Y100;
+    - crossings (a) 5/10 (limit 6), (b) 1/10 (limit under 7);
+    - war (a) 0.392 -> 0.320, (b) 0.294 -> 0.271;
+    - no collapse (b 499246298 dies early as expected; a seed 10 -11%).
+  - Population: (a) +14%, (b) +5%. Items now (a) 74.1 -> 89.7, (b) 84.3 -> 90.4.
+  - Metal: steel (a) 2/10 -> 10/10 worlds (median Y258), (b) 8/9 -> 9/9 (median Y240). The probe
+    cut slot is 0.62-0.97 metal at Y300 (pre 0.05-0.48). Steel knives are in 0.73-0.82 of kits
+    (second-half means). Probe extinctions 277/149/57 -> 16/10/18.
+  - Hunting: cooked meat makeable 0.28/0.14/0.14 -> 0.15/0.11/0.10 (no_input). Hunting kit is
+    present; this is likely game pressure from a larger population. Hide thong and bone beads are up
+    strongly (D1/D2).
+  - Teaching: taught producible on arrival 44.5/44.0/42.1 -> 37.9/36.3/34.2%; taught then
+    forgotten 73.6/70.8/71.8 -> 60.0/60.2/60.6%; never practised 75.5/77.9/77.6 ->
+    81.5/83.1/83.5%.
+  - Worse-newcomer adoptions: down for hide net and rawhide snare, up for iron knives and spears.
+  - Open questions for Michael (not tuned): metal arriving early and everywhere; game pressure;
+    iron adoptions while worse.

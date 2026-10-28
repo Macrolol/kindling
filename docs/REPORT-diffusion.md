@@ -361,3 +361,145 @@ docs/PROGRESS-diffusion.md, section D.
   - A new counter `forgotten_everywhere` is in the counter registry.
   - Still save format 15 (from D5). Old saves fill the new values with 0.
   - DATA_SCHEMA.md and SAVE_FORMAT.md are updated, and the tools are checked.
+
+## 9. Before/after D1-D6 (CI checks on build 79d5fd4; report only, nothing tuned)
+
+Runs (all headless-sims, build 79d5fd4):
+
+- (a) seeds 1-10, 500 y, 256x160: [40620593419](https://github.com/Macrolol/kindling/actions/runs/40620593419), docs/results-diff-seeds1-10-500y.txt (vs step 13, 40588153931)
+- (b) seeds 499246292-301, 750 y, 800x800: [40620602590](https://github.com/Macrolol/kindling/actions/runs/40620602590), docs/results-diff-750y-800x800.txt (vs step 13, 40588163981)
+- Probes, compared with the pre-fix runs in docs/results-diff-probes.txt:
+  - 128x80, 8 seeds, 1500 y: [40620611442](https://github.com/Macrolol/kindling/actions/runs/40620611442) (pre-fix 40606688049)
+  - 192x120, 8 seeds, 1200 y: [40620619645](https://github.com/Macrolol/kindling/actions/runs/40620619645) (pre-fix 40606696457)
+  - 256x160, 5 seeds, 1000 y: [40620627632](https://github.com/Macrolol/kindling/actions/runs/40620627632) (pre-fix 40606704688)
+
+### 9.1 World checks, step 13 -> D1-D6
+
+| metric | (a) step 13 | (a) D1-D6 | (b) step 13 | (b) D1-D6 |
+|---|---|---|---|---|
+| total pop | 1,096,051 | 1,250,829 | 7,736,599 | 8,097,746 |
+| war %/y (mean) | 0.392 | 0.320 | 0.294 | 0.271 |
+| disease %/y (mean) | 0.117 | 0.124 | 0.177 | 0.194 |
+| continent crossings | 4/10, first Y114 | 5/10 (Y115, Y180, Y196, Y248, Y484) | 1/10, Y632 | 1/10, Y634 |
+| crossings before Y100 | 0 | 0 | 0 | 0 |
+| items now (mean) | 74.1 | 89.7 | 84.3 | 90.4 |
+| steel | 2/10, med Y382 | **10/10**, med Y258 | 8/9, med Y373 | **9/9**, med Y240 |
+| forged iron tools | 2/10, med Y339 | 10/10, med Y252 | 8/9, med Y353 | 9/9, med Y224 |
+| bronze metal | 6/10, med Y283 | 10/10, med Y314 | 6/9, med Y345 | 8/9, med Y356 |
+| pitch | 10/10, med Y196 | 10/10, med Y176 | 9/9, med Y265 | 9/9, med Y250 |
+| sealed jar | 10/10, med Y214 | 10/10, med Y195 | 9/9, med Y341 | 9/9, med Y394 |
+| ships | 0/10 | 0/10 | 1/9, Y665 | 2/9, med Y640 |
+| ale | 1/10 | 2/10 | 2/9 | 5/9 |
+| any sail / cloth sail | 5/10 / 0/10 | 8/10 / 3/10 | 7/9 / 7/9 | 9/9 / 9/9 |
+| gold ring | 1/10 | 4/10 | 7/9, med Y436 | 6/9, med Y437 |
+| steel_made (sum) | 0.88M | 10.7M | 21.1M | 85.4M |
+| forgotten_everywhere (sum) | (no counter) | 18 | (no counter) | 45 |
+
+(b) seed 499246298 dies by about Y10 in both builds, as expected; it counts as a world in the 9-seed "x/9"
+milestone columns (the first ten seeds minus that one).
+
+Guard rails: no crossing before Y100 in either; (a) 5/10 (limit 6/10), (b) 1/10 (limit under 7/10);
+war is lower in both ((a) 0.392 -> 0.320, (b) 0.294 -> 0.271); no population collapse (only (a)
+seed 10 is down, 55,294 -> 48,969, -11%). All pass.
+
+### 9.2 Probe totals, pre-fix -> D1-D6
+
+| metric | 128x80 | 192x120 | 256x160 |
+|---|---|---|---|
+| forget reasons no_input / displaced / unneeded / redundant / idle_slot % | 58.7/22.9/11.2/4.6/2.7 -> 67.6/20.4/5.7/5.7/0.6 | 58.6/24.6/9.3/4.3/3.1 -> 68.5/20.6/4.6/5.7/0.6 | 60.8/23.5/7.4/5.0/3.3 -> 70.3/19.5/3.5/6.1/0.6 |
+| taught recipes producible on arrival % | 44.5 -> 37.9 | 44.0 -> 36.3 | 42.1 -> 34.2 |
+| taught then forgotten % (of taught gains) | 73.6 -> 60.0 | 70.8 -> 60.2 | 71.8 -> 60.6 |
+| forgotten never practised after learning % | 75.5 -> 81.5 | 77.9 -> 83.1 | 77.6 -> 83.5 |
+| forgets within 20 y of being taught | 17.4M -> 6.8M | 30.2M -> 10.9M | 30.3M -> 10.9M |
+| item extinction events (probe) | 277 -> 16 | 149 -> 10 | 57 -> 18 |
+| ForgottenEverywhere (counter) | - -> 16 | - -> 10 | - -> 18 |
+
+### 9.3 Known / makeable / in kit (share of bands, 2nd-half means), pre -> post
+
+known/make/kit; "(n seeds)" = item appeared in only n seeds (8, 8, 5 probe seeds).
+
+| item | 128x80 | 192x120 | 256x160 |
+|---|---|---|---|
+| hide thong | 0.91/0.12/0.12 -> 0.98/0.36/0.36 | 0.89/0.08/0.08 -> 0.98/0.36/0.36 | 0.90/0.09/0.09 -> 0.98/0.33/0.33 |
+| cooked meat | 0.98/0.28/0.28 -> 0.98/0.15/0.15 | 0.94/0.14/0.14 -> 0.94/0.11/0.11 | 0.94/0.14/0.14 -> 0.95/0.10/0.10 |
+| bone beads | 0.10/0.04/0.04 -> 0.97/0.45/0.35 | 0.10/0.03/0.03 -> 0.93/0.43/0.28 | 0.17/0.07/0.07 -> 0.92/0.40/0.27 |
+| bone point | 0.91/0.21/0.06 -> 0.99/0.45/0.03 | 0.88/0.17/0.04 -> 0.98/0.44/0.03 | 0.88/0.22/0.04 -> 0.98/0.41/0.02 |
+| flint blade | 0.85/0.44/0.38 -> 0.76/0.40/0.04 | 0.78/0.41/0.32 -> 0.67/0.36/0.02 | 0.85/0.44/0.27 -> 0.66/0.33/0.01 |
+| stone blade | 1.00/1.00/0.39 -> 1.00/1.00/0.09 | 1.00/1.00/0.26 -> 1.00/1.00/0.06 | 1.00/1.00/0.20 -> 1.00/1.00/0.06 |
+| copper knife | 0.76/0.38/0.14 (6 seeds) -> 0.79/0.40/0.06 | 0.76/0.42/0.13 -> 0.83/0.48/0.05 | 0.81/0.46/0.12 -> 0.87/0.51/0.04 |
+| bronze knife | 0.63/0.29/0.29 (1 seeds) -> 0.76/0.37/0.07 (4 seeds) | 0.76/0.52/0.52 (3 seeds) -> 0.71/0.42/0.08 | 0.49/0.34/0.32 (4 seeds) -> 0.79/0.51/0.05 (4 seeds) |
+| iron knife | 0.94/0.50/0.05 (1 seeds) -> 0.96/0.64/0.04 | 0.95/0.53/0.09 (1 seeds) -> 0.95/0.67/0.03 | 0.94/0.63/0.05 (1 seeds) -> 0.97/0.68/0.03 |
+| steel knife | 0.96/0.60/0.60 (1 seeds) -> 0.99/0.79/0.73 | 0.97/0.54/0.54 (1 seeds) -> 0.99/0.83/0.77 | 0.97/0.66/0.66 (1 seeds) -> 1.00/0.87/0.82 |
+| steel-tipped spear | 0.95/0.60/0.60 (1 seeds) -> 0.98/0.78/0.69 | 0.95/0.54/0.54 (1 seeds) -> 0.98/0.83/0.74 | 0.96/0.66/0.66 (1 seeds) -> 1.00/0.87/0.70 |
+
+### 9.4 Knife slot: metal vs stone share of bands' cut-slot kit (tools/diffusion_knives.py)
+
+| year | 128x80 metal/stone pre -> post | 192x120 pre -> post | 256x160 pre -> post |
+|---|---|---|---|
+| Y200 | 0.00/1.00 -> 0.07/0.93 | 0.09/0.91 -> 0.41/0.59 | 0.07/0.92 -> 0.24/0.76 |
+| Y300 | 0.05/0.95 -> 0.62/0.38 | 0.32/0.68 -> 0.88/0.12 | 0.48/0.52 -> 0.97/0.03 |
+| Y400 | 0.10/0.90 -> 0.79/0.21 | 0.33/0.67 -> 0.97/0.03 | 0.54/0.46 -> 0.97/0.03 |
+| Y500 | 0.08/0.92 -> 0.95/0.05 | 0.39/0.61 -> 0.93/0.07 | 0.51/0.49 -> 0.95/0.05 |
+| Y600 | 0.16/0.84 -> 0.89/0.11 | 0.43/0.57 -> 0.92/0.08 | 0.52/0.48 -> 0.92/0.08 |
+| Y800 | 0.19/0.81 -> 0.85/0.15 | 0.39/0.61 -> 0.92/0.08 | 0.50/0.50 -> 0.92/0.08 |
+| Y1000 | 0.22/0.78 -> 0.86/0.14 | 0.40/0.60 -> 0.93/0.07 | 0.52/0.48 -> 0.92/0.08 |
+| Y1200 | 0.23/0.77 -> 0.86/0.14 | 0.42/0.58 -> 0.94/0.06 | - |
+| Y1500 | 0.23/0.77 -> 0.85/0.15 | - | - |
+
+Steel knife spread after D1-D6 (years from the first band knowing it): t50 20-40 y, t75 30-90 y
+on 128x80; t50 30-40 y, t75 30-50 y on 192x120; t50 20-30 y, t75 40-50 y on 256x160. Before the fix steel
+appeared in only one probe seed per map: 128x80 seed 5 at Y680 (t50 80 y, t75 200 y), 192x120 seed 5
+at Y230 (t50 20 y, t75 30 y), 256x160 seed 5 at Y280 (t50 20 y, t75 30 y). So within one world the
+speed is not new; what changed is that steel now appears in every world, about Y200-460.
+
+### 9.5 Displacement by worse newcomers (worse_ref: share of a newcomer's kit entries that lowered the refined kit payoff)
+
+| newcomer | 128x80 pre -> post | 192x120 pre -> post | 256x160 pre -> post |
+|---|---|---|---|
+| hide net | 0.58 -> 0.27 | 0.47 -> 0.30 | 0.35 -> 0.30 |
+| rawhide snare | 0.57 -> 0.19 | 0.53 -> 0.25 | 0.38 -> 0.24 |
+| plant fibre net | nan -> 0.55 | nan -> 0.59 | nan -> 0.59 |
+| bone-tipped spear | 0.00 -> 0.17 | 0.00 -> 0.16 | 0.00 -> 0.14 |
+| iron-tipped spear | 0.52 -> 0.62 | 0.18 -> 0.76 | 0.54 -> 0.72 |
+| copper knife | 0.00 -> 0.37 | 0.00 -> 0.36 | 0.00 -> 0.29 |
+| bronze knife | 0.05 -> 0.26 | 0.31 -> 0.28 | 0.33 -> 0.24 |
+| iron knife | 0.45 -> 0.58 | 0.21 -> 0.61 | 0.54 -> 0.67 |
+| steel knife | 0.22 -> 0.00 | 0.00 -> 0.00 | 0.00 -> 0.00 |
+| stone blade | nan -> 1.00 | nan -> 1.00 | nan -> 1.00 |
+| sharpened-stick spear | nan -> 1.00 | nan -> 1.00 | nan -> 1.00 |
+| stone axe | 1.00 -> 1.00 | 1.00 -> 1.00 | 1.00 -> 1.00 |
+
+Rows are the newcomer, as in section 3: the share of its adoptions where the refined kit payoff
+went down. Hide net and rawhide snare adoptions are worse less often (0.47-0.58 -> 0.19-0.30 on
+128x80/192x120, smaller drop on 256x160). Iron knives and iron-tipped spears are adopted while worse
+**more** often (iron knife 0.21-0.54 -> 0.58-0.67, iron-tipped spear 0.18-0.54 -> 0.62-0.76), and
+copper knives now 0.29-0.37 (was 0). Steel knives are never worse. The stone rows at 1.00 (stone
+blade, sharpened-stick spear; stone axe already 1.00 before) are probably bands falling back to a
+stone tool after losing the metal one. So D3 did not remove quality-blind adoption for the middle
+metals. Its trial rule and the probe's refined-payoff measure may disagree, and that is worth
+checking before tuning.
+
+### 9.6 Findings and concerns (not tuned)
+
+1. **Metal arrives too early and everywhere.** Steel is in every (a) world by Y188-306 (step 13:
+   2/10) and every living (b) world; steel_made is 12x (a) and 4x (b). In the probes the cut slot at
+   Y300 goes from metal 0.05/0.32/0.48 of bands (128/192/256) to 0.62/0.88/0.97, and steel knives
+   reach half the bands 20-40 years after the first one. That per-world speed matches the single
+   pre-fix steel seeds on 192x120 and 256x160, so the change is mostly that every world now gets
+   there. Likely cause: the metal chain stops being lost. Pre-fix 128x80 probe extinctions included
+   tin 40, copper metal 27, hide bellows 16 and iron bloom 6 (277 in all); post-fix there are 16 in
+   all. D3 then puts practised metal blades above honed stone, trials make every band practise the
+   challenger, and D5 keeps moulds, bloomery and crucibles from fading. Iron and copper knives are
+   mostly passed through on the way to steel (kit 0.03-0.06, known 0.79-0.97).
+2. **Hunting/cooking.** Cooked meat makeable fell (128x80 0.28 -> 0.15, 192x120 0.14 -> 0.11, 256x160 0.14 ->
+   0.10), always for no_input (98% of its forgets): the bands know it but lack meat that season. Hunting
+   kit is not missing (bow 0.70, flax snare 0.92 and steel-tipped spear 0.69-0.74 of bands in kit on 128x80/192x120), and
+   population is up, so this looks like more people on the same game (seen in the D3 smoke) rather than D3
+   starving hunting outright. Forager density in (a) fell 36.6 -> 31.7 and farm food share rose
+   0.31 -> 0.43. Worth a targeted look at game_left before any tuning.
+3. D1/D2 worked as meant: hide thong makeable 0.08-0.12 -> 0.33-0.36, bone beads known
+   0.10-0.17 -> 0.92-0.97 and makeable 0.03-0.07 -> 0.40-0.45.
+4. D4/D5 halve fast forgetting (within-20-y forgets -61 to -64%; probe extinctions -68 to -94%), but
+   taught recipes are less often producible on arrival (-7 to -8 points) and more forgets are of
+   never-practised recipes (+5 to +6 points). no_input is now two thirds of forgets.
+5. Iron knives and spears are adopted while worse more often than before (9.5).
