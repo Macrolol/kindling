@@ -1577,6 +1577,25 @@ impl World {
         cells
     }
 
+    /// Whether a carried material is at hand where the band is this season (so the tools that
+    /// need it do not wear its stock down extra): wood, fibre and resinous wood where they grow,
+    /// metal and salt the band makes itself, ores and stone at their deposits, and (diffusion
+    /// D1) hide and bone in any season the band hunted big game (`hunted` > 1).
+    pub(crate) fn mat_at_hand(&self, b: &Band, ci: usize, mm: Mat, hunted: f32) -> bool {
+        match mm {
+            Mat::Wood => self.map.k_wood[ci] > 2.0,
+            Mat::ResinWood => self.map.resin_wood(ci),
+            Mat::Fibre => self.map.k_fibre[ci] > 2.0,
+            Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel | Mat::Salt => b.d.tk.producible.has(raw(mm)),
+            Mat::Brine => false,
+            Mat::Flax | Mat::Wool => false, // grown / shorn: topped up in `farm_season`
+            // (diffusion D1) hunters dress hides and work bone from their own kills: they
+            // are at hand in any season the band hunted big game, not only at a deposit
+            Mat::Hide | Mat::Bone => hunted > 1.0,
+            mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
+        }
+    }
+
     /// The season's economy for a band, computed from the current world without changing it:
     /// how hard it works, what it harvests, how full it eats, and what its tools need.
     pub fn economy(&self, b: &Band, s: u32) -> Econ {
@@ -1804,15 +1823,7 @@ impl World {
             if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic || mm == Mat::Pitch {
                 continue;
             }
-            let present = match mm {
-                Mat::Wood => self.map.k_wood[ci] > 2.0,
-                Mat::ResinWood => self.map.resin_wood(ci),
-                Mat::Fibre => self.map.k_fibre[ci] > 2.0,
-                Mat::Copper | Mat::Tin | Mat::Bronze | Mat::Iron | Mat::Steel | Mat::Salt => b.d.tk.producible.has(raw(mm)),
-                Mat::Brine => false,
-                Mat::Flax | Mat::Wool => false, // grown / shorn: topped up in `farm_season`
-                mm => DEPOSITS.iter().any(|&(d, m2)| m2 == mm && self.map.has(ci, d)),
-            };
+            let present = self.mat_at_hand(b, ci, mm, hunted);
             // metal is durable and re-worked (blunt tools are re-hammered, scrap re-melted),
             // so it wears away far slower than stone, hide or fibre
             // (inventions step 11) gold never tarnishes and is kept: it wears as slowly as metal

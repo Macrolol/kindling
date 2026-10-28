@@ -17,6 +17,8 @@ pub mod world;
 mod probe_diffusion;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_diffusion;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;
