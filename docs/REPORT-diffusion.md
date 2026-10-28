@@ -293,3 +293,71 @@ Item checks (known / make / kit):
 
 No iron or plank ships appeared in these seeds. Every finding above holds on all three
 map sizes.
+
+## 8. Diffusion step D1-D6: decisions (PROPOSAL, approved by Michael 2026-10-27)
+
+Michael approved adjustments 1-6 of section 6 as the "diffusion" step, D1-D6. Item 7
+(scarce-metal trade pull) is not part of it. There are no caps and no scripted outcomes.
+Each sub-step gets unit tests, a short local smoke and its own commit. Progress is in
+docs/PROGRESS-diffusion.md, section D.
+
+- **D1 (B1): hide and bone are at hand for hunters.**
+  - In stock upkeep, `Mat::Hide | Mat::Bone` are "present" when the band hunted big game
+    this season (`hunted > 1`, the same test that already sets their origin).
+  - Then the extra `needed && !present` wear (0.06 a season) no longer applies to them.
+  - Budget: a season's gain is `0.01 x hunted` and the plain use is 0.02, so the stock holds
+    at `hunted >= 2`. Bands that need hide hunt 3.1-4.5 (`probe_hide`).
+  - Hunting effort does not depend on `needed`, so D1 adds no hunting pressure by itself.
+    `game_left` is checked again with `probe_hide`.
+- **D2 (B2): worn ornaments are practised.**
+  - The ornament's chain is marked used (and so practised and refined).
+  - It still adds no upkeep and no `needed` stock wear.
+- **D3 (B3): kit choice by expected payoff.**
+  - For each tool slot (hunt, cut, point, axe, boat, net, trap, bow, shield, outrigger,
+    plank, ship), `make_kit` ranks candidates by
+    `payoff = q x (0.5 + 0.5 x skill) x (1 + QUALITY_YIELD x quality) - KIT_UPKEEP x (1.15 - durability) x (1 + 0.3 x depth)`.
+    - `skill`, `quality` and `depth` come from the recipe the toolkit makes the item by;
+      raw items count as skill 1.
+    - `KIT_UPKEEP = 0.06` is the economy's `upkeep` (0.02) per unit of the 0.35 yield a
+      unit of tool quality is worth (the cut term in `game_m`).
+  - For blades, `q` is the edge measure `weapon_q` already uses (0.55 cut + 0.45
+    durability). Spear = 0.35 + 0.65 edge, point = edge, edge = edge; in the hunt slot,
+    point = 0.35 edge and edge = 0.2 edge.
+    - So knife and spear choice now agrees with weapon quality and upkeep. Fully practised,
+      copper, bronze, iron and steel blades outrank flint and obsidian.
+    - A newly learnt one does not, while the old one is honed.
+    - Yields still use `cut_q`, so a copper knife cuts meat a little worse than flint. It
+      lasts, and it fights better.
+  - Other slots keep their quality measure (boat_q, mesh_q, tough + 1, the axe blend).
+    Durability enters only through the upkeep term.
+  - Trials: a slot's challenger is the candidate whose fully practised payoff beats the
+    incumbent's current payoff.
+    - Each season the slot is used, the band also uses the challenger with chance
+      `KIT_TRIAL_P = 0.2` (a deterministic per-band, per-season, per-slot roll).
+    - A trial adds the challenger's upkeep and marks it used, so it is practised and refined.
+    - Once its payoff passes the incumbent's, it takes over. Better tools spread in
+      S-curves, and old tools hang on where they are honed.
+  - The kit is now rebuilt from the toolkit every time it is refreshed, because skill moves
+    every season. The toolkit cache is unchanged.
+- **D4 (I2): teaching what the learner can use.**
+  - `exchange` picks the candidate recipe weighted by `1 + 3 x` the share of its inputs
+    the learner already has, instead of uniformly. The listening odds are unchanged.
+  - Decision on the "and/or": there is no separate slower fade for never-producible
+    recipes. It would inflate "known" without use; D5 covers recently-seen inputs instead.
+- **D5 (I3): idle chain tools and seen inputs fade slowly.**
+  - `Known.last_ok` (new, tick) records the last season the recipe was practised or its
+    inputs were all at hand (including traded stock).
+  - While that is within `RECENT_SEASONS = 40` (10 years), an unused recipe loses skill at
+    `RECENT_FADE = 0.5` of the usual rate.
+  - Chain tools are covered: `mark_used` marks the whole chain whenever the end product is
+    used, so a loom or mould keeps `last_ok` fresh while cloth or castings are made.
+  - The save gains the `last_ok` column (bands blob layout 2), so the save format becomes
+    15 at D5. Old saves load with `last_ok = 0` (long ago), which is neutral.
+- **D6 (B4): reporting known vs able, "forgotten everywhere".**
+  - Frames `lore` rows gain a fifth value: bands that know a recipe for the item, beside
+    bands able to make it.
+  - A new event kind `ForgottenEverywhere` fires when no living band knows any recipe for an
+    item that had been known. It is distinct from `LostWorldwide` (nobody able to make it).
+  - A new counter `forgotten_everywhere` is in the counter registry.
+  - Still save format 15 (from D5). Old saves fill the new values with 0.
+  - DATA_SCHEMA.md and SAVE_FORMAT.md are updated, and the tools are checked.

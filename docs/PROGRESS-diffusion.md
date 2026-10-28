@@ -123,3 +123,9 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
 - Charts (summary.json, 128x80 + 192x120): first chart in 10/16 seeds, peak <= 17 bands,
   0 at end in 14/16.
 - Report written: docs/REPORT-diffusion.md.
+
+## D. Diffusion step D1-D6 (approved 2026-10-27, decisions in REPORT-diffusion.md section 8)
+
+- D0 (in progress): decisions recorded. Baselines are probe runs 40606688049 (128x80),
+  40606696457 (192x120) and 40606704688 (256x160), plus step 13 checks 40588153931 (a) and
+  40588163981 (b).
