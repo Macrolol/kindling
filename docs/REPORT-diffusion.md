@@ -261,39 +261,34 @@ In line with the brief, none of these add caps or scripted interventions.
 Items 1-2 fix bugs; items 3-5 change the mechanics so S-curve diffusion and real
 inertia can emerge.
 
-## 7. 256x160 run (40606704688)
+## 7. 256x160 run (40606704688, 5 seeds, 1000 y)
 
-At the time of writing, seeds 1-4 had finished their probe jobs. Their artifacts
-(`results-probe-1-1` … `4-4`) were aggregated directly. The seed-5 probe was still
-running after more than 60 minutes: its sim took about 1.8x as long as the others, and
-the job timeout is 150 min. The run's pre-release archive appears only when the whole
-run finishes.
-
-4 seeds, 1000 y:
+The probe artifacts (`results-probe-1-1` … `5-5`) were aggregated directly. The seed-5
+probe ran about twice as long as the others.
 
 | metric | 256x160 |
 |---|---|
-| forgets no_input / displaced / unneeded / redundant / idle_slot % | 61.1 / 23.1 / 8.2 / 4.0 / 3.6 |
-| taught arriving producible % | 42.8 |
-| taught / inherited / invented forgotten % | 72.3 / 29.6 / 76.2 |
-| forgotten unpractised % | 77.0 |
+| forgets no_input / displaced / unneeded / redundant / idle_slot % | 60.8 / 23.5 / 7.4 / 5.0 / 3.3 |
+| taught arriving producible % | 42.1 |
+| taught / inherited / invented forgotten % | 71.8 / 29.6 / 75.8 |
+| forgotten unpractised % | 77.6 |
 
 Item checks (known / make / kit):
 
 | item | known | make | kit | other |
 |---|---|---|---|---|
-| hide thong | 0.90 | 0.10 | 0.10 | |
-| bone point | 0.88 | 0.19 | 0.04 | |
-| cooked meat | 0.94 | 0.15 | 0.15 | |
-| copper knife | 0.84 | 0.48 | 0.15 | |
-| copper-tipped spear | 0.67 | 0.41 | 0.14 | |
-| plank boat | 0.78 | 0.46 | 0.46 | |
-| sealed jar | 0.75 | 0.18 | 0.18 | |
-| fired clay token | | | 0.74 | |
-| bone beads | | | | peak 0.61 → 0.08, idle_slot 34% |
+| hide thong | 0.90 | 0.09 | 0.09 | |
+| bone point | 0.88 | 0.22 | 0.04 | |
+| cooked meat | 0.94 | 0.14 | 0.14 | |
+| copper knife | 0.81 | 0.46 | 0.12 | |
+| copper-tipped spear | 0.62 | 0.38 | 0.12 | |
+| plank boat | 0.81 | 0.51 | 0.51 | |
+| sealed jar | 0.72 | 0.17 | 0.17 | |
+| fired clay token | 0.99 | 0.77 | 0.77 | |
+| bone beads | | | | peak 0.62 → 0.12, idle_slot 41% |
 | copper ring | | | | idle_slot 50% |
-| hide net | | | | worse_refined 37% |
-| rawhide snare | | | | worse_refined 40% |
+| hide net | | | | worse_refined 35% |
+| rawhide snare | | | | worse_refined 38% |
 | warp-weighted loom | | | | 97% unneeded |
 
 No iron or plank ships appeared in these seeds. Every finding above holds on all three
