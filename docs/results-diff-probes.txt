@@ -272,3 +272,121 @@ per seed: first year known, years from first to 25/50/75% of bands with it in ki
   seed          7: forgotten_everywhere 0  lost_worldwide 0
   seed          8: forgotten_everywhere 0  lost_worldwide 1
   total forgotten_everywhere 10
+
+######## 256: pre-fix run 40606704688 -> post-fix run 40620627632
+-- totals (diffusion_probe_agg.py, last lines) PRE
+forget reasons %: {'no_input': 60.8, 'redundant': 5.0, 'idle_slot': 3.3, 'displaced': 23.5, 'unneeded': 7.4}
+taught arriving producible %: 42.1
+forgets by origin % of that origin gained: {'invented': 75.8, 'inherited': 29.6, 'taught': 71.8}
+forgotten without ever being practised beyond the learning season %: 77.6
+-- totals POST
+forget reasons %: {'no_input': 70.3, 'redundant': 6.1, 'idle_slot': 0.6, 'displaced': 19.5, 'unneeded': 3.5}
+taught arriving producible %: 34.2
+forgets by origin % of that origin gained: {'invented': 57.2, 'inherited': 24.9, 'taught': 60.6}
+forgotten without ever being practised beyond the learning season %: 83.5
+-- known / make / kit, 2nd-half means (diffusion_series.py)
+  PRE  hide thong                     5   10   30 | 0.90 0.09 0.09  (reached 50%: 5/5)
+  POST hide thong                     5   10   30 | 0.98 0.33 0.33  (reached 50%: 5/5)
+  PRE  cooked meat                    5   20   40 | 0.94 0.14 0.14  (reached 50%: 5/5)
+  POST cooked meat                    5   20   60 | 0.95 0.10 0.10  (reached 50%: 5/5)
+  PRE  bone beads                     5   40    - | 0.17 0.07 0.07  (reached 50%: 3/5)
+  POST bone beads                     5   10   20 | 0.92 0.40 0.27  (reached 50%: 5/5)
+  PRE  bone point                     5   40   50 | 0.88 0.22 0.04  (reached 50%: 5/5)
+  POST bone point                     5   10   30 | 0.98 0.41 0.02  (reached 50%: 5/5)
+  PRE  flint blade                    5   30   60 | 0.85 0.44 0.27  (reached 50%: 5/5)
+  POST flint blade                    5   50   90 | 0.66 0.33 0.01  (reached 50%: 5/5)
+  PRE  stone blade                    5   20   40 | 1.00 1.00 0.20  (reached 50%: 5/5)
+  POST stone blade                    5   20   30 | 1.00 1.00 0.06  (reached 50%: 5/5)
+  PRE  copper knife                   5   20   40 | 0.81 0.46 0.12  (reached 50%: 5/5)
+  POST copper knife                   5   20   80 | 0.87 0.51 0.04  (reached 50%: 5/5)
+  PRE  bronze knife                   4   15   45 | 0.49 0.34 0.32  (reached 50%: 2/4)
+  POST bronze knife                   4   55   90 | 0.79 0.51 0.05  (reached 50%: 4/4)
+  PRE  iron knife                     1   10   20 | 0.94 0.63 0.05  (reached 50%: 1/1)
+  POST iron knife                     5   10   30 | 0.97 0.68 0.03  (reached 50%: 5/5)
+  PRE  steel knife                    1   20   30 | 0.97 0.66 0.66  (reached 50%: 1/1)
+  POST steel knife                    5   10   20 | 1.00 0.87 0.82  (reached 50%: 5/5)
+  PRE  steel-tipped spear             1   20   20 | 0.96 0.66 0.66  (reached 50%: 1/1)
+  POST steel-tipped spear             5   20   30 | 1.00 0.87 0.70  (reached 50%: 5/5)
+  PRE  bow (flax string)              5   20  110 | 0.94 0.88 0.84  (reached 50%: 5/5)
+  POST bow (flax string)              5   20   70 | 0.96 0.92 0.69  (reached 50%: 5/5)
+  PRE  flax snare                     5   40  140 | 0.94 0.87 0.87  (reached 50%: 5/5)
+  POST flax snare                     5   40  120 | 0.98 0.93 0.89  (reached 50%: 5/5)
+-- worse_ref (share of a newcomer's kit entries that lowered refined payoff) and extinctions
+item                     | pre: seeds kit/know worse_ref extinct | post: seeds kit/know worse_ref extinct
+hide net                 |    5   0.22   0.35    0        |    5   0.06   0.30    0
+rawhide snare            |    5   0.16   0.38    0        |    5   0.01   0.24    0
+stone blade              |    5   0.21    nan    0        |    5   0.07   1.00    0
+flint blade              |    5   0.28   0.00    0        |    5   0.02   0.00    0
+sharpened-stick spear    |    5   0.20    nan    0        |    5   0.08   1.00    0
+stone axe                |    5   0.38   1.00    0        |    5   0.09   1.00    0
+plant fibre net          |    5   0.22    nan    0        |    5   0.54   0.59    0
+bone-tipped spear        |    5   0.08   0.00    0        |    5   0.01   0.14    0
+iron-tipped spear        |    1   0.08   0.54    0        |    5   0.29   0.72    0
+copper knife             |    5   0.14   0.00    0        |    5   0.05   0.29    0
+bronze knife             |    4   0.62   0.33    0        |    4   0.07   0.24    0
+iron knife               |    1   0.06   0.54    0        |    5   0.05   0.67    0
+steel knife              |    1   0.72   0.00    0        |    5   0.83   0.00    0
+cooked meat              |    5   0.23    nan    0        |    5   0.18    nan    1
+extinction events (items): pre 57 (22)  post 18 (9)
+-- knife slot PRE (diffusion_knives.py)
+seeds 5
+year  | metal kit  stone kit | copper bronze iron steel (kit) | steel known | iron known  (means over seeds alive at that year)
+Y100  | 0.00       0.75     | 0.00   0.00   0.00 0.00       | 0.00        | 0.00   (n=5)
+Y200  | 0.07       0.92     | 0.07   0.00   0.00 0.00       | 0.00        | 0.00   (n=5)
+Y300  | 0.48       0.52     | 0.18   0.11   0.05 0.14       | 0.15        | 0.20   (n=5)
+Y400  | 0.54       0.46     | 0.12   0.24   0.01 0.18       | 0.20        | 0.20   (n=5)
+Y500  | 0.51       0.49     | 0.13   0.23   0.01 0.14       | 0.20        | 0.20   (n=5)
+Y600  | 0.52       0.48     | 0.13   0.25   0.01 0.14       | 0.19        | 0.19   (n=5)
+Y800  | 0.50       0.50     | 0.12   0.25   0.01 0.12       | 0.19        | 0.19   (n=5)
+Y1000 | 0.52       0.48     | 0.12   0.25   0.01 0.15       | 0.19        | 0.19   (n=5)
+
+per seed: first year known, years from first to 25/50/75% of bands with it in kit, kit share at Y600 and end
+-- copper knife
+   256x160-seed1          first Y210   t25  110 t50    - t75    - | kit Y600 0.25  end(Y1000) 0.21
+   256x160-seed2          first Y220   t25   10 t50    - t75    - | kit Y600 0.23  end(Y1000) 0.25
+   256x160-seed3          first Y210   t25    - t50    - t75    - | kit Y600 0.08  end(Y1000) 0.09
+   256x160-seed4          first Y190   t25   10 t50    - t75    - | kit Y600 0.05  end(Y1000) 0.04
+   256x160-seed5          first Y260   t25    - t50    - t75    - | kit Y600 0.01  end(Y1000) 0.01
+-- iron knife
+   256x160-seed5          first Y260   t25    0 t50   10 t75    - | kit Y600 0.05  end(Y1000) 0.04
+-- steel knife
+   256x160-seed5          first Y280   t25   10 t50   20 t75   30 | kit Y600 0.68  end(Y1000) 0.73
+-- knife slot POST
+seeds 5
+year  | metal kit  stone kit | copper bronze iron steel (kit) | steel known | iron known  (means over seeds alive at that year)
+Y100  | 0.00       0.72     | 0.00   0.00   0.00 0.00       | 0.00        | 0.00   (n=5)
+Y200  | 0.24       0.76     | 0.06   0.00   0.18 0.00       | 0.07        | 0.19   (n=5)
+Y300  | 0.97       0.03     | 0.04   0.09   0.28 0.57       | 0.95        | 0.98   (n=5)
+Y400  | 0.97       0.03     | 0.01   0.02   0.07 0.87       | 1.00        | 1.00   (n=5)
+Y500  | 0.95       0.05     | 0.04   0.05   0.04 0.83       | 1.00        | 0.98   (n=5)
+Y600  | 0.92       0.08     | 0.04   0.04   0.04 0.81       | 1.00        | 0.97   (n=5)
+Y800  | 0.92       0.08     | 0.04   0.04   0.03 0.81       | 1.00        | 0.96   (n=5)
+Y1000 | 0.92       0.08     | 0.04   0.05   0.03 0.80       | 1.00        | 0.96   (n=5)
+
+per seed: first year known, years from first to 25/50/75% of bands with it in kit, kit share at Y600 and end
+-- copper knife
+   256x160-seed1          first Y230   t25   20 t50    - t75    - | kit Y600 0.01  end(Y1000) 0.01
+   256x160-seed2          first Y270   t25    - t50    - t75    - | kit Y600 0.13  end(Y1000) 0.13
+   256x160-seed3          first Y220   t25   10 t50    - t75    - | kit Y600 0.04  end(Y1000) 0.06
+   256x160-seed4          first Y200   t25    0 t50   20 t75    - | kit Y600 0.01  end(Y1000) 0.01
+   256x160-seed5          first Y260   t25    - t50    - t75    - | kit Y600 0.01  end(Y1000) 0.01
+-- iron knife
+   256x160-seed1          first Y260   t25   20 t50   30 t75    - | kit Y600 0.05  end(Y1000) 0.04
+   256x160-seed2          first Y270   t25    0 t50   10 t75    - | kit Y600 0.07  end(Y1000) 0.06
+   256x160-seed3          first Y230   t25   10 t50    - t75    - | kit Y600 0.01  end(Y1000) 0.01
+   256x160-seed4          first Y270   t25    - t50    - t75    - | kit Y600 0.02  end(Y1000) 0.02
+   256x160-seed5          first Y190   t25    0 t50    0 t75   10 | kit Y600 0.03  end(Y1000) 0.03
+-- steel knife
+   256x160-seed1          first Y270   t25   30 t50   30 t75   40 | kit Y600 0.89  end(Y1000) 0.90
+   256x160-seed2          first Y290   t25   20 t50   20 t75   40 | kit Y600 0.65  end(Y1000) 0.59
+   256x160-seed3          first Y240   t25   20 t50   30 t75   50 | kit Y600 0.72  end(Y1000) 0.76
+   256x160-seed4          first Y280   t25   30 t50   30 t75   50 | kit Y600 0.91  end(Y1000) 0.84
+   256x160-seed5          first Y200   t25   20 t50   30 t75   40 | kit Y600 0.90  end(Y1000) 0.91
+
+######## ForgottenEverywhere 256x160
+  seed          1: forgotten_everywhere 4  lost_worldwide 2
+  seed          2: forgotten_everywhere 3  lost_worldwide 0
+  seed          3: forgotten_everywhere 1  lost_worldwide 0
+  seed          4: forgotten_everywhere 9  lost_worldwide 0
+  seed          5: forgotten_everywhere 1  lost_worldwide 3
+  total forgotten_everywhere 18
