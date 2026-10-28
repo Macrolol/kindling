@@ -647,6 +647,7 @@ pub fn edge_q(m: Mat) -> f32 {
 /// decision and the economy share one multiplier function; these names are what tests and the
 /// probe already call.
 pub use crate::effects::{make_kit, make_kit_among, make_kit_for, refine_kit};
+#[cfg(test)]
 pub(crate) use crate::effects::make_kit_with;
 
 /// (v9) Refined recipes make the same tools work better: a well-practised hull rides the sea

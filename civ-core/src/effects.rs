@@ -28,6 +28,7 @@ const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 
 /// best[] index of each payoff slot, in `Kit::slot_item` order.
+#[cfg(test)]
 pub(crate) const PAYOFF_SLOTS: [usize; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 16, 18, 22];
 /// Food slots, then the rest. Pass 1 fills each from an empty payoff kit; pass 2 re-chooses
 /// each with the others already set. A cut is optimal on the final kit (nothing chosen after
@@ -407,10 +408,12 @@ fn yields_with(slot: usize, base: &YArgs, c: &Cand, bow_item: bool) -> [f32; 5] 
     yields(&a)
 }
 
-/// Glue on a haft (hunt, axe) when pitch is in use; a knife, point, net or trap is not glued.
-/// Same result as `sealed_factor` for an item that fills `slot` (its form cannot also be a hull).
-fn food_sealed(slot: usize, pitch: bool) -> f32 {
-    if pitch && (slot == 0 || slot == 4) { PITCH_GLUE } else { 1.0 }
+/// Glue on a haft (hunt, axe) when pitch is in use. A knife, point, net or trap is glued only
+/// when it is the same item as the kit's hunt or axe (a flint blade that is also the hunting
+/// tool), exactly as the economy's `sealed_factor` charges it. Same result as `sealed_factor`
+/// for `it` in `slot` of `k` (a food-slot form cannot also be a hull).
+fn food_sealed(slot: usize, it: Item, k: &Kit, pitch: bool) -> f32 {
+    if pitch && (slot == 0 || slot == 4 || it == k.hunt || it == k.axe) { PITCH_GLUE } else { 1.0 }
 }
 
 fn bucket_of(f: Form) -> Option<usize> {
@@ -446,6 +449,8 @@ fn food_ix(slot: usize) -> usize {
 /// Whether pass 2 can pick a different item than pass 1. Compared are the other slots that
 /// enter this slot's multipliers (or, for hunt and axe, whether pitch started caulking a hull
 /// and so glues hafts). The slot's own item is not a dependency: it is cleared before scoring.
+/// Every food slot also depends on hunt, axe and pitch: a candidate that is the same item as
+/// the hunt or axe is glued (`food_sealed`).
 fn food_deps_changed(slot: usize, then: &Kit, now: &Kit, pitch_then: bool, pitch_now: bool) -> bool {
     match slot {
         // game: cut, bow×point; fish: point, net; small: net, trap, bow×point; glue: pitch
@@ -458,7 +463,7 @@ fn food_deps_changed(slot: usize, then: &Kit, now: &Kit, pitch_then: bool, pitch
                 || pitch_then != pitch_now
         }
         // game: hunt, bow×point; farm: axe
-        1 => then.hunt != now.hunt || then.point != now.point || then.bow != now.bow || then.axe != now.axe,
+        1 => then.hunt != now.hunt || then.point != now.point || then.bow != now.bow || then.axe != now.axe || pitch_then != pitch_now,
         // fish: hunt, net; a bow that gains its point also moves game (cut) and small (trap)
         10 => {
             then.hunt != now.hunt
@@ -466,13 +471,15 @@ fn food_deps_changed(slot: usize, then: &Kit, now: &Kit, pitch_then: bool, pitch
                 || then.bow != now.bow
                 || then.cut != now.cut
                 || then.trap != now.trap
+                || then.axe != now.axe
+                || pitch_then != pitch_now
         }
         // farm: cut; glue: pitch
         4 => then.cut != now.cut || pitch_then != pitch_now,
         // fish: hunt, point; small: trap, bow×point
-        12 => then.hunt != now.hunt || then.point != now.point || then.trap != now.trap || then.bow != now.bow,
+        12 => then.hunt != now.hunt || then.point != now.point || then.trap != now.trap || then.bow != now.bow || then.axe != now.axe || pitch_then != pitch_now,
         // small: hunt, net, bow×point
-        13 => then.hunt != now.hunt || then.net != now.net || then.point != now.point || then.bow != now.bow,
+        13 => then.hunt != now.hunt || then.net != now.net || then.point != now.point || then.bow != now.bow || then.axe != now.axe || pitch_then != pitch_now,
         _ => true,
     }
 }
@@ -693,7 +700,7 @@ pub fn slot_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slo
         let m1 = yields_with(slot, &base, &c, kit.bow != NONE);
         let food = food_acc(&w, &m0, &m1);
         let pitch = pitch_in_use(kit, view.wet);
-        let labour = tool_upkeep(view.upkeep_rate, it, d, food_sealed(slot, pitch));
+        let labour = tool_upkeep(view.upkeep_rate, it, d, food_sealed(slot, it, kit, pitch));
         priced(food, labour, sk, view)
     } else {
         nonfood_scores(slot, it, sk, ql, d)
@@ -793,7 +800,7 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     }
     let base = yargs_empty(k, slot, info);
     let m0 = yields(&base);
-    let sealed = food_sealed(slot, pitch_in_use(k, view.wet));
+    let pitch = pitch_in_use(k, view.wet);
     // one food for every point: presence changes the multipliers, the material does not
     let point_food = if slot == 10 {
         let mut a = base;
@@ -811,7 +818,7 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
             } else {
                 food_acc(w, &m0, &yields_with(slot, &base, c, bow_item))
             };
-            let labour = tool_upkeep(view.upkeep_rate, c.it, c.d, sealed);
+            let labour = tool_upkeep(view.upkeep_rate, c.it, c.d, food_sealed(slot, c.it, k, pitch));
             let (cur, full) = priced(food, labour, c.sk, view);
             consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut pot);
         }
