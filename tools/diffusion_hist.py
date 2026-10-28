@@ -26,16 +26,22 @@ for rd in sorted([d for d in glob.glob(sys.argv[1]+'/run-*/kindling-run-*') if o
             f=json.loads(line)
             nb=sum(l[1] for l in f['lineages']) or 1
             y=f['year'];last_year=y
-            for item,able,lr,fg in f['lore']:
-                d=it.setdefault(item,dict(first=y,peak=0,peak_share=0,peak_year=y,final=0,final_share=0,learned=0,forgot=0,zero_after=0))
+            for row in f['lore']:
+                # [item, able, learned, forgot] (+ know since the diffusion step D6, save v15)
+                item,able,lr,fg=row[:4]
+                know=row[4] if len(row)>4 else None
+                d=it.setdefault(item,dict(first=y,peak=0,peak_share=0,peak_year=y,final=0,final_share=0,learned=0,forgot=0,zero_after=0,peak_know=None))
+                if know is not None: d['peak_know']=max(d['peak_know'] or 0,know)
                 share=able/nb
                 if share>d['peak_share']: d['peak_share']=share;d['peak_year']=y
                 d['peak']=max(d['peak'],able)
                 d['learned']+=lr;d['forgot']+=fg
             seen={l[0]:l[1] for l in f['lore']}
+            seenk={l[0]:l[4] for l in f['lore'] if len(l)>4}
             for item,d in it.items():
                 a=seen.get(item,0)
                 d['final']=a;d['final_share']=a/nb
+                if seenk: d['final_know']=seenk.get(item,0);d['final_know_share']=d['final_know']/nb
         for k,c in lost.items():
             if k in it: it[k]['lost']=c
         seeds[s]=dict(items=it,years=last_year)

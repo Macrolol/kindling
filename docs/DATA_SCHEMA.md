@@ -101,8 +101,22 @@ One `civ_core::archive::Frame` per line, oldest first:
 `lineages` rows `[lineage, bands, people, cells, mean recipes]`; `regions` rows
 `[landmass, bands, people, farming bands, mean recipes]`; `grid` people per block of an 8×8 grid
 over the map (row-major); `lore` rows `[item, bands able to make it, times learned, times
-forgotten]`; `weddings` rows `[lineage a, lineage b, count]`. Snapshots are at the end of the
+forgotten, bands knowing a recipe for it]` (the fifth value since the diffusion step D6; rows
+from older saves have four: read it as 0 / missing); `weddings` rows `[lineage a, lineage b, count]`. Snapshots are at the end of the
 span, tallies are summed over it.
+
+### Known vs able, "forgotten everywhere" (diffusion step D6)
+
+Additive, no schema change:
+- frames `lore` rows gain a fifth value, bands that know a recipe for the item (made or not),
+  beside bands able to make it (`World::item_known` / `item_bands`). Known well above able
+  means the know-how is spread but its inputs are not.
+- event kind `ForgottenEverywhere` (id 41, not major; event log and frames `kinds`): no living
+  band knows any recipe for an item that some band knew the year before. `item` is the item,
+  `other` the most bands that ever knew it at once. Distinct from `LostWorldwide` /
+  `LostLocal` (nobody *able to make* it, which can happen while it is still known).
+- counter `forgotten_everywhere` (sum): how many such events.
+- Save format v15 (see `SAVE_FORMAT.md`).
 
 ### Pitch and sealed jars (inventions step 1)
 

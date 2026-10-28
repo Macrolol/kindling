@@ -250,6 +250,10 @@ pub enum EventKind {
     /// (inventions step 10, history store only) a feast: band hosted other (same fields as
     /// `FirstFeast`); tallied in `Archive`, never in the event log
     Feast,
+    /// (diffusion D6) no living band knows any recipe for an item that some band knew last year
+    /// (other = most bands that knew it at once). Not the same as `LostWorldwide`, which is
+    /// about being able to make it: an item can be known everywhere and made nowhere.
+    ForgottenEverywhere,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -259,11 +263,11 @@ impl EventKind {
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
             FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
-            FirstChart, FirstFeast, Feast,
+            FirstChart, FirstFeast, Feast, ForgottenEverywhere,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 41;
+    pub const COUNT: usize = 42;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -588,6 +592,9 @@ counters! {
         herds_lost,
         epidemics,
         disease_deaths,
+        /// (diffusion D6) items no living band knows any recipe for any more
+        /// (`EventKind::ForgottenEverywhere`)
+        forgotten_everywhere,
     }
     max {
         max_fight_deaths,
@@ -656,6 +663,13 @@ pub struct World {
     /// item -> number of bands able to make it (last year)
     #[serde(with = "crate::save::pairs")]
     pub item_bands: BTreeMap<Item, u32>,
+    /// (diffusion D6, v15) item -> number of bands knowing a recipe for it (last year); empty
+    /// in older saves (nothing can be "forgotten everywhere" in the first year after loading)
+    #[serde(with = "crate::save::pairs")]
+    pub item_known: BTreeMap<Item, u32>,
+    /// (diffusion D6) item -> most bands that knew a recipe for it at once
+    #[serde(with = "crate::save::pairs")]
+    pub item_known_peak: BTreeMap<Item, u32>,
     /// landmass id -> tick people first arrived (u32::MAX = never); empty in stage-1 saves
     pub landfall: Vec<u32>,
     /// (v9) per cell: 1 + the last year any band camped there (0 = nobody ever has). Cells left
@@ -3853,6 +3867,29 @@ impl World {
             *pk = (*pk).max(c);
         }
         self.item_bands = counts;
+        // (diffusion D6) what is known, made or not; anything known last year and now by
+        // nobody is forgotten everywhere
+        let mut known: BTreeMap<Item, u32> = BTreeMap::new();
+        for b in &self.bands {
+            let mut s = crate::materials::ItemSet::default();
+            for k in &b.known {
+                s.add(self.reg.recipes[k.recipe as usize].output);
+            }
+            for it in s.iter() {
+                *known.entry(it).or_default() += 1;
+            }
+        }
+        let gone: Vec<Item> = self.item_known.keys().filter(|it| !known.contains_key(it)).copied().collect();
+        for it in gone {
+            let peak = self.item_known_peak.get(&it).copied().unwrap_or(0);
+            self.counters.forgotten_everywhere += 1;
+            self.push_event(EventKind::ForgottenEverywhere, 0, peak, 0, it, u32::MAX);
+        }
+        for (&it, &c) in &known {
+            let pk = self.item_known_peak.entry(it).or_insert(0);
+            *pk = (*pk).max(c);
+        }
+        self.item_known = known;
         // partnerships fade unless used; partners that no longer exist are dropped
         let ids: std::collections::HashSet<u32> = self.bands.iter().map(|b| b.id).collect();
         let mut links = 0u32;
@@ -4062,7 +4099,13 @@ impl World {
             lineages: lin.into_iter().map(|(k, (n, p, cells, kn))| LineageRow(k, n, p, cells.len() as u32, kn as f32 / n.max(1) as f32)).collect(),
             regions: reg.into_iter().map(|(k, (n, p, fa, kn))| RegionRow(k, n, p, fa, kn as f32 / n.max(1) as f32)).collect(),
             grid,
-            lore: self.item_bands.iter().map(|(&it, &n)| LoreRow(it, n, 0, 0)).collect(),
+            lore: {
+                let mut rows: BTreeMap<Item, LoreRow> = self.item_bands.iter().map(|(&it, &n)| (it, LoreRow(it, n, 0, 0, 0))).collect();
+                for (&it, &n) in &self.item_known {
+                    rows.entry(it).or_insert(LoreRow(it, 0, 0, 0, 0)).4 = n;
+                }
+                rows.into_values().collect()
+            },
             ..Default::default()
         };
         let year = self.history.last().map_or(self.tick / 4, |y| y.year);
@@ -4126,6 +4169,7 @@ impl World {
                 };
                 format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){how}", e.band, e.other)
             }
+            EventKind::ForgottenEverywhere => format!("Y{yr}: nobody in the world knows how to make {it} any more"),
             EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
             EventKind::LostAtSea => format!("Y{yr}: {} of band {} lost at sea near ({cx},{cy})", e.other, e.band),

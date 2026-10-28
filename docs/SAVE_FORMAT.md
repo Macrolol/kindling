@@ -233,6 +233,12 @@ Current: `FORMAT_VERSION = 15` (the diffusion step, after v0.9.0). Kindling v0.9
     column appended to the `known` columns, after `quality`. Layout-1 blobs (v10-v14) still
     decode and give 0 ("long ago"), so old saves forget exactly as before
     (`d5_old_saves_load_with_no_dates`, `d5_last_ok_kept_and_saved`).
+  - `world.item_known`, `world.item_known_peak` (D6, pair lists): bands knowing a recipe for
+    each item last year, and the most at once. Empty in older saves, so nothing is reported
+    "forgotten everywhere" in the first year after loading one.
+  - frames `lore` rows (D6) gain a fifth value (bands knowing a recipe); `LoreRow` reads rows
+    of four (older frames) with it 0, and skips any values a later build appends.
+  - Event kind 41 `ForgottenEverywhere` is new (an older build reads it as its last kind).
   - Binary v14 saves are decoded directly; JSON v14 saves go through `v14_to_v15`.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.

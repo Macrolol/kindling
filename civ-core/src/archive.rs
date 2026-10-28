@@ -119,9 +119,38 @@ pub struct LineageRow(pub u32, pub u32, pub u32, pub u32, pub f32);
 /// mean recipes known per band).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RegionRow(pub u32, pub u32, pub u32, pub u32, pub f32);
-/// One item: (item, bands able to make it at the end, times learned, times forgotten).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct LoreRow(pub Item, pub u32, pub u32, pub u32);
+/// One item: (item, bands able to make it at the end, times learned, times forgotten, bands
+/// knowing a recipe for it at the end). The fifth value is new in the diffusion step (D6, save
+/// format v15); rows of older frames have four and load it as 0.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct LoreRow(pub Item, pub u32, pub u32, pub u32, pub u32);
+impl<'de> Deserialize<'de> for LoreRow {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = LoreRow;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a lore row of 4 or 5 values")
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut s: A) -> Result<LoreRow, A::Error> {
+                use serde::de::Error;
+                let it = s.next_element()?.ok_or_else(|| A::Error::invalid_length(0, &self))?;
+                let mut v = [0u32; 4];
+                for (j, x) in v.iter_mut().enumerate() {
+                    match s.next_element()? {
+                        Some(n) => *x = n,
+                        None if j == 3 => break,
+                        None => return Err(A::Error::invalid_length(j + 1, &self)),
+                    }
+                }
+                // anything a later build appends is skipped
+                while s.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+                Ok(LoreRow(it, v[0], v[1], v[2], v[3]))
+            }
+        }
+        d.deserialize_seq(V)
+    }
+}
 /// Weddings between two lineages (smaller id first; the same lineage twice = within it).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WedRow(pub u32, pub u32, pub u32);
@@ -158,10 +187,11 @@ impl Frame {
         for (a, b) in self.kinds.iter_mut().zip(&later.kinds) {
             *a += b;
         }
-        let mut lore: BTreeMap<Item, LoreRow> = self.lore.iter().map(|r| (r.0, LoreRow(r.0, 0, r.2, r.3))).collect();
+        let mut lore: BTreeMap<Item, LoreRow> = self.lore.iter().map(|r| (r.0, LoreRow(r.0, 0, r.2, r.3, 0))).collect();
         for r in &later.lore {
-            let e = lore.entry(r.0).or_insert(LoreRow(r.0, 0, 0, 0));
+            let e = lore.entry(r.0).or_insert(LoreRow(r.0, 0, 0, 0, 0));
             e.1 = r.1;
+            e.4 = r.4;
             e.2 += r.2;
             e.3 += r.3;
         }
@@ -263,10 +293,10 @@ impl Archive {
         f.kinds.resize(KINDS, 0);
         let mut lore: BTreeMap<Item, LoreRow> = f.lore.iter().map(|r| (r.0, *r)).collect();
         for (it, n) in t.learned {
-            lore.entry(it).or_insert(LoreRow(it, 0, 0, 0)).2 += n;
+            lore.entry(it).or_insert(LoreRow(it, 0, 0, 0, 0)).2 += n;
         }
         for (it, n) in t.forgot {
-            lore.entry(it).or_insert(LoreRow(it, 0, 0, 0)).3 += n;
+            lore.entry(it).or_insert(LoreRow(it, 0, 0, 0, 0)).3 += n;
         }
         f.lore = lore.into_values().collect();
         f.weddings = t.wed.into_iter().map(|((a, b), n)| WedRow(a, b, n)).collect();

@@ -197,3 +197,55 @@ fn d5_old_saves_load_with_no_dates() {
     assert!(w.bands.iter().any(|b| !b.known.is_empty()));
     assert!(w.bands.iter().flat_map(|b| &b.known).all(|k| k.last_ok == 0));
 }
+
+/// D6: lore rows carry bands that know a recipe beside bands able to make it; rows of older
+/// frames (four values) still read, with "know" 0.
+#[test]
+fn d6_lore_rows_know_and_able() {
+    use crate::archive::LoreRow;
+    let old: LoreRow = serde_json::from_str("[33, 5, 2, 1]").unwrap();
+    assert_eq!(old, LoreRow(33, 5, 2, 1, 0));
+    let new: LoreRow = serde_json::from_str("[33, 5, 2, 1, 9]").unwrap();
+    assert_eq!(new, LoreRow(33, 5, 2, 1, 9));
+    let mp = rmp_serde::to_vec(&new).unwrap();
+    assert_eq!(rmp_serde::from_slice::<LoreRow>(&mp).unwrap(), new);
+    let mp_old = rmp_serde::to_vec(&(33u16, 5u32, 2u32, 1u32)).unwrap();
+    assert_eq!(rmp_serde::from_slice::<LoreRow>(&mp_old).unwrap(), old);
+    assert!(serde_json::from_str::<LoreRow>("[33, 5, 2]").is_err());
+    let mut w = world();
+    for _ in 0..4 * 40 {
+        w.step();
+    }
+    let f = w.archive.frames.last().expect("a frame");
+    assert!(f.lore.iter().any(|r| r.4 > 0));
+    for r in &f.lore {
+        assert_eq!(r.4, w.item_known.get(&r.0).copied().unwrap_or(0));
+        assert_eq!(r.1, w.item_bands.get(&r.0).copied().unwrap_or(0));
+    }
+}
+
+/// D6: an item no living band knows any recipe for, after some band knew one, is "forgotten
+/// everywhere": one event and one count, once.
+#[test]
+fn d6_forgotten_everywhere_once() {
+    use crate::world::EventKind;
+    let mut w = world();
+    for _ in 0..4 * 40 {
+        w.step();
+    }
+    let it = *w.item_known.iter().find(|(_, &n)| n > 0).map(|(it, _)| it).unwrap();
+    let before = w.counters.forgotten_everywhere;
+    for b in &mut w.bands {
+        let reg = &w.reg;
+        b.known.retain(|k| reg.recipes[k.recipe as usize].output != it);
+    }
+    w.year_stats();
+    let n = |w: &World| w.events.iter().filter(|e| e.kind == EventKind::ForgottenEverywhere as u8 && e.item == it).count();
+    assert_eq!(n(&w), 1);
+    assert_eq!(w.counters.forgotten_everywhere, before + 1);
+    assert!(!w.item_known.contains_key(&it));
+    w.year_stats();
+    assert_eq!(n(&w), 1, "not again while nobody knows it");
+    assert!(!EventKind::ForgottenEverywhere.major());
+    assert_eq!(EventKind::from_u8(EventKind::ForgottenEverywhere as u8), EventKind::ForgottenEverywhere);
+}

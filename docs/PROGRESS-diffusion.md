@@ -180,3 +180,10 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   (share of bands, make/kit): hide thong 0.17 -> 0.34, cooked meat 0.02 -> 0.16, bone beads
   0.20 -> 0.43; 2779 bands / 57k people (D4: 2234 / 37k). Steel knives reach 0.76 of bands on
   this seed by y600, which is worth checking against the step 13 steel figures in the CI run.
+- D6 (know vs make, "forgotten everywhere"): frames `lore` rows gain a fifth value, bands
+  knowing a recipe for the item, beside bands able to make it (`World::item_known`). New event
+  `ForgottenEverywhere` (kind 41, not major) and counter `forgotten_everywhere` when no living
+  band knows any recipe for an item someone knew the year before. Shares save format 15
+  (unreleased): `item_known`/`item_known_peak` load empty, four-value lore rows load with 0.
+  Reporting only; the seed 1 128x80 600y smoke is identical to D5 (2779 bands), with one
+  forgotten-everywhere event. tools/diffusion_hist.py reads 4- or 5-value rows.
