@@ -67,3 +67,10 @@ no population collapse.
   own valuation 0.0 %; worse_held_share 9.3 % (food 8.9 %). The worst pairs: sharpened-stick
   spear held over bone- or flint-tipped spears (skill-ranked), stone blade over flint blade, iron
   knife over flint blade (cause 2).
+
+### 0b. GitHub check (dispatched Oct 28, 11:05 AM EDT, build 960dad8)
+
+- (a) seeds 1-10, 500 y, 256x160: run 40712451626 (compare 40620593419)
+- (b) seeds 499246292-301, 750 y, 800x800: run 40712466759 (compare 40620602590)
+- probes: 128x80 seeds 1-8 1500 y run 40712480983; 192x120 seeds 1-8 1200 y run 40712496067;
+  256x160 seeds 1-5 1000 y run 40712511412 (sim_timeout 300)
