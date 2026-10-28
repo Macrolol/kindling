@@ -2992,3 +2992,27 @@ fn probe_step13_pitch() {
         println!("  firsts: band at resin {f_on:?}, pots {f_pot:?}, pitch-ready {f_rdy:?}, pitch {f_pitch:?} | jar-ready {f_jrdy:?}, jar {f_jar:?} | ready band-seasons before pitch {rdy_bs}, before jar {jrdy_bs}");
     }
 }
+
+/// (skills step 0) The skills counters and YearStats fields are declared but nothing fills
+/// them yet: they read 0 in a running world (each step of docs/PROPOSAL-skills.md that fills one
+/// in takes it out of these lists).
+#[test]
+fn skills_step0_fields_stay_zero() {
+    use crate::world::Counters;
+    let mut w = small();
+    for _ in 0..200 {
+        w.step();
+    }
+    let names: Vec<&str> = Counters::NAMES.iter().copied().skip_while(|n| *n != "kit_switches").take_while(|n| *n != "max_fight_deaths").collect();
+    assert_eq!(names.len(), 27);
+    for (n, v) in Counters::NAMES.iter().zip(w.counters.values()) {
+        if names.contains(n) {
+            assert_eq!(v, 0, "counter {n}");
+        }
+    }
+    let fields: Vec<(String, String)> = crate::data::year_fields(w.history.last().unwrap()).into_iter().skip_while(|(k, _)| k != "use_skill_edge").collect();
+    assert_eq!(fields.len(), 26);
+    for (k, v) in fields {
+        assert!(v.parse::<f64>().unwrap() == 0.0, "YearStats {k} = {v}");
+    }
+}

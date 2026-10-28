@@ -40,3 +40,30 @@ no population collapse.
 - 18: grief dissent (`DISSENT_GRIEF`) accepted as the one new cost mechanism.
 
 ## Step 0. Measure first (in progress)
+
+### 0a. Code (Oct 28)
+
+- `civ-core/src/probe_diffusion.rs` (proposal 3.8): kit choices scored by a layer-1-like true
+  value (`true_value`: food multipliers + boat + protection + fine work, less the upkeep of the
+  payoff-slot tools, plus `PROBE_FIGHT_W` 0.1 x (weapon_q + 1 - loss_guard)), by its food part
+  (`food`) and by the band's own valuation (`own_value`, the slot pay `make_kit_with` ranks by);
+  `PROBE_TIE` 0.02. Adoption is measured when a slot's pick changes, against the kit with the
+  replaced item forced back (forced = the old item cannot be made any more); held is yearly,
+  `worse_held_share`. "Believed wrong" reads NA until beliefs (step 4). New `skills-*.csv` and
+  `pairs-*.csv`; the old `worse_refined_share` / `gain_mean` columns are kept on the D1-D6
+  payoff for comparison. `tools/diffusion_probe_agg.py` prints the split.
+- 27 new counters and 26 new `YearStats` fields, all 0 until the step that fills them
+  (`docs/DATA_SCHEMA.md`, "Skills step 0"); test `skills_step0_fields_stay_zero`.
+- Local checks (rustc 1.99.1, RAYON_NUM_THREADS=4): `cargo test --release --workspace` passes
+  (78 civ-core tests, golden hashes unchanged). Probe seed 1, 128x80, 200 years: `state_hash
+  6df29787462b70ce` before and after; `series` identical, `forgets` identical as a set of rows
+  (HashMap order), the old `items` columns identical. Headless seed 3, 128x80, 300 years
+  (`--out`, `--save`), old build vs new: text report identical but for timings; chronicle
+  identical; `summary.json` and every frame identical apart from the 27 new zero counter keys;
+  `metrics.csv` 300 rows, all 149 old columns identical, 53 new columns all 0; manifest differs
+  only in paths and timings; the save is 4.7 kB larger (the new fields), as expected.
+- Local probe (seed 1, 128x80, 200 y): 10 766 adoptions (5 244 forced); of the 5 522 with a
+  choice, worse in true food 7.3 % (tie 37.5 %), worse in true value 7.3 % (tie 35.2 %), worse by
+  own valuation 0.0 %; worse_held_share 9.3 % (food 8.9 %). The worst pairs: sharpened-stick
+  spear held over bone- or flint-tipped spears (skill-ranked), stone blade over flint blade, iron
+  knife over flint blade (cause 2).

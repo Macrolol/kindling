@@ -405,6 +405,52 @@ Additive, no schema change:
 - Save format v13 (migration `v12_to_v13`): per-material vectors grow by one; see
   SAVE_FORMAT.md.
 
+## Skills step 0: measure first (no format bump)
+
+Declared ahead of the skills work (`docs/PROPOSAL-skills.md`, step 0; `docs/PROGRESS-skills.md`).
+Nothing fills them yet: every one reads 0 until the step named beside it (the test
+`skills_step0_fields_stay_zero` holds them at 0 until then). Additive, `serde(default)`; the sim
+is unchanged (same `state_hash`), and older saves read them as 0.
+- Counters (`sum`; `metrics.csv` `c_<name>`, `summary.json` `counters`, frames `counters`),
+  placed after `forgotten_everywhere`:
+  - (step 2) `use_taught` (user skill passed on by teaching), `use_inherited_bands` (bands
+    founded with inherited user skill);
+  - (step 3) `make_failures` (makes that failed outright), `make_scrap` (material scrapped by
+    unskilled makers, stock units x 1000);
+  - (step 4) `beliefs_formed`, `tools_written_off`, `tools_retried`, `beliefs_told`,
+    `beliefs_inherited`, `belief_err` (summed absolute belief error x 1000; mean =
+    `belief_err / beliefs_formed`), `beliefs_evicted` (dropped from a full belief table);
+  - (step 5) `kit_switches` (slot picks changed), `switches_conserve` (to save a material),
+    `switches_fight` (for fight value), `switches_risk` (to a safer, lower-paying tool),
+    `kit_trials`, `trials_declined_risk`, `trial_food_lost` (person-seasons x 1000);
+  - (step 6) `fight_beliefs_updated`, `fight_beliefs_hunt`, `fight_beliefs_told`,
+    `weapons_adopted_after_defeat`, `fight_belief_err` (summed, x 1000), `arms_race_switches`;
+  - (step 8) `raids`, `raid_food` (person-seasons x 1000), `raid_deaths`.
+- `YearStats` / `metrics.csv` columns, after `gold_prestige_x`:
+  - (step 2) `use_skill_edge`, `use_skill_spear`, `use_skill_bow`, `use_skill_net`,
+    `use_skill_boat`: mean user skill of the bands using each form;
+  - (step 3) `maker_hot_forge`, `maker_steel`, `maker_cast`, `maker_smelt`: mean maker skill of
+    the bands practising each technique;
+  - (step 5) `trial_p_mean` (mean trial chance), `p_short_mean`, `p_short_p90` (chance of going
+    short: mean, 90th percentile);
+  - (step 6) `fight_need_mean`, `weapon_over_food_share` (share of slot picks putting fight
+    value over food);
+  - (step 4) `beliefs_mean` (beliefs per band), `belief_n_mean` (observations behind a belief),
+    `learn_curve_mean`;
+  - (step 6) `fight_believed_mean`, `fight_true_mean` (believed and true fight strength of the
+    bands' weapons); `arms_races` (races going), `arms_race_max_bands`, `arms_race_max_share`
+    (largest race, share of bands), `arms_race_max_span` (its span, cells);
+  - (step 8) `raider_bands`, `raid_food_share` (share of all food taken by raiding),
+    `raid_share_mean` (mean share of raiders' food from raids).
+- The diffusion probe (`civ-core/src/probe_diffusion.rs`, not a run output) gains per-item
+  columns in `items-*.csv` (`adopt_n`, `adopt_forced`, `adopt_worse_food`, `adopt_tie_food`,
+  `adopt_worse_true`, `adopt_tie_true`, `adopt_worse_own`, `adopt_tie_own`,
+  `adopt_believed_wrong` (NA until step 4), `held_n`, `worse_held_share`,
+  `worse_held_food_share`, `held_gap_mean`) and two files, `skills-*.csv` (per `PROBE_EVERY`
+  years: the same split for the period, the fields and counters above, NA for what later steps
+  add) and `pairs-*.csv` (which item was held or adopted over which better one).
+  `tools/diffusion_probe_agg.py` prints the split.
+
 ## What a save keeps (format v14)
 
 | what | resolution | kept |

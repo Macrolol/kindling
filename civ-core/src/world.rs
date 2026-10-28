@@ -455,6 +455,41 @@ pub struct YearStats {
     pub gold_bands: u32,
     pub gold_held: u32,
     pub gold_prestige_x: f32,
+    // (skills step 0) docs/PROPOSAL-skills.md: declared now, 0 until the step named beside each
+    /// (step 2) mean user skill of bands using an edge, spear, bow, net, boat
+    pub use_skill_edge: f32,
+    pub use_skill_spear: f32,
+    pub use_skill_bow: f32,
+    pub use_skill_net: f32,
+    pub use_skill_boat: f32,
+    /// (step 3) mean maker skill among bands practising hot forging, steel, casting, smelting
+    pub maker_hot_forge: f32,
+    pub maker_steel: f32,
+    pub maker_cast: f32,
+    pub maker_smelt: f32,
+    /// (step 5) mean trial chance, mean and 90th percentile of the chance of going short
+    pub trial_p_mean: f32,
+    pub p_short_mean: f32,
+    pub p_short_p90: f32,
+    /// (step 6) mean fight need, share of slot picks that put fight value over food
+    pub fight_need_mean: f32,
+    pub weapon_over_food_share: f32,
+    /// (step 4) mean beliefs per band, mean observations behind a belief, mean learning curve
+    pub beliefs_mean: f32,
+    pub belief_n_mean: f32,
+    pub learn_curve_mean: f32,
+    /// (step 6) mean believed and true fight strength of the bands' weapons
+    pub fight_believed_mean: f32,
+    pub fight_true_mean: f32,
+    /// (step 6) arms races going, and the largest: bands, share of bands, span (cells)
+    pub arms_races: u32,
+    pub arms_race_max_bands: u32,
+    pub arms_race_max_share: f32,
+    pub arms_race_max_span: f32,
+    /// (step 8) raider bands, share of food taken by raiding, mean raid share of raiders' food
+    pub raider_bands: u32,
+    pub raid_food_share: f32,
+    pub raid_share_mean: f32,
 }
 
 /// Running totals since the start, declared once through `counters!`: the struct, the summing
@@ -595,6 +630,49 @@ counters! {
         /// (diffusion D6) items no living band knows any recipe for any more
         /// (`EventKind::ForgottenEverywhere`)
         forgotten_everywhere,
+        // (skills step 0) docs/PROPOSAL-skills.md: declared now so the outputs carry them;
+        // every one stays 0 until the step named beside it fills it in
+        /// (step 5) kit slot picks changed, and those made to conserve a material, for fighting,
+        /// or out of risk (a safer, worse-paying tool)
+        kit_switches,
+        switches_conserve,
+        switches_fight,
+        switches_risk,
+        /// (step 5) trials of a challenger tool, trials passed up for risk, and the food lost
+        /// to trials (person-seasons x 1000)
+        kit_trials,
+        trials_declined_risk,
+        trial_food_lost,
+        /// (step 3) makes that failed outright, and material scrapped by unskilled makers
+        /// (stock units x 1000)
+        make_failures,
+        make_scrap,
+        /// (step 2) user skill passed on by teaching, and bands founded with inherited skill
+        use_taught,
+        use_inherited_bands,
+        /// (step 4) beliefs formed, tools written off and later retried, beliefs passed on by
+        /// telling and by inheritance, summed absolute belief error (x 1000, mean =
+        /// belief_err / beliefs_formed), and beliefs evicted from the full table
+        beliefs_formed,
+        tools_written_off,
+        tools_retried,
+        beliefs_told,
+        beliefs_inherited,
+        belief_err,
+        beliefs_evicted,
+        /// (step 6) fight beliefs updated (from fights, from hunting, from being told), weapons
+        /// taken up after a defeat, summed fight-belief error (x 1000), and switches made inside
+        /// an arms race
+        fight_beliefs_updated,
+        fight_beliefs_hunt,
+        fight_beliefs_told,
+        weapons_adopted_after_defeat,
+        fight_belief_err,
+        arms_race_switches,
+        /// (step 8) raids, the food carried off (person-seasons x 1000), and raid deaths
+        raids,
+        raid_food,
+        raid_deaths,
     }
     max {
         max_fight_deaths,

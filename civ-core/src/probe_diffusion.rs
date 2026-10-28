@@ -24,7 +24,22 @@
 //! - `displaced`: the item could fill a kit job but a better item fills it (an old tool after a
 //!   new one);
 //! - `unneeded`: an intermediate nothing the band uses is made from.
-use crate::band::{make_kit, make_kit_among, make_kit_for, refine_kit, Kit};
+//!
+//! (skills step 0, docs/PROPOSAL-skills.md 3.8) Tool choices are also scored against the true
+//! value of a kit (`true_value`: food multipliers, boat soundness, protection and fine work,
+//! less the upkeep of the payoff-slot tools, plus `PROBE_FIGHT_W` x fight strength), against
+//! its food part only (`food`), and against the band's own valuation (`own_value`: the slot pay
+//! `make_kit_with` ranks by). Gaps within `PROBE_TIE` are ties.
+//! - **adoption**: when a slot's pick changes from A to B (both tools), B's kit is compared
+//!   with the kit the band would have with A kept (A forced back into the slot); if A can no
+//!   longer be made the change is "forced";
+//! - **held** (yearly, `worse_held_share`): band-years an item filled a slot while another
+//!   makeable item for that slot gave a kit of higher true value;
+//! - "believed wrong" needs beliefs (step 4) and reads NA until then.
+//! Extra files: `skills-<W>x<H>-seed<S>.csv` (every `PROBE_EVERY` years: these figures for the
+//! period, the skills YearStats fields and counters, NA for what later steps add) and
+//! `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted over which better one).
+use crate::band::{edge_q, loss_guard, make_kit, make_kit_among, make_kit_for, refine_kit, weapon_q, Kit, KIT_UPKEEP, QUALITY_YIELD};
 use crate::knowledge::{closure, Known, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::materials::*;
 use crate::{Config, Params, World};
@@ -93,13 +108,157 @@ struct ItemAgg {
     worse_refined: u64,
     gain_sum: f64,
     gain_raw_sum: f64,
+    // (skills step 0) adoption of this item into a slot, against the item it replaced
+    adopt_n: u64,
+    adopt_forced: u64,
+    /// [worse, tie, better] by true food, true value, own valuation
+    adopt_food: [u64; 3],
+    adopt_true: [u64; 3],
+    adopt_own: [u64; 3],
+    /// band-years this item filled a slot, and those with a makeable item of higher true value
+    /// (or higher food) for the slot
+    held_n: u64,
+    held_worse_true: u64,
+    held_worse_food: u64,
+    held_gap_sum: f64,
+}
+
+/// (skills step 0) gaps within this count as ties
+const PROBE_TIE: f32 = 0.02;
+/// (skills step 0) weight of fight strength (weapons + guard) in the probe's true value
+const PROBE_FIGHT_W: f32 = 0.1;
+
+/// (skills step 0) the worth `make_kit_with` gives item `it` in payoff slot `j`
+/// (`Kit::slot_item` order), or None if it cannot fill the slot
+fn slot_qv(it: Item, j: usize) -> Option<f32> {
+    let m = mat(it);
+    Some(match (form(it), j) {
+        (Form::Spear, 0) => 0.35 + 0.65 * edge_q(m),
+        (Form::Point, 0) => 0.35 * edge_q(m),
+        (Form::Point, 2) => edge_q(m),
+        (Form::Edge, 0) => 0.2 * edge_q(m),
+        (Form::Edge, 1) => edge_q(m),
+        (Form::Axe, 3) => 0.5 * cut_q(m) + 0.5 * durability(m),
+        (Form::Boat, 4) | (Form::Outrigger, 9) | (Form::Plank, 10) | (Form::Ship, 11) => boat_q(m),
+        (Form::Net, 5) | (Form::Trap, 6) => mesh_q(m),
+        (Form::Bow, 7) | (Form::Shield, 8) => m.props().tough + 1.0,
+        _ => return None,
+    })
+}
+
+/// (skill, quality, chain depth) of the recipe behind an item, as `make_kit_among` reads it
+fn info(tk: &Toolkit, known: &[Known], it: Item) -> (f32, f32, u8) {
+    match tk.via(it) {
+        Some((i, _, d)) if i != u16::MAX => known.get(i as usize).map(|kn| (kn.skill.clamp(0.0, 1.0), kn.quality.clamp(0.0, 1.0), d)).unwrap_or((1.0, 0.0, d)),
+        Some((_, _, d)) => (1.0, 0.0, d),
+        None => (1.0, 0.0, 0),
+    }
+}
+
+fn upkeep(it: Item, d: u8) -> f32 {
+    KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32)
+}
+
+/// food part of a (refined) kit's payoff
+fn food(k: &Kit) -> f32 {
+    k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m + k.digest.iter().sum::<f32>()
+}
+
+/// (skills step 0) layer-1-like true value of a refined kit: food, boat, protection, fine
+/// work, less the upkeep of its payoff-slot tools (each tool once), plus fight strength
+fn true_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
+    let mut up = 0.0;
+    let mut seen: [Item; 12] = [NONE; 12];
+    for j in 0..12 {
+        let it = k.slot_item(j);
+        if it == NONE || seen[..j].contains(&it) {
+            continue;
+        }
+        seen[j] = it;
+        up += upkeep(it, info(tk, known, it).2);
+    }
+    food(k) + k.boat_q + k.protect + k.fine - up + PROBE_FIGHT_W * (weapon_q(k) + 1.0 - loss_guard(k))
+}
+
+/// (skills step 0) the band's own valuation: the slot pay `make_kit_with` ranks by, summed
+fn own_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
+    (0..12)
+        .map(|j| {
+            let it = k.slot_item(j);
+            match (it != NONE).then(|| slot_qv(it, j)).flatten() {
+                Some(qv) => {
+                    let (sk, ql, d) = info(tk, known, it);
+                    qv * (1.0 + QUALITY_YIELD * ql) * (0.5 + 0.5 * sk) - upkeep(it, d)
+                }
+                None => 0.0,
+            }
+        })
+        .sum()
+}
+
+/// (skills step 0) the kit the band would choose with `a` in slot `j`: the items it would
+/// pick there instead are taken away one by one until `a` is the pick (None if it never is)
+fn force(tk: &Toolkit, known: &[Known], j: usize, a: Item) -> Option<Kit> {
+    let mut avail = tk.avail;
+    for _ in 0..16 {
+        let k = make_kit_among(&avail, tk, known);
+        let p = k.slot_item(j);
+        if p == a {
+            return Some(k);
+        }
+        if p == NONE {
+            return None;
+        }
+        avail = set_without(&avail, p);
+    }
+    None
+}
+
+/// 0 worse, 1 tie, 2 better (`d` = chosen minus alternative)
+fn cmp3(d: f32) -> usize {
+    if d < -PROBE_TIE {
+        0
+    } else if d <= PROBE_TIE {
+        1
+    } else {
+        2
+    }
+}
+
+/// (skills step 0) totals for a period of the skills CSV, and for the run
+#[derive(Clone, Default)]
+struct Period {
+    adopt_n: u64,
+    adopt_forced: u64,
+    adopt_food: [u64; 3],
+    adopt_true: [u64; 3],
+    adopt_own: [u64; 3],
+    held_n: u64,
+    held_worse_true: u64,
+    held_worse_food: u64,
+}
+impl Period {
+    fn add(&mut self, p: &Period) {
+        for k in 0..3 {
+            self.adopt_food[k] += p.adopt_food[k];
+            self.adopt_true[k] += p.adopt_true[k];
+            self.adopt_own[k] += p.adopt_own[k];
+        }
+        self.adopt_n += p.adopt_n;
+        self.adopt_forced += p.adopt_forced;
+        self.held_n += p.held_n;
+        self.held_worse_true += p.held_worse_true;
+        self.held_worse_food += p.held_worse_food;
+    }
 }
 
 fn env<T: std::str::FromStr>(k: &str, d: T) -> T {
     std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d)
 }
 
-/// What the kit does for a band, summed (food multipliers, boat soundness, protection).
+/// What the kit does for a band, summed (food multipliers, boat soundness, protection). The
+/// D1-D6 probe measure, kept for the `worse_refined_share` / `gain_mean` columns so they stay
+/// comparable with earlier runs; skills step 0 scores choices with `true_value` instead.
 fn payoff(k: &Kit) -> f32 {
     k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m + k.boat_q + k.protect + k.digest.iter().sum::<f32>() + k.fine
 }
@@ -152,6 +311,21 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     writeln!(series, "year,bands,pop,item,name,known,make,kit,used").unwrap();
     let mut fcsv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/forgets-{tag}.csv")).unwrap());
     writeln!(fcsv, "year,band,pop,recipe,item,name,origin,years_known,seasons,used,reason,{},arrived_ok,max_skill,max_q", REASONS.map(|r| format!("idle_{r}")).join(",")).unwrap();
+    // (skills step 0)
+    let mut skcsv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/skills-{tag}.csv")).unwrap());
+    let sk_counters: Vec<&str> = crate::world::Counters::NAMES.iter().copied().skip_while(|n| *n != "kit_switches").take_while(|n| *n != "max_fight_deaths").collect();
+    let sk_fields: Vec<String> = crate::data::year_fields(&crate::world::YearStats::default()).into_iter().map(|(k, _)| k).skip_while(|k| k != "use_skill_edge").collect();
+    writeln!(
+        skcsv,
+        "year,bands,pop,adopt_n,adopt_forced,adopt_worse_food,adopt_tie_food,adopt_worse_true,adopt_tie_true,adopt_worse_own,adopt_tie_own,adopt_believed_wrong,held_n,worse_held_share,worse_held_food_share,trial_rate_pshort_lo,trial_rate_pshort_mid,trial_rate_pshort_hi,belief_err_n1,belief_err_n5,belief_err_n20,fight_belief_err_n1,fight_belief_err_n5,fight_belief_err_n20,inv_payout,inv_decision_blind,inv_perturb,{},{}",
+        sk_fields.join(","),
+        sk_counters.iter().map(|n| format!("c_{n}")).collect::<Vec<_>>().join(",")
+    )
+    .unwrap();
+    let mut prev_pick: HashMap<u32, [Item; 12]> = HashMap::new();
+    let mut period = Period::default();
+    let mut tot = Period::default();
+    let mut pairs: BTreeMap<(&'static str, Item, Item), (u64, f64)> = BTreeMap::new();
     let mut tracks: HashMap<(u32, u32), Track> = HashMap::new();
     let mut agg: BTreeMap<Item, ItemAgg> = BTreeMap::new();
     let mut prev_bands: HashSet<u32> = w.bands.iter().map(|b| b.id).collect();
@@ -176,6 +350,47 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             // (diffusion D3) the kit the band relies on, as the world chooses it
             let kit = make_kit_for(&tk, &b.known);
             let ki = kit_items(&kit);
+            // (skills step 0) adoption: a slot's pick changed since last season
+            let picks: [Item; 12] = std::array::from_fn(|j| kit.slot_item(j));
+            let mut now_vals: Option<(f32, f32, f32)> = None;
+            if let Some(pp) = prev_pick.get(&b.id) {
+                for j in 0..12 {
+                    let (a, bn) = (pp[j], picks[j]);
+                    if a == bn || a == NONE || bn == NONE {
+                        continue;
+                    }
+                    let ag = agg.entry(bn).or_default();
+                    ag.adopt_n += 1;
+                    period.adopt_n += 1;
+                    let forced = if tk.avail.has(a) { force(&tk, &b.known, j, a) } else { None };
+                    let Some(mut ka) = forced else {
+                        ag.adopt_forced += 1;
+                        period.adopt_forced += 1;
+                        continue;
+                    };
+                    let (f0, t0v, o0) = *now_vals.get_or_insert_with(|| {
+                        let mut kr = kit;
+                        refine_kit(&mut kr, &tk, &b.known);
+                        (food(&kr), true_value(&kr, &tk, &b.known), own_value(&kit, &tk, &b.known))
+                    });
+                    let oa = own_value(&ka, &tk, &b.known);
+                    refine_kit(&mut ka, &tk, &b.known);
+                    let ta = true_value(&ka, &tk, &b.known);
+                    let (cf, ct, co) = (cmp3(f0 - food(&ka)), cmp3(t0v - ta), cmp3(o0 - oa));
+                    ag.adopt_food[cf] += 1;
+                    ag.adopt_true[ct] += 1;
+                    ag.adopt_own[co] += 1;
+                    period.adopt_food[cf] += 1;
+                    period.adopt_true[ct] += 1;
+                    period.adopt_own[co] += 1;
+                    if ct == 0 {
+                        let e = pairs.entry(("adopt_worse_true", bn, a)).or_default();
+                        e.0 += 1;
+                        e.1 += (ta - t0v) as f64;
+                    }
+                }
+            }
+            prev_pick.insert(b.id, picks);
             let mut item_seen: HashSet<Item> = HashSet::new();
             let mut item_used: HashSet<Item> = HashSet::new();
             for (i, k) in b.known.iter().enumerate() {
@@ -259,6 +474,43 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             if year_end {
                 let mut kr = kit;
                 refine_kit(&mut kr, &tk, &b.known);
+                // (skills step 0) held: is another makeable item better in any slot?
+                let (f0, t0v) = (food(&kr), true_value(&kr, &tk, &b.known));
+                for j in 0..12 {
+                    let x = picks[j];
+                    if x == NONE {
+                        continue;
+                    }
+                    let (mut best_t, mut best_f, mut best_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY, NONE);
+                    for y in tk.avail.iter() {
+                        if y == x || slot_qv(y, j).is_none() {
+                            continue;
+                        }
+                        if let Some(mut ky) = force(&tk, &b.known, j, y) {
+                            refine_kit(&mut ky, &tk, &b.known);
+                            let tv = true_value(&ky, &tk, &b.known);
+                            if tv > best_t {
+                                (best_t, best_y) = (tv, y);
+                            }
+                            best_f = best_f.max(food(&ky));
+                        }
+                    }
+                    let ag = agg.entry(x).or_default();
+                    ag.held_n += 1;
+                    period.held_n += 1;
+                    if best_t - t0v > PROBE_TIE {
+                        ag.held_worse_true += 1;
+                        ag.held_gap_sum += (best_t - t0v) as f64;
+                        period.held_worse_true += 1;
+                        let e = pairs.entry(("held_worse_true", x, best_y)).or_default();
+                        e.0 += 1;
+                        e.1 += (best_t - t0v) as f64;
+                    }
+                    if best_f - f0 > PROBE_TIE {
+                        ag.held_worse_food += 1;
+                        period.held_worse_food += 1;
+                    }
+                }
                 let q = |tk: &Toolkit, it: Item| -> f32 {
                     tk.via(it).and_then(|(i, _, _)| b.known.get(i as usize)).map(|kn: &Known| kn.quality).unwrap_or(0.0)
                 };
@@ -368,7 +620,36 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                 }
             }
         }
+        prev_pick.retain(|id, _| alive.contains(id));
         if year_end && (tick / 4) % every == 0 {
+            let p = std::mem::take(&mut period);
+            tot.add(&p);
+            let na = p.adopt_n - p.adopt_forced;
+            let d = |x: u64, n: u64| if n > 0 { format!("{:.4}", x as f64 / n as f64) } else { "NA".to_string() };
+            let ys: Vec<String> = match w.history.last() {
+                Some(h) => crate::data::year_fields(h).into_iter().skip_while(|(k, _)| k != "use_skill_edge").map(|(_, v)| v).collect(),
+                None => vec!["NA".to_string(); sk_fields.len()],
+            };
+            let cv: Vec<String> = crate::world::Counters::NAMES.iter().zip(w.counters.values()).filter(|(n, _)| sk_counters.contains(*n)).map(|(_, v)| v.to_string()).collect();
+            writeln!(
+                skcsv,
+                "{},{nb},{pop},{},{},{},{},{},{},{},{},NA,{},{},{},NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,{},{}",
+                tick / 4,
+                p.adopt_n,
+                p.adopt_forced,
+                d(p.adopt_food[0], na),
+                d(p.adopt_food[1], na),
+                d(p.adopt_true[0], na),
+                d(p.adopt_true[1], na),
+                d(p.adopt_own[0], na),
+                d(p.adopt_own[1], na),
+                p.held_n,
+                d(p.held_worse_true, p.held_n),
+                d(p.held_worse_food, p.held_n),
+                ys.join(","),
+                cv.join(",")
+            )
+            .unwrap();
             for (&o, c) in &cnt {
                 writeln!(series, "{},{nb},{pop},{o},\"{}\",{},{},{},{}", tick / 4, item_name(o), c[0], c[1], c[2], c[3]).unwrap();
             }
@@ -384,7 +665,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/items-{tag}.csv")).unwrap());
     writeln!(
         f,
-        "item,name,form,mat,first_year,inventions,transfers,peak_known,peak_year,peak_share,final_known,final_share,final_make,final_kit,mean_share_alive,seasons_alive,extinctions,bs_known,bs_make,bs_kit,bs_used,gained_invented,gained_inherited,gained_taught,gained_start,taught_ok,taught_bad,{},forgets_band_gone,forgets_invented,forgets_inherited,forgets_taught,mean_years_known_at_forget,forget_never_used,forget_taught_within_20y,inc_n,inc_none,q_new_mean,q_inc_mean,q_lower_share,worse_refined_share,gain_mean,gain_raw_mean",
+        "item,name,form,mat,first_year,inventions,transfers,peak_known,peak_year,peak_share,final_known,final_share,final_make,final_kit,mean_share_alive,seasons_alive,extinctions,bs_known,bs_make,bs_kit,bs_used,gained_invented,gained_inherited,gained_taught,gained_start,taught_ok,taught_bad,{},forgets_band_gone,forgets_invented,forgets_inherited,forgets_taught,mean_years_known_at_forget,forget_never_used,forget_taught_within_20y,inc_n,inc_none,q_new_mean,q_inc_mean,q_lower_share,worse_refined_share,gain_mean,gain_raw_mean,adopt_n,adopt_forced,adopt_worse_food,adopt_tie_food,adopt_worse_true,adopt_tie_true,adopt_worse_own,adopt_tie_own,adopt_believed_wrong,held_n,worse_held_share,worse_held_food_share,held_gap_mean",
         REASONS.map(|r| format!("forget_{r}")).join(",")
     )
     .unwrap();
@@ -398,7 +679,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         let _ = nf;
         writeln!(
             f,
-            "{o},\"{}\",{:?},{:?},{},{inv},{trn},{},{},{:.4},{},{:.4},{},{},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.4},{:.4}",
+            "{o},\"{}\",{:?},{:?},{},{inv},{trn},{},{},{:.4},{},{:.4},{},{},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.4},{:.4},{},{},{},{},{},{},{},{},NA,{},{:.4},{:.4},{:.4}",
             item_name(o),
             form(o),
             mat(o),
@@ -439,9 +720,44 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             d(a.worse_refined as f64, a.inc_n),
             d(a.gain_sum, a.inc_n),
             d(a.gain_raw_sum, a.inc_n),
+            a.adopt_n,
+            a.adopt_forced,
+            a.adopt_food[0],
+            a.adopt_food[1],
+            a.adopt_true[0],
+            a.adopt_true[1],
+            a.adopt_own[0],
+            a.adopt_own[1],
+            a.held_n,
+            d(a.held_worse_true as f64, a.held_n),
+            d(a.held_worse_food as f64, a.held_n),
+            d(a.held_gap_sum, a.held_worse_true),
         )
         .unwrap();
     }
+    let mut pf = std::io::BufWriter::new(std::fs::File::create(format!("{out}/pairs-{tag}.csv")).unwrap());
+    writeln!(pf, "kind,item,name,other,other_name,n,gap_mean").unwrap();
+    for (&(kind, x, y), &(n, g)) in &pairs {
+        writeln!(pf, "{kind},{x},\"{}\",{y},\"{}\",{n},{:.4}", item_name(x), if y == NONE { "-".to_string() } else { item_name(y) }, g / n.max(1) as f64).unwrap();
+    }
+    // the last partial period counts in the totals too
+    tot.add(&period);
+    let sh = |x: u64, n: u64| if n > 0 { 100.0 * x as f64 / n as f64 } else { f64::NAN };
+    let na = tot.adopt_n - tot.adopt_forced;
+    println!(
+        "  skills split {tag}: adoptions {} (forced {}) | worse in true food {:.1}% (tie {:.1}%) | worse in true value {:.1}% (tie {:.1}%) | worse by own valuation {:.1}% (tie {:.1}%) | believed wrong NA | held band-years {} worse_held_share {:.1}% (food {:.1}%)",
+        tot.adopt_n,
+        tot.adopt_forced,
+        sh(tot.adopt_food[0], na),
+        sh(tot.adopt_food[1], na),
+        sh(tot.adopt_true[0], na),
+        sh(tot.adopt_true[1], na),
+        sh(tot.adopt_own[0], na),
+        sh(tot.adopt_own[1], na),
+        tot.held_n,
+        sh(tot.held_worse_true, tot.held_n),
+        sh(tot.held_worse_food, tot.held_n)
+    );
     println!("probe_diffusion {tag}: {} years, {} bands, pop {}, {} recipes, {:.0}s", (last_tick + 1) / 4, w.bands.len(), w.total_pop(), w.reg.recipes.len(), t0.elapsed().as_secs_f32());
     println!("  state_hash {:016x}", w.state_hash());
 }

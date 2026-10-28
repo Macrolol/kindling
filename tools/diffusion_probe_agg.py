@@ -39,3 +39,38 @@ print('forget reasons %:', {x: round(100*G['forget_'+x]/nf,1) for x in R})
 print('taught arriving producible %:', round(100*G['taught_ok']/(G['taught_ok']+G['taught_bad']),1))
 print('forgets by origin % of that origin gained:', {o: round(100*G['forgets_'+o]/max(1,G['gained_'+o]),1) for o in ['invented','inherited','taught']})
 print('forgotten without ever being practised beyond the learning season %:', round(100*G['forget_never_used']/nf,1))
+
+# (skills step 0, docs/PROPOSAL-skills.md 3.8) the choice split: adoption against the replaced
+# item (worse in true food / in true value / by the band's own valuation; ties within PROBE_TIE)
+# and worse_held_share (band-years held while a better makeable item existed)
+if items and 'adopt_n' in next(iter(items.values()))[0]:
+    S=collections.Counter()
+    ks=['adopt_n','adopt_forced','adopt_worse_food','adopt_tie_food','adopt_worse_true','adopt_tie_true','adopt_worse_own','adopt_tie_own','held_n']
+    per=[]
+    for nm,v in items.items():
+        c=collections.Counter()
+        for r in v:
+            for k in ks: c[k]+=F(r,k)
+            hn=F(r,'held_n'); c['held_worse_true']+=hn*F(r,'worse_held_share') if hn>0 else 0; c['held_worse_food']+=hn*F(r,'worse_held_food_share') if hn>0 else 0
+        S.update(c); per.append((nm,c))
+    pc=lambda x,n: 100*x/n if n else math.nan
+    na=S['adopt_n']-S['adopt_forced']
+    print('\nSKILLS SPLIT (step 0)')
+    print(f"adoptions {S['adopt_n']:.0f} (forced, old item no longer makeable: {S['adopt_forced']:.0f}); of the {na:.0f} with a choice:")
+    print(f"  worse in true food      {pc(S['adopt_worse_food'],na):5.1f}%  (tie {pc(S['adopt_tie_food'],na):5.1f}%)")
+    print(f"  worse in true value     {pc(S['adopt_worse_true'],na):5.1f}%  (tie {pc(S['adopt_tie_true'],na):5.1f}%)")
+    print(f"  worse by own valuation  {pc(S['adopt_worse_own'],na):5.1f}%  (tie {pc(S['adopt_tie_own'],na):5.1f}%)")
+    print("  believed wrong          NA (beliefs come at step 4)")
+    print(f"held band-years {S['held_n']:.0f}: worse_held_share {pc(S['held_worse_true'],S['held_n']):.1f}% (by food alone {pc(S['held_worse_food'],S['held_n']):.1f}%)")
+    print('item                       adopt  worse_food% worse_true% worse_own%  held_n  worse_held%')
+    for nm,c in sorted(per,key=lambda x:-x[1]['held_worse_true']):
+        if c['adopt_n']==0 and c['held_n']==0: continue
+        n=c['adopt_n']-c['adopt_forced']
+        print(f"{nm[:25]:25} {c['adopt_n']:7.0f} {pc(c['adopt_worse_food'],n):10.1f} {pc(c['adopt_worse_true'],n):10.1f} {pc(c['adopt_worse_own'],n):10.1f} {c['held_n']:8.0f} {pc(c['held_worse_true'],c['held_n']):10.1f}")
+    P=collections.Counter(); G2=collections.Counter()
+    for p in glob.glob(f'{root}/**/pairs-*.csv*',recursive=True):
+        for r in csv.DictReader(op(p)):
+            k=(r['kind'],r['name'],r['other_name']); P[k]+=int(r['n']); G2[k]+=int(r['n'])*float(r['gap_mean'])
+    if P:
+        print('top pairs (kind, item, better alternative or replaced item, band-years/adoptions, mean gap):')
+        for k,n in P.most_common(25): print(f"  {k[0]:17} {k[1][:24]:24} over {k[2][:24]:24} {n:8d} {G2[k]/n:+.3f}")
