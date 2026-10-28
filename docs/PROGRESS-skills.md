@@ -80,4 +80,6 @@ no population collapse.
   timings: `tools/cmp_runs.py OLD NEW` checks every manifest/summary.json/frames/metrics/chronicle
   field and the per-job text; 0 mismatches, 0 nonzero new fields on both.
   docs/results-skills-step0-seeds1-10-500y.txt, docs/results-skills-step0-750y-800x800.txt.
-- Probe re-dispatch: 128x80 seeds 1-8 1500 y run 40725221814 (12:21 PM EDT).
+- Probe re-dispatch: 128x80 seeds 1-8 1500 y run 40725221814 (12:21 PM EDT); once (a)/(b) had
+  finished, 192x120 seeds 1-8 1200 y run 40732114919 and 256x160 seeds 1-5 1000 y run 40732132799
+  (sim_timeout 300) alongside it (1:04 PM EDT).
