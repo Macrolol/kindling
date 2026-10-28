@@ -25,7 +25,7 @@ no population collapse.
 
 | # | step | status |
 |---|---|---|
-| 0 | Measure first: probe fixes (3.8), new counters and YearStats fields (zero yet) | in progress |
+| 0 | Measure first: probe fixes (3.8), new counters and YearStats fields (zero yet) | done |
 | 1 | Layer 1 and blade scoring | not started |
 | 2 | User skill by form, save 16 | not started |
 | 3 | Maker skill | not started |
@@ -39,7 +39,7 @@ no population collapse.
 - 17: raiding ships with this proposal, as step 8.
 - 18: grief dissent (`DISSENT_GRIEF`) accepted as the one new cost mechanism.
 
-## Step 0. Measure first (in progress)
+## Step 0. Measure first (done)
 
 ### 0a. Code (Oct 28)
 
@@ -83,3 +83,42 @@ no population collapse.
 - Probe re-dispatch: 128x80 seeds 1-8 1500 y run 40725221814 (12:21 PM EDT); once (a)/(b) had
   finished, 192x120 seeds 1-8 1200 y run 40732114919 and 256x160 seeds 1-5 1000 y run 40732132799
   (sim_timeout 300) alongside it (1:04 PM EDT).
+- Probe results (all three runs finished by 3:57 PM EDT): docs/results-skills-step0-128x80.txt,
+  -192x120.txt, -256x160.txt.
+  - 192x120 seed 8 is MISSING: its probe job hit the 150-minute job timeout (sim_timeout was left at
+    the default) at about year 1100 and was cancelled, so the run shows "cancelled"; the other 7 seeds
+    are complete. The partial artifact has no items/pairs CSV; its series rows to year 1169 match the
+    old run. 192x120 figures are seeds 1-7 on both sides. A seed-8-only rerun is optional: seeds `8`,
+    years 1200, map 192x120, probe true, sim_timeout 300 (it needs ~150+ min), seeds_per_job 1.
+  - Old columns: tools/cmp_probe.py OLD NEW on all three sizes. Every series row, the forgets
+    multisets, every old log line and every state_hash (8/8, 7/7, 5/5) identical. Only 8 numbers
+    differ, all bone point q_inc_mean/q_lower_share, one unit in the last digit: the D1-D6 probe takes
+    the incumbent as rep[0] from a HashSet (kit_items), so this is pre-existing run-to-run
+    nondeterminism, not step 0. (cmp_probe.py now streams the CSVs; the old version, which loaded
+    everything into memory, was OOM-killed on the 28-43M-row forgets files.)
+  - The split, share of adoptions with a choice (tie share in brackets):
+
+    | | adoptions (forced) | worse true food | worse true value | worse own valuation | worse_held (food) |
+    |---|---|---|---|---|---|
+    | 128x80, 8 seeds, 1500 y | 7.38M (3.34M) | 10.4% (38.8%) | 12.4% (27.3%) | 0.0% (19.6%) | 10.5% (6.5%) |
+    | 192x120, 7 seeds, 1200 y | 7.95M (3.36M) | 11.2% (43.8%) | 12.3% (33.0%) | 0.0% (21.8%) | 8.8% (7.3%) |
+    | 256x160, 5 seeds, 1000 y | 8.40M (3.52M) | 11.2% (45.2%) | 12.6% (35.0%) | 0.0% (22.2%) | 9.9% (7.8%) |
+    | all 20 seeds | 23.72M (10.22M) | 10.9% (42.8%) | 12.4% (32.0%) | 0.0% (21.3%) | 9.7% (7.3%) |
+
+    So about one adoption in eight with a choice is worse in true value, and about a tenth of
+    held band-years are worse than a makeable alternative; nothing is worse by the band's own
+    valuation (expected: it ranks by it). Worse-true is lower in the first 250 years (6-12%);
+    worse_held falls with time (15% at <=250 y to 8% after 1000 y).
+  - What drives it (adopt_worse_true pairs, all seeds, 1.68M): iron knife over steel knife 26%
+    (top at every size), plant fibre net over flax net 19%, bronze knife over steel knife 7%,
+    copper knife over steel knife 4.5%, hide net over flax net 4%, iron-tipped over steel-tipped
+    spear 3.7%, steel point over copper point 3.4%. That is mostly downgrades away from the best
+    knife or net to an older one, which fits cause 1 (recipe skill used as user skill).
+    Held (85.9M band-years): plant fibre net over flax net 27%, iron-tipped over
+    steel-tipped spear 12%, dugout canoe over skin boat 7.5%, steel point over copper point 6%.
+    Blades over flint blade (copper/iron/stone) are the cause-2 (edge vs cut) cases: stone blade
+    is 99% worse_food.
+  - skills-*.csv: the 26 later-step YearStats fields and 27 c_* counters are 0 in every row, the
+    belief/trial/invariant fields NA, as intended.
+  - The step-0 probe is 1.2-3.1x slower than the D1-D6 probe (the yearly held scan): probe runs
+    need sim_timeout 300 from now on.

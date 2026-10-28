@@ -1,0 +1,168 @@
+Kindling skills step 0 (probe split + zero counters, 960dad8) - probe 128x80: seeds 1..8, 1500 years
+================================================================================================
+Run: GitHub Actions headless-sims.yml run 40725221814: https://github.com/Macrolol/kindling/actions/runs/40725221814
+     commit 0c45cce (= 960dad8 code; later commits change docs/ and tools/ only), created 2026-10-28T16:21:52Z, updated 2026-10-28T17:57:48Z (UTC), success
+     inputs: seeds 1..8, years 1500, map 128x80, seeds_per_job 1, probe true, archive true, sim_timeout 150 (default)
+     outputs: Actions artifacts results-probe-<seed> (30 days) and pre-release run-40725221814 (kindling-run-40725221814.tar.zst, jobs/results-probe-*)
+Compared with pre-step-0 (D1-D6) probe run 40620611442: https://github.com/Macrolol/kindling/actions/runs/40620611442 (commit 79d5fd4)
+Tools: tools/cmp_probe.py OLD NEW, tools/diffusion_probe_agg.py NEW; pair and period tables summed from pairs-*.csv and skills-*.csv
+
+== 1. Old columns identical? (tools/cmp_probe.py 40620611442 40725221814)
+Every column of the old items/series/forgets CSVs (forgets as a multiset: HashMap order) and every old probe
+log line (timings stripped) must be in the new run; state hashes must be equal.
+  compared rows: {'items': 784, 'series': 93972, 'forgets': 28356938, 'logs': 8}; state hashes old 8 new 8 equal
+  mismatches: 1
+  items-128x80-seed4: 1 of 103 rows differ
+  The differing rows, every one of them:
+    128x80-seed4   bone point  q_lower_share 0.017 -> 0.018
+  All in item 105 'bone point', and only in the incumbent-quality columns (q_inc_mean, q_lower_share), by one
+  unit in the last printed digit; every other column of every items row (worse_refined_share, gain_mean,
+  gain_raw_mean, inc_n, q_new_mean ...), every series and forgets row, every log line and every state_hash match.
+  Cause: not step 0. The D1-D6 probe takes the incumbent as rep[0] of a Vec built from kit_items(), a
+  std HashSet with a per-process random hasher; when removing a bone point brings two new items into the kit
+  (it can fill the spear slot and the point slot) which one is 'the incumbent' depends on that random order.
+  Same toolchain on both sides (rustc 1.99.1, same cargo cache key). Old split figures unaffected.
+  RESULT: old columns IDENTICAL apart from that pre-existing nondeterminism in two bone-point columns.
+
+== 2. The split (tools/diffusion_probe_agg.py, SKILLS SPLIT)
+  seeds: 8
+  adoptions 7377679 (forced, old item no longer makeable: 3337695); of the 4039984 with a choice:
+    worse in true food       10.4%  (tie  38.8%)
+    worse in true value      12.4%  (tie  27.3%)
+    worse by own valuation    0.0%  (tie  19.6%)
+    believed wrong          NA (beliefs come at step 4)
+  held band-years 252741240: worse_held_share 10.5% (by food alone 6.5%)
+  item                       adopt  worse_food% worse_true% worse_own%  held_n  worse_held%
+  plant fibre net            258319       66.4       72.8        0.0 11616153       54.0
+  dugout canoe               178888        0.0       10.4        0.0 24190068       14.0
+  steel point                428830        0.1        7.5        0.0 18268151       13.1
+  iron-tipped spear          141422       21.3       20.3        0.0  3054467       64.0
+  sharpened-stick spear      291924       15.4       15.4        0.0  3497275       52.9
+  outrigger canoe            103875        0.0       13.6        0.0 23079200        7.4
+  bow (flax string)          532052        0.0       24.4        0.0 13957412       11.2
+  copper-tipped spear        158282       30.0       29.5        0.0  1739822       62.3
+  iron knife                 250479       62.7       62.6        0.0  1301677       83.2
+  copper knife               239160       50.3       50.3        0.0  1704459       60.6
+  plant fibre snare           53321       34.1       36.6        0.0  6841755       13.9
+  stone blade                390002       99.6       99.7        0.0  2986826       19.2
+  bronze knife                78735       49.0       49.0        0.0   744444       73.4
+  bronze-tipped spear         35791       30.7       28.5        0.0   741515       66.2
+  hide net                   115994       38.5       37.6        0.0  1322398       25.3
+  copper axe                 146702       16.5       14.3        0.0  1581280       18.6
+  wool net                    38640       53.9       64.7        0.0   249099       71.5
+  flint point                180360        0.0       17.5        0.0  1700598        7.6
+  reed bundle boat            94767        0.0       90.1        0.0  1142953       11.2
+  bronze axe                  34309        0.0        5.6        0.0   428992       17.0
+  bone-tipped spear           38542        4.5        4.5        0.0   272430       21.2
+  stone axe                  298373       76.9       76.9        0.0  4489791        1.2
+  copper point               260084        5.7        3.2        0.0  1839633        2.6
+  rawhide snare               26614       18.3        9.8        0.0   359478       10.2
+  wool snare                  16488       14.9       17.8        0.0   151873       22.4
+  flint blade                173108        0.1        2.0        0.0  1270259        2.2
+  bronze point                57524        0.0        1.1        0.0   631575        4.0
+  iron point                 165645        0.1        0.3        0.0  1269878        1.8
+  bone point                 218555        1.7        1.8        0.0  1561610        1.4
+  flint axe                    2975        0.3       90.9        0.0    27994       48.5
+  iron axe                   143072        0.0        0.2        0.0  1873533        0.7
+  flint-tipped spear         133437        0.1        0.3        0.0  1072785        1.1
+  bow (wool string)           24380        0.0       14.1        0.0   158807        5.3
+  rawhide-strung bow         384674        0.0        0.1        0.0  8627026        0.1
+  obsidian point               2447        0.1      100.0        0.0     6083      100.0
+  skin boat                   48230        0.0        0.5        0.0   595608        0.8
+  steel-tipped spear         361747        0.9        0.3        0.0 15495120        0.0
+  outrigger reed boat         31008        0.0        3.2        0.0  1391991        0.1
+  flax net                   280434        0.0        0.1        0.0 12845684        0.0
+  outrigger skin boat         16729        0.0        0.9        0.0   158634        0.6
+  steel knife                536189        0.0        0.0        0.0 18207877        0.0
+  steel axe                  322689        0.0        0.0        0.0 17357170        0.0
+  flax snare                  82781        0.0        0.0        0.0 18538094        0.0
+  hide shield                     0        nan        nan        nan  7479381        0.0
+  plank boat                      0        nan        nan        nan 16791827        0.0
+  obsidian blade                 19        0.0        0.0        0.0       15        0.0
+  obsidian-tipped spear          83        0.0        0.0        0.0      125        0.0
+  nailed plank ship               0        nan        nan        nan   118415        0.0
+  top pairs (kind, item, better alternative or replaced item, band-years/adoptions, mean gap):
+    held_worse_true   plant fibre net          over flax net                  4975822 +0.120
+    held_worse_true   dugout canoe             over skin boat                 3307515 +0.025
+    held_worse_true   steel point              over copper point              2380064 +0.023
+    held_worse_true   iron-tipped spear        over steel-tipped spear        1678528 +0.160
+    held_worse_true   bow (flax string)        over bow (wool string)         1539512 +0.036
+    held_worse_true   plant fibre net          over hide net                  1294213 +0.035
+    held_worse_true   sharpened-stick spear    over bone-tipped spear         1148787 +0.318
+    held_worse_true   iron knife               over steel knife                905613 +0.168
+    held_worse_true   outrigger canoe          over outrigger reed boat        904432 +0.034
+    held_worse_true   outrigger canoe          over outrigger skin boat        807283 +0.027
+    held_worse_true   copper knife             over flint blade                739284 +0.273
+    held_worse_true   plant fibre snare        over flax snare                 725867 +0.179
+    held_worse_true   sharpened-stick spear    over flint-tipped spear         664102 +1.063
+    held_worse_true   copper-tipped spear      over flint-tipped spear         627143 +0.403
+    held_worse_true   stone blade              over flint blade                502696 +0.346
+    held_worse_true   bronze-tipped spear      over steel-tipped spear         383506 +0.178
+    held_worse_true   copper-tipped spear      over steel-tipped spear         376393 +0.565
+    held_worse_true   bronze knife             over steel knife                356193 +0.155
+    held_worse_true   hide net                 over flax net                   318559 +0.110
+    held_worse_true   iron-tipped spear        over flint-tipped spear         256836 +0.136
+    held_worse_true   copper axe               over steel axe                  236806 +0.039
+    held_worse_true   plant fibre snare        over rawhide snare              223357 +0.031
+    held_worse_true   copper knife             over steel knife                191674 +0.374
+    held_worse_true   bronze knife             over flint blade                186749 +0.084
+    held_worse_true   iron knife               over flint blade                165235 +0.101
+
+== 3. Per seed (probe logs, 'skills split' lines)
+  128x80-seed1: adoptions 932413 (forced 433130) | worse in true food 7.7% (tie 37.8%) | worse in true value 10.1% (tie 22.3%) | worse by own valuation 0.0% (tie 16.9%) | believed wrong NA | held band-years 30945818 worse_held_share 10.2% (food 5.8%)
+  128x80-seed2: adoptions 1021533 (forced 461679) | worse in true food 10.7% (tie 32.9%) | worse in true value 11.4% (tie 23.4%) | worse by own valuation 0.0% (tie 18.9%) | believed wrong NA | held band-years 31378662 worse_held_share 7.6% (food 7.0%)
+  128x80-seed3: adoptions 553236 (forced 234984) | worse in true food 9.2% (tie 39.2%) | worse in true value 10.8% (tie 26.8%) | worse by own valuation 0.0% (tie 23.6%) | believed wrong NA | held band-years 27366135 worse_held_share 12.8% (food 6.5%)
+  128x80-seed4: adoptions 884754 (forced 417936) | worse in true food 9.9% (tie 41.7%) | worse in true value 11.9% (tie 26.0%) | worse by own valuation 0.0% (tie 21.0%) | believed wrong NA | held band-years 26582214 worse_held_share 15.1% (food 8.7%)
+  128x80-seed5: adoptions 859957 (forced 385255) | worse in true food 12.1% (tie 37.9%) | worse in true value 14.8% (tie 26.7%) | worse by own valuation 0.0% (tie 19.5%) | believed wrong NA | held band-years 30552267 worse_held_share 12.4% (food 9.8%)
+  128x80-seed6: adoptions 717166 (forced 337325) | worse in true food 9.8% (tie 34.9%) | worse in true value 10.3% (tie 28.0%) | worse by own valuation 0.0% (tie 20.8%) | believed wrong NA | held band-years 20273092 worse_held_share 11.5% (food 8.5%)
+  128x80-seed7: adoptions 1044803 (forced 442649) | worse in true food 13.1% (tie 43.2%) | worse in true value 16.4% (tie 33.1%) | worse by own valuation 0.0% (tie 20.4%) | believed wrong NA | held band-years 42630464 worse_held_share 7.2% (food 4.1%)
+  128x80-seed8: adoptions 1363817 (forced 624737) | worse in true food 9.6% (tie 40.9%) | worse in true value 11.9% (tie 29.8%) | worse by own valuation 0.0% (tie 18.4%) | believed wrong NA | held band-years 43012588 worse_held_share 9.6% (food 4.4%)
+
+== 4. Which pairs drive 'worse' (pairs-*.csv summed over seeds; share of all rows of that kind; gap = mean true-value gap)
+  adopt_worse_true: 'A over B' = the band switched the slot from B to A while the kit with B kept was worth more.
+  held_worse_true: 'A over B' = band-year A filled the slot while makeable B gave a kit of higher true value.
+    adopt_worse_true
+      iron knife               over steel knife                 109212  21.8% gap +0.177
+      plant fibre net          over flax net                     85857  17.2% gap +0.136
+      steel point              over copper point                 29109   5.8% gap +0.024
+      copper knife             over steel knife                  28943   5.8% gap +0.382
+      hide net                 over flax net                     22640   4.5% gap +0.115
+      bronze knife             over steel knife                  22120   4.4% gap +0.164
+      copper knife             over flint blade                  18777   3.8% gap +0.289
+      dugout canoe             over skin boat                    14271   2.9% gap +0.025
+      iron knife               over flint blade                  12452   2.5% gap +0.118
+      iron-tipped spear        over steel-tipped spear           11748   2.3% gap +0.204
+      wool net                 over flax net                     11264   2.3% gap +0.134
+      copper-tipped spear      over flint-tipped spear           10432   2.1% gap +0.499
+    held_worse_true
+      plant fibre net          over flax net                   4975822  18.8% gap +0.120
+      dugout canoe             over skin boat                  3307515  12.5% gap +0.025
+      steel point              over copper point               2380064   9.0% gap +0.023
+      iron-tipped spear        over steel-tipped spear         1678528   6.4% gap +0.160
+      bow (flax string)        over bow (wool string)          1539512   5.8% gap +0.036
+      plant fibre net          over hide net                   1294213   4.9% gap +0.035
+      sharpened-stick spear    over bone-tipped spear          1148787   4.3% gap +0.318
+      iron knife               over steel knife                 905613   3.4% gap +0.168
+      outrigger canoe          over outrigger reed boat         904432   3.4% gap +0.034
+      outrigger canoe          over outrigger skin boat         807283   3.1% gap +0.027
+      copper knife             over flint blade                 739284   2.8% gap +0.273
+      plant fibre snare        over flax snare                  725867   2.7% gap +0.179
+
+== 5. By period (skills-*.csv; adopt = all adoptions, choice = not forced)
+  files 8 rows 1200 last years ['1500', '1500', '1500', '1500', '1500', '1500', '1500', '1500'] nonzero skills fields/counters: none
+    <=250     adopt    180157 choice    102665 worse_food   5.2% worse_true  11.8% tie_true  18.2% worse_own  0.0% | held     7329776 worse_held  17.0%
+    251-500   adopt    904196 choice    523487 worse_food  10.6% worse_true  13.6% tie_true  19.9% worse_own  0.0% | held    31426474 worse_held  15.8%
+    501-1000  adopt   2975108 choice   1618478 worse_food  10.9% worse_true  12.7% tie_true  27.6% worse_own  0.0% | held   101828699 worse_held  10.7%
+    >1000     adopt   3318218 choice   1795354 worse_food  10.1% worse_true  11.7% tie_true  29.6% worse_own  0.0% | held   112156291 worse_held   8.3%
+  (nonzero skills fields/counters: the 26 later-step YearStats fields (use_skill_* .. raid_share_mean) and the 27 c_*
+   counters are 0 in every row; adopt_believed_wrong, trial_rate_*, belief_err_*, fight_belief_err_*, inv_* are NA)
+
+== 6. Probe job time (cargo test finished-in, seconds)
+  seed 1: pre-step-0    1850  step 0    3264  x1.76
+  seed 2: pre-step-0    1709  step 0    1999  x1.17
+  seed 3: pre-step-0    1578  step 0    3688  x2.34
+  seed 4: pre-step-0    1565  step 0    2254  x1.44
+  seed 5: pre-step-0    1799  step 0    4423  x2.46
+  seed 6: pre-step-0    1149  step 0    2148  x1.87
+  seed 7: pre-step-0    2142  step 0    5486  x2.56
+  seed 8: pre-step-0    2769  step 0    4367  x1.58

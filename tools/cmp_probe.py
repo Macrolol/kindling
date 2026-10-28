@@ -1,29 +1,46 @@
 #!/usr/bin/env python3
 """Compare probe_diffusion outputs of two runs (old_dir new_dir): columns present in the old
 items/series/forgets CSVs must match exactly (forgets as a multiset: HashMap order), and the
-probe log must match apart from timings and lines the new build adds."""
-import sys, os, re, csv, glob, gzip, collections
+probe log must match apart from timings and lines the new build adds.
+
+Streams every CSV (the forgets tables of the bigger maps are several GB once parsed): items and
+series row by row, forgets as an order-free multiset digest (row count plus two 64-bit sums of
+per-row blake2b hashes), so memory stays flat."""
+import sys, os, re, csv, glob, gzip, collections, hashlib, itertools
 old, new = sys.argv[1], sys.argv[2]
-op = lambda p: gzip.open(p, 'rt') if p.endswith('.gz') else open(p)
+csv.field_size_limit(1 << 30)
+op = lambda p: gzip.open(p, 'rt', newline='') if p.endswith('.gz') else open(p, newline='')
 def files(root, kind):
     return {re.sub(r'\.csv(\.gz)?$', '', os.path.basename(p)).split(kind + '-')[1]: p
             for p in glob.glob(f'{root}/**/{kind}-*.csv*', recursive=True)}
+M = (1 << 64) - 1
+def digest(rows):
+    n = s1 = s2 = 0
+    for t in rows:
+        h = hashlib.blake2b('\x1f'.join(t).encode(), digest_size=16).digest()
+        n += 1; s1 = (s1 + int.from_bytes(h[:8], 'little')) & M; s2 = (s2 + int.from_bytes(h[8:], 'little')) & M
+    return n, s1, s2
 issues = []; n = collections.Counter()
 for kind in ('items', 'series', 'forgets'):
     fo, fn = files(old, kind), files(new, kind)
     if set(fo) != set(fn): issues.append(f'{kind}: seed sets differ {sorted(set(fo) ^ set(fn))}')
     for tag in sorted(set(fo) & set(fn)):
-        ro = list(csv.DictReader(op(fo[tag]))); rn = list(csv.DictReader(op(fn[tag])))
-        cols = list(ro[0].keys()) if ro else []
-        miss = [c for c in cols if rn and c not in rn[0]]
+        ro = csv.reader(op(fo[tag])); rn = csv.reader(op(fn[tag]))
+        ho = next(ro, []); hn = next(rn, [])
+        miss = [c for c in ho if c not in hn]
         if miss: issues.append(f'{kind}-{tag}: columns gone {miss}')
-        cols = [c for c in cols if c not in miss]
-        a = [tuple(r[c] for c in cols) for r in ro]; b = [tuple(r[c] for c in cols) for r in rn]
-        if kind == 'forgets': a, b = sorted(a), sorted(b)
-        if a != b:
-            d = sum(1 for x, y in zip(a, b) if x != y) + abs(len(a) - len(b))
-            issues.append(f'{kind}-{tag}: {d} of {len(a)} rows differ')
-        n[kind] += len(a)
+        io = [i for i, c in enumerate(ho) if c in hn]; inn = [hn.index(ho[i]) for i in io]
+        a = (tuple(r[i] for i in io) for r in ro); b = (tuple(r[i] for i in inn) for r in rn)
+        if kind == 'forgets':
+            da, db = digest(a), digest(b)
+            if da != db: issues.append(f'{kind}-{tag}: multisets differ (rows {da[0]} old, {db[0]} new)')
+            n[kind] += da[0]
+        else:
+            d = rows = 0
+            for x, y in itertools.zip_longest(a, b):
+                d += x != y; rows += x is not None
+            if d: issues.append(f'{kind}-{tag}: {d} of {rows} rows differ')
+            n[kind] += rows
 strip = lambda s: re.sub(r'\(\d+(\.\d+)?s\)|\b\d+(\.\d+)?\s*(s|ms)\b', '', s).rstrip()
 lo = {os.path.basename(p): p for p in glob.glob(f'{old}/**/probe-*.log', recursive=True)}
 ln = {os.path.basename(p): p for p in glob.glob(f'{new}/**/probe-*.log', recursive=True)}
