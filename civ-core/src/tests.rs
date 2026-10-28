@@ -823,7 +823,9 @@ fn refined_recipes_make_better_kits() {
         w.step();
     }
     w.refresh_all_toolkits();
-    let before: Vec<f32> = w.bands.iter().map(|b| b.d.kit.game_m * b.d.kit.plants_m).collect();
+    // (diffusion D3) a finer recipe can also change which tool is relied on (payoff, not raw
+    // cutting yield): compare bands whose chosen kit stays the same
+    let before: Vec<(f32, [Item; 30])> = w.bands.iter().map(|b| (b.d.kit.game_m * b.d.kit.plants_m, b.d.kit.used_items())).collect();
     for b in &mut w.bands {
         for k in &mut b.known {
             k.quality = k.skill;
@@ -831,9 +833,11 @@ fn refined_recipes_make_better_kits() {
         b.d.fin_dirty = true;
     }
     w.refresh_all_toolkits();
-    let after: Vec<f32> = w.bands.iter().map(|b| b.d.kit.game_m * b.d.kit.plants_m).collect();
-    assert!(before.iter().zip(&after).all(|(a, b)| b >= a));
-    assert!(before.iter().zip(&after).any(|(a, b)| b > a));
+    let after: Vec<(f32, [Item; 30])> = w.bands.iter().map(|b| (b.d.kit.game_m * b.d.kit.plants_m, b.d.kit.used_items())).collect();
+    let same: Vec<(f32, f32)> = before.iter().zip(&after).filter(|(a, b)| a.1 == b.1).map(|(a, b)| (a.0, b.0)).collect();
+    assert!(same.len() * 2 > before.len());
+    assert!(same.iter().all(|(a, b)| b >= a));
+    assert!(same.iter().any(|(a, b)| b > a));
 }
 
 #[test]
@@ -1117,7 +1121,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x92e8b19215cf2c4b); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x56415fec651c4be8); // run-on changed by step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does

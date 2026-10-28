@@ -131,3 +131,17 @@ fn d3_trials_about_one_season_in_five() {
     }
     assert!((50..110).contains(&tried), "tried {tried} of 400 seasons");
 }
+
+/// D4: a recipe whose inputs the learner has is shown four times as often as one it has
+/// nothing for; partly usable ones lie between.
+#[test]
+fn d4_teaching_weighted_to_usable_recipes() {
+    use crate::world::teach_weight;
+    let (a, b) = (item(Form::Raw, Mat::Flint), item(Form::Raw, Mat::Wood));
+    let mut avail = ItemSet::default();
+    avail.add(a);
+    assert_eq!(teach_weight(&[a, NONE, NONE, NONE], &avail), 4.0);
+    assert_eq!(teach_weight(&[b, NONE, NONE, NONE], &avail), 1.0);
+    assert_eq!(teach_weight(&[a, b, NONE, NONE], &avail), 2.5);
+    assert_eq!(teach_weight(&[NONE; 4], &avail), 4.0);
+}

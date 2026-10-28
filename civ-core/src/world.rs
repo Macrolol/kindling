@@ -3519,7 +3519,10 @@ impl World {
         if cands.is_empty() {
             return;
         }
-        let (rid, skill, tq) = cands[rng.below(cands.len())];
+        // (diffusion D4) people show what the listener can put to use: a recipe is offered with
+        // weight 1 + TEACH_USABLE x the share of its inputs the listener already has
+        let wts: Vec<f32> = cands.iter().map(|&(rid, _, _)| teach_weight(&self.reg.recipes[rid as usize].inputs, &bands[dst].d.tk.avail)).collect();
+        let (rid, skill, tq) = cands[rng.weighted(&wts).unwrap_or(0)];
         let r = &self.reg.recipes[rid as usize];
         let relevant = r.inputs.iter().all(|&i| bands[dst].d.tk.avail.has(i));
         let bias = prestige_bias(&bands[src], &bands[dst]);
@@ -4190,6 +4193,23 @@ impl World {
             }
         }
     }
+}
+
+/// (diffusion D4) Extra weight a recipe gets, when one is shown to another band, per share of
+/// its inputs the learner already has at hand.
+pub const TEACH_USABLE: f32 = 3.0;
+
+/// (diffusion D4) How likely a recipe is to be the one shown, relative to the others:
+/// `1 + TEACH_USABLE x` the share of its inputs in `avail`.
+pub fn teach_weight(inputs: &[Item; 4], avail: &ItemSet) -> f32 {
+    let (mut n, mut have) = (0u32, 0u32);
+    for &i in inputs {
+        if i != NONE {
+            n += 1;
+            have += avail.has(i) as u32;
+        }
+    }
+    1.0 + TEACH_USABLE * if n == 0 { 1.0 } else { have as f32 / n as f32 }
 }
 
 /// One season's economic outcome for a band (see `World::economy`).

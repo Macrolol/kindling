@@ -158,3 +158,11 @@ Metal and other "better" tech (2nd-half means of known / make / kit):
   kit 0.13 -> 0.65; iron knife known 0.26 -> 0.93 (used 0.37, kit 0.03: kept in trial); copper
   knife gone (displaced by steel); flint-tipped spear kit 0.31 -> 0.05; cooked meat make
   0.27 -> 0.06 and hide thong 0.64 -> 0.23 (more people on the same game). To watch in the CI checks.
+- D4 teaching what the learner can use (`exchange`: the recipe shown is picked with weight
+  `teach_weight` = 1 + `TEACH_USABLE` (3) x the share of its inputs the learner has, instead of
+  uniformly; listening odds unchanged). Test `d4_teaching_weighted_to_usable_recipes`.
+  `refined_recipes_make_better_kits` now compares only bands whose chosen kit stays the same,
+  because since D3 a finer recipe can also change which tool is relied on. v10 run-on hash
+  updated; full suite 71 passed. Smoke probe seed 1 128x80 600 y (275 s), D3 -> D4: taught
+  recipes producible on arrival 49.9% -> 55.4% (D2 run: 64.9%); taught-and-forgotten 66.9% ->
+  68.5%; forget reasons no_input 55.4 -> 50.5%, displaced 25.8 -> 31.5%.
