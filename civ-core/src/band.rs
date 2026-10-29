@@ -601,16 +601,16 @@ impl Band {
 /// and works with. Nothing is made "for war"; reach and a hard, sharp edge decide.
 pub fn weapon_q(k: &Kit) -> f32 {
     // (v8) in a fight that lasts, an edge that chips or breaks is soon useless: weapon quality
-    // weighs durability as well as sharpness, so bronze and iron finally beat flint
-    let edge = |m: Mat| 0.55 * cut_q(m) + 0.45 * durability(m);
+    // weighs durability as well as sharpness, so bronze and iron finally beat flint.
+    // `edge_q` is that weight. Food ranking does not use it (skills step 1); fight terms do.
     let hunt = if k.hunt == NONE {
         0.0
     } else {
         let m = mat(k.hunt);
         match form(k.hunt) {
-            Form::Spear => 0.35 + 0.65 * edge(m),
-            Form::Point => 0.35 * edge(m),
-            _ => 0.2 * edge(m),
+            Form::Spear => 0.35 + 0.65 * edge_q(m),
+            Form::Point => 0.35 * edge_q(m),
+            _ => 0.2 * edge_q(m),
         }
     };
     let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe)) };
@@ -628,194 +628,27 @@ pub fn loss_guard(k: &Kit) -> f32 {
     (if has_bow(k) { 0.7 } else { 1.0 }) * (if k.shield != NONE { 0.75 } else { 1.0 })
 }
 
-/// (diffusion D3) Upkeep of a tool per unit of its quality's worth, for ranking: the economy's
-/// `upkeep` (0.02) over the 0.35 yield a unit of tool quality brings (the cut term in `game_m`).
+/// (diffusion D3) Upkeep stand-in for ranking where layer-1 labour is not used: the non-food
+/// payoff slots (boat, bow, shield, outrigger, plank, ship) and the probe's `true_value`.
+/// Food slots rank by `tool_effects` labour (`Params::upkeep`), not this. It is the economy's
+/// `upkeep` (0.02) over the 0.35 a unit of tool quality adds in `game_m`.
 pub const KIT_UPKEEP: f32 = 0.06;
 /// (diffusion D3) Chance a season that a band, using a slot, also tries out its challenger.
 pub const KIT_TRIAL_P: f32 = 0.2;
-/// best[] index of each payoff slot, in `Kit::slot_item` order
-const PAYOFF_SLOTS: [usize; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 16, 18, 22];
 
-/// (v8, diffusion D3) a blade's worth in use: sharp and lasting (as in `weapon_q`)
+/// (v8) a blade's worth in a fight: sharp and lasting. Not used for food (skills step 1);
+/// only `weapon_q` and `Effects.fight` read it.
 pub fn edge_q(m: Mat) -> f32 {
     0.55 * cut_q(m) + 0.45 * durability(m)
 }
 
 /// Choose the best item for each task from what a band can produce, as if every recipe were
-/// fully practised; compute multipliers.
-pub fn make_kit(avail: &ItemSet) -> Kit {
-    make_kit_with(avail, &|_| (1.0, 0.0, 0))
-}
-
-/// (diffusion D3) Choose the kit a band actually relies on: tools are ranked by the payoff
-/// they bring as the band can make them now (skill and quality of the recipe behind them, its
-/// upkeep), and a better-in-prospect tool is marked for trials (`Kit::trial`).
-pub fn make_kit_for(tk: &Toolkit, known: &[Known]) -> Kit {
-    make_kit_among(&tk.avail, tk, known)
-}
-
-/// `make_kit_for` choosing only among `avail` (a subset of `tk.avail`; for probes).
-pub fn make_kit_among(avail: &ItemSet, tk: &Toolkit, known: &[Known]) -> Kit {
-    make_kit_with(avail, &|it| match tk.via(it) {
-        Some((i, _, d)) if i != u16::MAX => {
-            known.get(i as usize).map(|kn| (kn.skill.clamp(0.0, 1.0), kn.quality.clamp(0.0, 1.0), d)).unwrap_or((1.0, 0.0, d))
-        }
-        Some((_, _, d)) => (1.0, 0.0, d),
-        None => (1.0, 0.0, 0),
-    })
-}
-
-/// `info(item)` = (skill, quality, chain depth) of the recipe behind an item.
-pub(crate) fn make_kit_with(avail: &ItemSet, info: &dyn Fn(Item) -> (f32, f32, u8)) -> Kit {
-    let mut k = Kit::default();
-    let mut best = [0f32; 24];
-    // (diffusion D3) payoff slots: current payoff and pick, and the two best fully-practised
-    // payoffs (value, item) so the challenger is never the incumbent
-    let mut pay = [f32::NEG_INFINITY; 24];
-    let mut pick = [NONE; 24];
-    let mut pot = [[(f32::NEG_INFINITY, NONE); 2]; 24];
-    for it in avail.iter() {
-        let (f, m) = (form(it), mat(it));
-        let (sk, ql, d) = info(it);
-        let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
-        let mut pupd = |slot: usize, qv: f32| {
-            let gain = qv * (1.0 + QUALITY_YIELD * ql);
-            let cur = gain * (0.5 + 0.5 * sk) - up;
-            let full = gain - up;
-            if cur > pay[slot] {
-                pay[slot] = cur;
-                pick[slot] = it;
-            }
-            let p = &mut pot[slot];
-            if full > p[0].0 {
-                p[1] = p[0];
-                p[0] = (full, it);
-            } else if full > p[1].0 {
-                p[1] = (full, it);
-            }
-        };
-        match f {
-            Form::Spear => pupd(0, 0.35 + 0.65 * edge_q(m)),
-            Form::Point => {
-                pupd(0, 0.35 * edge_q(m));
-                pupd(10, edge_q(m));
-            }
-            Form::Edge => {
-                pupd(0, 0.2 * edge_q(m));
-                pupd(1, edge_q(m));
-            }
-            Form::Axe => pupd(4, 0.5 * cut_q(m) + 0.5 * durability(m)),
-            Form::Boat => pupd(11, boat_q(m)),
-            Form::Net => pupd(12, mesh_q(m)),
-            Form::Trap => pupd(13, mesh_q(m)),
-            Form::Bow => pupd(14, m.props().tough + 1.0),
-            Form::Shield => pupd(15, m.props().tough + 1.0),
-            Form::Outrigger => pupd(16, boat_q(m)),
-            Form::Plank => pupd(18, boat_q(m)),
-            Form::Ship => pupd(22, boat_q(m)),
-            _ => {}
-        }
-        let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
-            if s > best[slot] {
-                best[slot] = s;
-                *tgt = it;
-            }
-        };
-        match f {
-            Form::Shaft => upd(2, 1.0, &mut k.dig),
-            Form::Vessel => upd(3, vessel_q(m), &mut k.vessel),
-            Form::Garment => upd(5, garment_q(m), &mut k.garment),
-            Form::Fire => upd(6, m.props().fuel_t, &mut k.fire),
-            Form::Kiln => upd(7, m.props().refractory, &mut k.kiln),
-            Form::Cord => upd(8, m.props().tough + 1.0, &mut k.cord),
-            Form::Hammer => upd(9, m.props().hard, &mut k.hammer),
-            // (inventions step 5b) a cloth sail is kept before a mat one: it serves any hull
-            Form::Sail => upd(17, m.props().tough + if m == Mat::Fibre { 0.0 } else { 10.0 }, &mut k.sail),
-            Form::Frame => upd(19, vessel_q(m) + 0.1, &mut k.frame),
-            // (inventions step 11) a prized material (gold) is worn before any hard one
-            Form::Ornament => upd(20, m.props().hard + 1.0 + 10.0 * m.props().prized, &mut k.ornament),
-            // (inventions step 10) a jar of grain left to work is ale, not a store jar
-            Form::Jar if m == Mat::Grain => k.ale = it,
-            Form::Jar => upd(21, vessel_q(m), &mut k.jar),
-            // (inventions step 8) the mark that lasts: fired token, bone, stick, raw clay
-            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
-            Form::Raw if m == Mat::Pitch => k.pitch = it,
-            Form::Cooked => match m {
-                Mat::Plants => k.cooked[0] = it,
-                Mat::Meat => k.cooked[1] = it,
-                Mat::Fish => k.cooked[2] = it,
-                Mat::Grain => k.cooked_grain = it,
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-    let [h, c, pt, ax, bo, ne, tr, bw, sh, ou, pl, shp] = PAYOFF_SLOTS.map(|s| pick[s]);
-    (k.hunt, k.cut, k.point, k.axe, k.boat, k.net, k.trap) = (h, c, pt, ax, bo, ne, tr);
-    (k.bow, k.shield, k.outrigger, k.plank, k.ship) = (bw, sh, ou, pl, shp);
-    for (j, &s) in PAYOFF_SLOTS.iter().enumerate() {
-        let inc = pick[s];
-        let ch = if pot[s][0].1 != inc { pot[s][0] } else { pot[s][1] };
-        if inc != NONE && ch.1 != NONE && ch.0 > pay[s] {
-            k.trial[j] = ch.1;
-        }
-    }
-    let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };
-    let hunt_q = if k.hunt == NONE {
-        0.0
-    } else {
-        let m = mat(k.hunt);
-        match form(k.hunt) {
-            Form::Spear => 0.35 + 0.65 * cut_q(m),
-            Form::Point => 0.35 * cut_q(m),
-            _ => 0.2 * cut_q(m),
-        }
-    };
-    let cut = q(k.cut, &cut_q);
-    let vq = q(k.vessel, &vessel_q);
-    let dig = if k.dig == NONE { 0.0 } else { 1.0 };
-    let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * durability(m));
-    let cord = if k.cord == NONE { 0.0 } else { 1.0 };
-    let hammer = if k.hammer == NONE { 0.0 } else { 1.0 };
-    let point = if k.point == NONE { 0.0 } else { 1.0 };
-    let fire = if k.fire == NONE { 0.0 } else { 1.0 };
-    let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
-    let ceramic = if k.vessel != NONE && mat(k.vessel) == Mat::Ceramic { 1.0 } else { 0.0 };
-    let netq = q(k.net, &mesh_q);
-    let trapq = q(k.trap, &mesh_q);
-    k.boat_q = q(k.boat, &boat_q);
-    // (v8) an outrigger canoe or a plank boat is a boat too, and a plank hull is the soundest
-    k.boat_q = k.boat_q.max(q(k.outrigger, &boat_q));
-    if k.plank != NONE {
-        k.boat_q = k.boat_q.max((boat_q(mat(k.plank)) + 0.25).min(1.0));
-    }
-    // (inventions step 5) a ship is a plank hull too: no sounder, only bigger and better found
-    if k.ship != NONE {
-        k.boat_q = k.boat_q.max((boat_q(mat(k.ship)) + 0.25).min(1.0));
-    }
-    k.plants_m = 1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe;
-    k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer);
-    k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;
-    // small game (hares, birds, rodents): hard to catch by hand, easy with snares and nets
-    k.small_m = 0.35 + 0.4 * hunt_q + 1.6 * trapq + 0.4 * netq;
-    // (v8) a bow reaches fast game and birds a spear cannot
-    if has_bow(&k) {
-        k.game_m *= 1.2;
-        k.small_m *= 1.15;
-    }
-    // cooking makes more of each food digestible (boiling in pots helps plants most)
-    let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
-    // grain: boiled into porridge (pots help) or ground on a quern stone and baked
-    let grain = if k.cooked_grain != NONE { 1.3 + 0.15 * ceramic + 0.1 * hammer } else { 1.0 + 0.1 * hammer };
-    k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2), grain];
-    // field work: digging stick to plant, a sharp edge as a sickle, an axe to clear ground
-    k.farm_m = 0.5 + 0.3 * dig + 0.35 * cut + 0.2 * axe;
-    k.smoke = fire > 0.0 && (k.cooked[1] != NONE || k.cooked[2] != NONE);
-    let _ = kiln;
-    let gq = q(k.garment, &garment_q);
-    k.protect = (0.35 * fire + 0.5 * gq + 0.05 * kiln + 0.05 * axe * fire).min(0.92);
-    k
-}
+/// fully practised, and the kit a band actually relies on. The bodies live in `effects` so the
+/// decision and the economy share one multiplier function; these names are what tests and the
+/// probe already call.
+pub use crate::effects::{make_kit, make_kit_among, make_kit_for, refine_kit};
+#[cfg(test)]
+pub(crate) use crate::effects::make_kit_with;
 
 /// (v9) Refined recipes make the same tools work better: a well-practised hull rides the sea
 /// better (boat seaworthiness x(1 + `QUALITY_BOAT` x quality), at most 1), and finer spears,
@@ -825,25 +658,3 @@ pub const QUALITY_BOAT: f32 = 0.3;
 pub const QUALITY_YIELD: f32 = 0.1;
 /// Better-made clothes and shelter: protection + `QUALITY_PROTECT` x quality (still capped).
 pub const QUALITY_PROTECT: f32 = 0.06;
-
-/// (v9) Apply recipe quality to a kit made by `make_kit` from the same toolkit.
-pub fn refine_kit(k: &mut Kit, tk: &Toolkit, known: &[Known]) {
-    let q = |it: Item| {
-        tk.via(it).and_then(|(i, _, _)| known.get(i as usize)).map(|kn| kn.quality.clamp(0.0, 1.0)).unwrap_or(0.0)
-    };
-    let boat = q(k.boat).max(q(k.outrigger)).max(q(k.plank)).max(q(k.ship));
-    k.ship_q = if k.ship != NONE { q(k.ship) } else { 0.0 };
-    if k.boat_q > 0.0 {
-        k.boat_q = (k.boat_q * (1.0 + QUALITY_BOAT * boat)).min(1.0);
-    }
-    let y = |x: f32| 1.0 + QUALITY_YIELD * x;
-    k.game_m *= y(q(k.hunt));
-    k.fish_m *= y(q(k.net).max(q(k.hunt)));
-    k.small_m *= y(q(k.trap).max(q(k.net)));
-    k.plants_m *= y(0.5 * (q(k.vessel) + q(k.dig)));
-    k.farm_m *= y(0.5 * (q(k.dig) + q(k.cut)));
-    if k.garment != NONE {
-        k.protect = (k.protect + QUALITY_PROTECT * q(k.garment)).min(0.92);
-    }
-    k.fine = q(k.ornament);
-}

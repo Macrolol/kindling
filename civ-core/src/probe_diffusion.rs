@@ -28,8 +28,9 @@
 //! (skills step 0, docs/PROPOSAL-skills.md 3.8) Tool choices are also scored against the true
 //! value of a kit (`true_value`: food multipliers, boat soundness, protection and fine work,
 //! less the upkeep of the payoff-slot tools, plus `PROBE_FIGHT_W` x fight strength), against
-//! its food part only (`food`), and against the band's own valuation (`own_value`: the slot pay
-//! `make_kit_with` ranks by). Gaps within `PROBE_TIE` are ties.
+//! its food part only (`food`), and against the band's own valuation (`own_value`: the same
+//! discounted decision score the kit choice uses, on that band's view). `true_value`, `food`
+//! and `payoff` are unchanged from step 0. Gaps within `PROBE_TIE` are ties.
 //! - **adoption**: when a slot's pick changes from A to B (both tools), B's kit is compared
 //!   with the kit the band would have with A kept (A forced back into the slot); if A can no
 //!   longer be made the change is "forced";
@@ -39,7 +40,8 @@
 //! Extra files: `skills-<W>x<H>-seed<S>.csv` (every `PROBE_EVERY` years: these figures for the
 //! period, the skills YearStats fields and counters, NA for what later steps add) and
 //! `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted over which better one).
-use crate::band::{edge_q, loss_guard, make_kit, make_kit_among, make_kit_for, refine_kit, weapon_q, Kit, KIT_UPKEEP, QUALITY_YIELD};
+use crate::band::{loss_guard, make_kit, refine_kit, weapon_q, Kit, KIT_UPKEEP};
+use crate::effects::{fills_payoff, make_kit_among_view, make_kit_for_view, recipe_info, slot_score, BandView, PAYOFF_SLOTS};
 use crate::knowledge::{closure, Known, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::materials::*;
 use crate::{Config, Params, World};
@@ -128,31 +130,9 @@ const PROBE_TIE: f32 = 0.02;
 /// (skills step 0) weight of fight strength (weapons + guard) in the probe's true value
 const PROBE_FIGHT_W: f32 = 0.1;
 
-/// (skills step 0) the worth `make_kit_with` gives item `it` in payoff slot `j`
-/// (`Kit::slot_item` order), or None if it cannot fill the slot
-fn slot_qv(it: Item, j: usize) -> Option<f32> {
-    let m = mat(it);
-    Some(match (form(it), j) {
-        (Form::Spear, 0) => 0.35 + 0.65 * edge_q(m),
-        (Form::Point, 0) => 0.35 * edge_q(m),
-        (Form::Point, 2) => edge_q(m),
-        (Form::Edge, 0) => 0.2 * edge_q(m),
-        (Form::Edge, 1) => edge_q(m),
-        (Form::Axe, 3) => 0.5 * cut_q(m) + 0.5 * durability(m),
-        (Form::Boat, 4) | (Form::Outrigger, 9) | (Form::Plank, 10) | (Form::Ship, 11) => boat_q(m),
-        (Form::Net, 5) | (Form::Trap, 6) => mesh_q(m),
-        (Form::Bow, 7) | (Form::Shield, 8) => m.props().tough + 1.0,
-        _ => return None,
-    })
-}
-
 /// (skill, quality, chain depth) of the recipe behind an item, as `make_kit_among` reads it
 fn info(tk: &Toolkit, known: &[Known], it: Item) -> (f32, f32, u8) {
-    match tk.via(it) {
-        Some((i, _, d)) if i != u16::MAX => known.get(i as usize).map(|kn| (kn.skill.clamp(0.0, 1.0), kn.quality.clamp(0.0, 1.0), d)).unwrap_or((1.0, 0.0, d)),
-        Some((_, _, d)) => (1.0, 0.0, d),
-        None => (1.0, 0.0, 0),
-    }
+    recipe_info(tk, known, it)
 }
 
 fn upkeep(it: Item, d: u8) -> f32 {
@@ -180,17 +160,16 @@ fn true_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
     food(k) + k.boat_q + k.protect + k.fine - up + PROBE_FIGHT_W * (weapon_q(k) + 1.0 - loss_guard(k))
 }
 
-/// (skills step 0) the band's own valuation: the slot pay `make_kit_with` ranks by, summed
-fn own_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
+/// (skills step 1) the band's own valuation: the decision score of each payoff slot, summed.
+/// The same `slot_score` the kit choice uses, on this band's view (not the nominal one).
+fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
     (0..12)
         .map(|j| {
             let it = k.slot_item(j);
-            match (it != NONE).then(|| slot_qv(it, j)).flatten() {
-                Some(qv) => {
-                    let (sk, ql, d) = info(tk, known, it);
-                    qv * (1.0 + QUALITY_YIELD * ql) * (0.5 + 0.5 * sk) - upkeep(it, d)
-                }
-                None => 0.0,
+            if it == NONE {
+                0.0
+            } else {
+                slot_score(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it)).0
             }
         })
         .sum()
@@ -198,10 +177,10 @@ fn own_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
 
 /// (skills step 0) the kit the band would choose with `a` in slot `j`: the items it would
 /// pick there instead are taken away one by one until `a` is the pick (None if it never is)
-fn force(tk: &Toolkit, known: &[Known], j: usize, a: Item) -> Option<Kit> {
+fn force(view: &BandView, tk: &Toolkit, known: &[Known], j: usize, a: Item) -> Option<Kit> {
     let mut avail = tk.avail;
     for _ in 0..16 {
-        let k = make_kit_among(&avail, tk, known);
+        let k = make_kit_among_view(view, &avail, tk, known);
         let p = k.slot_item(j);
         if p == a {
             return Some(k);
@@ -347,8 +326,9 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         let alive: HashSet<u32> = w.bands.iter().map(|b| b.id).collect();
         for b in &w.bands {
             let tk = toolkit(&w, b);
-            // (diffusion D3) the kit the band relies on, as the world chooses it
-            let kit = make_kit_for(&tk, &b.known);
+            // (skills step 1) the kit the band relies on, ranked on its own view
+            let view = w.band_view(b);
+            let kit = make_kit_for_view(&view, &tk, &b.known);
             let ki = kit_items(&kit);
             // (skills step 0) adoption: a slot's pick changed since last season
             let picks: [Item; 12] = std::array::from_fn(|j| kit.slot_item(j));
@@ -362,7 +342,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     let ag = agg.entry(bn).or_default();
                     ag.adopt_n += 1;
                     period.adopt_n += 1;
-                    let forced = if tk.avail.has(a) { force(&tk, &b.known, j, a) } else { None };
+                    let forced = if tk.avail.has(a) { force(&view, &tk, &b.known, j, a) } else { None };
                     let Some(mut ka) = forced else {
                         ag.adopt_forced += 1;
                         period.adopt_forced += 1;
@@ -371,9 +351,9 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     let (f0, t0v, o0) = *now_vals.get_or_insert_with(|| {
                         let mut kr = kit;
                         refine_kit(&mut kr, &tk, &b.known);
-                        (food(&kr), true_value(&kr, &tk, &b.known), own_value(&kit, &tk, &b.known))
+                        (food(&kr), true_value(&kr, &tk, &b.known), own_value(&view, &kit, &tk, &b.known))
                     });
-                    let oa = own_value(&ka, &tk, &b.known);
+                    let oa = own_value(&view, &ka, &tk, &b.known);
                     refine_kit(&mut ka, &tk, &b.known);
                     let ta = true_value(&ka, &tk, &b.known);
                     let (cf, ct, co) = (cmp3(f0 - food(&ka)), cmp3(t0v - ta), cmp3(o0 - oa));
@@ -483,10 +463,10 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     }
                     let (mut best_t, mut best_f, mut best_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY, NONE);
                     for y in tk.avail.iter() {
-                        if y == x || slot_qv(y, j).is_none() {
+                        if y == x || !fills_payoff(y, j) {
                             continue;
                         }
-                        if let Some(mut ky) = force(&tk, &b.known, j, y) {
+                        if let Some(mut ky) = force(&view, &tk, &b.known, j, y) {
                             refine_kit(&mut ky, &tk, &b.known);
                             let tv = true_value(&ky, &tk, &b.known);
                             if tv > best_t {
@@ -519,7 +499,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                         continue;
                     }
                     let avail2 = set_without(&tk.avail, x);
-                    let kit2 = make_kit_among(&avail2, &tk, &b.known);
+                    let kit2 = make_kit_among_view(&view, &avail2, &tk, &b.known);
                     let mut kr2 = kit2;
                     refine_kit(&mut kr2, &tk, &b.known);
                     let k2 = kit_items(&kit2);

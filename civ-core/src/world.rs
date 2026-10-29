@@ -5,7 +5,8 @@
 //! moving -> contacts between nearby bands (teaching / copying, fire sharing) -> splits, merges and
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
-use crate::band::{make_kit_for, refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
+use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
+use crate::effects::{make_kit_for_view, pitch_in_use, sealed_factor, tool_upkeep, BandView};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -1137,9 +1138,19 @@ impl World {
         let mut bands = std::mem::take(&mut self.bands);
         let s = self.season();
         for b in &mut bands {
+            // (skills step 1) the kit is chosen from the carried harvest and food. `ec.apply`
+            // then writes this season's figures for the inspector. A later re-choice (the raws
+            // key changes after regrow) must still see that carried mix, as an unsaved
+            // continuation would: the kit is rebuilt from last season's harvest, not from the
+            // inspector's recompute. Need and food_ratio stay recomputed. An ancient save with
+            // no harvest restores zeros, and the nominal mix is the right fallback.
+            let harvest = b.d.harvest;
+            let food = b.d.food;
             self.refresh_toolkit(b);
             let ec = self.economy(b, s);
             ec.apply(&mut b.d);
+            b.d.harvest = harvest;
+            b.d.food = food;
         }
         self.bands = bands;
     }
@@ -1543,6 +1554,46 @@ impl World {
         self.bands = bands;
     }
 
+    /// Harvest, food, pop, water and the material-at-hand mask. The mask is for `Effects.mats`
+    /// (tests and the probe). The kit decision does not read it: `fit_kit` uses `decision_view`.
+    /// Hide and bone count as at hand only from a deposit (`hunted = 0`); this season's kill is
+    /// not known yet.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn band_view(&self, b: &Band) -> BandView {
+        let mut v = self.decision_view(b);
+        let ci = b.cell(self.map.w);
+        let mut at_hand = 0u32;
+        for mi in 0..NMAT {
+            if self.mat_at_hand(b, ci, ALL_MATS[mi], 0.0) {
+                at_hand |= 1 << mi;
+            }
+        }
+        v.at_hand = at_hand;
+        v
+    }
+
+    /// What `make_kit_for_view` reads. Not the at-hand mask: filling it scans every material,
+    /// and neither the food score nor the old hull ranking looks at it.
+    fn decision_view(&self, b: &Band) -> BandView {
+        let ci = b.cell(self.map.w);
+        BandView {
+            harvest: b.d.harvest,
+            food: b.d.food,
+            pop: b.pop.max(1) as f32,
+            upkeep_rate: self.params.upkeep,
+            wet: self.near_water(ci),
+            at_hand: 0,
+        }
+    }
+
+    /// Rank the kit for this band's view, then apply recipe quality once.
+    fn fit_kit(&self, b: &Band, tk: &Toolkit) -> Kit {
+        let view = self.decision_view(b);
+        let mut kit = make_kit_for_view(&view, tk, &b.known);
+        refine_kit(&mut kit, tk, &b.known);
+        kit
+    }
+
     fn refresh_toolkit(&self, b: &mut Band) {
         let raws = self.raws_at(b);
         let key = (raws, b.flame, b.d.known_ver);
@@ -1553,8 +1604,7 @@ impl World {
         if b.d.tk_key == Some(key) {
             // (diffusion D3) the kit follows skill too, which moves every season
             if b.d.fin_dirty || b.d.kit_dirty {
-                let mut kit = make_kit_for(&b.d.tk, &b.known);
-                refine_kit(&mut kit, &b.d.tk, &b.known);
+                let kit = self.fit_kit(b, &b.d.tk);
                 b.d.kit = kit;
                 b.d.fin_dirty = false;
                 b.d.kit_dirty = false;
@@ -1574,16 +1624,14 @@ impl World {
                 b.d.tk_prev = Some(prev);
             }
             // (diffusion D3) the cached kit was chosen at older skills
-            let mut kit = make_kit_for(&b.d.tk, &b.known);
-            refine_kit(&mut kit, &b.d.tk, &b.known);
+            let kit = self.fit_kit(b, &b.d.tk);
             b.d.kit = kit;
             b.d.kit_dirty = false;
             return;
         }
         {
             let tk = closure(&self.reg, &b.known, &raws, b.flame);
-            let mut kit = make_kit_for(&tk, &b.known);
-            refine_kit(&mut kit, &tk, &b.known);
+            let kit = self.fit_kit(b, &tk);
             b.d.fin_dirty = false;
             b.d.kit_dirty = false;
             let old_tk = std::mem::replace(&mut b.d.tk, tk);
@@ -1722,9 +1770,9 @@ impl World {
         let mut needed = 0u32;
         let mut used = Vec::with_capacity(17);
         // (inventions step 1) pitch is boiled up only for something that needs it: hulls by the
-        // water to caulk, or jars to seal; while it is about, hafts are glued with it too
-        let has_craft = [kit.boat, kit.outrigger, kit.sail, kit.plank, kit.ship].iter().any(|&i| i != NONE);
-        let pitch = kit.pitch != NONE && ((wet && has_craft) || kit.jar != NONE);
+        // water to caulk, or jars to seal; while it is about, hafts are glued with it too.
+        // The same predicate and the same per-item wear as `tool_effects`.
+        let pitch = pitch_in_use(&kit, wet);
         for &it in kit.used_items().iter() {
             if it == NONE {
                 continue;
@@ -1743,21 +1791,8 @@ impl World {
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
             needed |= mask;
-            if !matches!(form(it), Form::Fire | Form::Cooked) {
-                // a caulked hull leaks and rots less; a glued haft works loose less often
-                let sealed = if !pitch {
-                    1.0
-                } else if craft {
-                    PITCH_CAULK
-                } else if it == kit.hunt || it == kit.axe {
-                    PITCH_GLUE
-                } else {
-                    1.0
-                };
-                upkeep += sealed * p.upkeep * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
-            } else {
-                upkeep += 0.01;
-            }
+            // a caulked hull leaks and rots less; a glued haft works loose less often
+            upkeep += tool_upkeep(p.upkeep, it, depth, sealed_factor(it, &kit, pitch));
             used.push(it);
         }
         // (diffusion D3) now and then a band tries the better-in-prospect tool beside the one
@@ -1773,7 +1808,8 @@ impl World {
             }
             let (_, mask, depth) = b.d.tk.via(ch).unwrap_or((0, 0, 0));
             needed |= mask;
-            upkeep += p.upkeep * (1.15 - durability(mat(ch))) * (1.0 + 0.3 * depth as f32);
+            // a trial was never caulked or glued: sealed = 1, so this wear stays what it was
+            upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0);
             used.push(ch);
         }
         let upkeep_l = upkeep * labour;
@@ -1949,6 +1985,11 @@ impl World {
             // so it wears away far slower than stone, hide or fibre
             // (inventions step 11) gold never tarnishes and is kept: it wears as slowly as metal
             let metal = mm.is_metal() || mm == Mat::Gold;
+            // Standing loss (0.006 metal / 0.02 other) is not part of `Effects.mats`. The extra
+            // when a needed material is not at hand (+0.02 / +0.06) is that marginal draw.
+            // `needed` is the union of the used recipes' masks, so each material is drawn once
+            // a season, not once per item. `Effects.mats` lists the same extra per item; the
+            // two agree wherever those masks do not overlap.
             let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
                 use_ += if metal { 0.02 } else { 0.06 };
