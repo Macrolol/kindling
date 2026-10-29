@@ -158,8 +158,8 @@ fn tool_effects(b: &BandView, slot: usize, it: Item) -> Effects;
   - The material term is what the economy uses today: `cut_q` for knives (fixing cause 2), the
     `hunt_q` formula for spears, and so on.
   - It is turned into food by linearising around last season's harvest. The slot's multiplier
-    change times the food that resource gave (`Derived::harvest`) is cheap and is exactly what the
-    economy will pay. The food term uses last season's harvest shrunk halfway toward `NOMINAL_MIX`
+    change times the food that resource gave (`Derived::harvest`) is cheap and tracks what the
+    economy will pay; the food term uses last season's harvest shrunk halfway toward `NOMINAL_MIX`
     at the same total (`HARVEST_PRIOR`): one season swings with the season, and there is no new
     saved state.
 - **Spread** = novice erraticness plus failure (both real; see 3.3 and 3.4).
