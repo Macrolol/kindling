@@ -3,8 +3,8 @@
 use crate::band::{edge_q, Band, Kit};
 use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    kit_yields, make_kit_with_view, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects, tool_upkeep, BandView, HARVEST_EPS,
-    LABOUR_SHARE, NOMINAL_MIX, WORK_SHARE,
+    harvest_for, kit_yields, make_kit_with_view, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects, tool_upkeep, BandView,
+    HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, WORK_SHARE,
 };
 use crate::materials::*;
 use crate::{Config, Params, World};
@@ -185,10 +185,15 @@ fn payout_invariant() {
         let dg = yw.digest;
         let hd: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
         assert!(hd > HARVEST_EPS);
+        let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
+        let mut h = [0.0; 5];
+        for r in 0..5 {
+            h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
+        }
         let mut food = 0.0;
         for r in 0..5 {
             let (m1, m0) = (mult(&yw, r), mult(&ye, r));
-            food += view.harvest[r] * dg[r] * (m1 - m0) / m0;
+            food += h[r] * dg[r] * (m1 - m0) / m0;
         }
         let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
         let fx = tool_effects(&view, kit, slot, it, &info, mask);
@@ -233,6 +238,40 @@ fn nominal_harvest_fallback_matches_the_mix() {
     }
     assert!(food > 0.0);
     assert!((fx.food - food).abs() < 1e-5, "{} vs {food}", fx.food);
+}
+
+/// One season of pure game is not the weight the kit sees: half of that total is spread
+/// in the nominal mix. No digested harvest still falls back to `NOMINAL_MIX * pop`.
+#[test]
+fn harvest_prior_smooths_mix() {
+    let mut view = BandView::nominal();
+    view.harvest = [0.0, 20.0, 0.0, 0.0, 0.0];
+    let dg = [1.0; 5];
+    let h = harvest_for(&view, &dg);
+    let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
+    let mut want = [0.0; 5];
+    for r in 0..5 {
+        want[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
+    }
+    assert_eq!(h.map(f32::to_bits), want.map(f32::to_bits));
+    assert_ne!(h[1].to_bits(), view.harvest[1].to_bits(), "game is shrunk toward the mix");
+    assert!(h[0] > 0.0, "plants take a share of an all-game season");
+
+    // the nominal mix still matters: a flint blade beats a stone blade on this view
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    avail.add(stone);
+    let info = |_: Item| (1.0, 0.0, 0);
+    let k = make_kit_with_view(&avail, &info, &view);
+    assert_eq!(k.cut, flint, "all-game, smoothed toward the nominal mix, still takes the flint blade");
+
+    view.harvest = [0.0; 5];
+    view.pop = 17.0;
+    let h0 = harvest_for(&view, &dg);
+    let pop = view.pop.max(1.0);
+    assert_eq!(h0.map(f32::to_bits), NOMINAL_MIX.map(|x| x * pop).map(f32::to_bits));
 }
 
 /// No two of these share a `cut_q` (stone 0.42, bone 0.43, copper 0.48, iron 0.64, flint 0.76,
@@ -383,7 +422,16 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         let yw = kit_yields(&with, info);
         let dg = yw.digest;
         let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
-        let h = if sum > HARVEST_EPS { view.harvest } else { NOMINAL_MIX.map(|x| x * view.pop.max(1.0)) };
+        let h = if sum > HARVEST_EPS {
+            let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
+            let mut h = [0.0; 5];
+            for r in 0..5 {
+                h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
+            }
+            h
+        } else {
+            NOMINAL_MIX.map(|x| x * view.pop.max(1.0))
+        };
         let mut food = 0.0;
         for r in 0..5 {
             let (m1, m0) = (mult(&yw, r), mult(&ye, r));

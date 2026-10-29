@@ -24,6 +24,10 @@ pub const HARVEST_EPS: f32 = 1e-3;
 /// Per-person mix when a band has no harvest yet: plants, game, fish, small game, crops.
 /// Sums to 1, so `NOMINAL_MIX * pop` is `pop` units of food before digest.
 pub const NOMINAL_MIX: [f32; 5] = [0.3, 0.3, 0.25, 0.15, 0.0];
+/// One season's harvest swings with the season, so the food term shrinks it halfway
+/// toward the long-run nominal mix at the same total. This damps seasonal kit
+/// flip-flopping without new saved state.
+pub const HARVEST_PRIOR: f32 = 0.5;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 
@@ -181,13 +185,20 @@ fn mult(k: &Kit, r: usize) -> f32 {
     }
 }
 
-/// Harvest the food term is linearised around. A season with no digested harvest (a band just
-/// loaded from before harvest was saved, or not yet run) uses the nominal mix scaled by *this*
-/// band's pop, so food and labour move together.
-fn harvest_for(view: &BandView, dg: &[f32; 5]) -> [f32; 5] {
+/// Harvest the food term is linearised around. With history, one season is shrunk halfway
+/// toward `NOMINAL_MIX` at the same total (`HARVEST_PRIOR`). A season with no digested
+/// harvest (a band just loaded from before harvest was saved, or not yet run) uses the
+/// nominal mix scaled by *this* band's pop, so food and labour move together.
+pub(crate) fn harvest_for(view: &BandView, dg: &[f32; 5]) -> [f32; 5] {
     let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
     if sum > HARVEST_EPS {
-        view.harvest
+        // plain sum, index order — not the digested sum above
+        let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
+        let mut h = [0.0; 5];
+        for r in 0..5 {
+            h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
+        }
+        h
     } else {
         let pop = view.pop.max(1.0);
         NOMINAL_MIX.map(|x| x * pop)
