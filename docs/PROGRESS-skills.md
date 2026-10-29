@@ -123,9 +123,18 @@ no population collapse.
   - The step-0 probe is 1.2-3.1x slower than the D1-D6 probe (the yearly held scan): probe runs
     need sim_timeout 300 from now on.
 
-## Step 1. Layer 1 and blade scoring (done on this branch)
+## Step 1. Layer 1 and blade scoring (done, merged as 09d3c5c, PR #2)
 
 Local probe (seed 1, 128x80, 200 y), from the review of this branch: worse in true food 3.6%
 (step 0: 7.3%, before pass 3: 36.2%); worse in true value 4.0%; worse_held 3.3% (food 2.3%).
 Stone blade over flint blade: 162 adopt_worse + 1238 held (before pass 3: 5585 + 18991; step 0
 cause-2 total about 6830). No copper/iron-over-flint pairs.
+
+Guard rails on branch head c416994 (archive=false), files docs/results-skills-step1-*.txt:
+  - (a) run 40793675029 (seeds 1..10, 500 y, 256x160): crossings 5/10 (limit 6), earliest Y112;
+    war 0.331 %/y (step 0: 0.320); total population 1.208M (step 0: 1.251M, -3.4%); no collapse.
+  - (b) run 40793682950 (seeds 499246292..301, 750 y, 800x800): crossings 1/10 (limit under 7),
+    Y624; war about 0.30 %/y over the 9 live seeds (step 0: 0.271); total population 8.14M
+    (step 0: 8.10M, +0.6%); seed 499246298 dies early as expected.
+  - No crossing before Y100 in either check. All guard rails pass.
+  - Probes for step 1 were not run (optional; they need sim_timeout 300).
