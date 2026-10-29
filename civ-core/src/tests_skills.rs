@@ -7,7 +7,19 @@ use crate::effects::{
     HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, WORK_SHARE,
 };
 use crate::materials::*;
+use crate::world::PITCH_GLUE;
 use crate::{Config, Params, World};
+
+/// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
+/// Written out here, not via `harvest_for`, so the slow score stays an independent check.
+fn smoothed(view: &BandView) -> [f32; 5] {
+    let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
+    let mut h = [0.0; 5];
+    for r in 0..5 {
+        h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
+    }
+    h
+}
 
 fn world() -> World {
     World::new(Config { seed: 7, map_w: 80, map_h: 50, ..Default::default() }, Params::default())
@@ -185,11 +197,7 @@ fn payout_invariant() {
         let dg = yw.digest;
         let hd: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
         assert!(hd > HARVEST_EPS);
-        let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
-        let mut h = [0.0; 5];
-        for r in 0..5 {
-            h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
-        }
+        let h = smoothed(&view);
         let mut food = 0.0;
         for r in 0..5 {
             let (m1, m0) = (mult(&yw, r), mult(&ye, r));
@@ -248,11 +256,7 @@ fn harvest_prior_smooths_mix() {
     view.harvest = [0.0, 20.0, 0.0, 0.0, 0.0];
     let dg = [1.0; 5];
     let h = harvest_for(&view, &dg);
-    let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
-    let mut want = [0.0; 5];
-    for r in 0..5 {
-        want[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
-    }
+    let want = smoothed(&view);
     assert_eq!(h.map(f32::to_bits), want.map(f32::to_bits));
     assert_ne!(h[1].to_bits(), view.harvest[1].to_bits(), "game is shrunk toward the mix");
     assert!(h[0] > 0.0, "plants take a share of an all-game season");
@@ -422,16 +426,7 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         let yw = kit_yields(&with, info);
         let dg = yw.digest;
         let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
-        let h = if sum > HARVEST_EPS {
-            let t: f32 = (0..5).map(|r| view.harvest[r]).sum();
-            let mut h = [0.0; 5];
-            for r in 0..5 {
-                h[r] = (1.0 - HARVEST_PRIOR) * view.harvest[r] + HARVEST_PRIOR * NOMINAL_MIX[r] * t;
-            }
-            h
-        } else {
-            NOMINAL_MIX.map(|x| x * view.pop.max(1.0))
-        };
+        let h = if sum > HARVEST_EPS { smoothed(view) } else { NOMINAL_MIX.map(|x| x * view.pop.max(1.0)) };
         let mut food = 0.0;
         for r in 0..5 {
             let (m1, m0) = (mult(&yw, r), mult(&ye, r));
@@ -632,4 +627,71 @@ fn fast_choice_matches_full_yields_bits() {
             }
         }
     }
+}
+
+/// Wet, with a hull and pitch, so pitch is in use. The only hunting tools are the stone and
+/// flint blades, so a cut candidate can be the same item as `k.hunt`. That blade is glued.
+#[test]
+fn cut_slot_glues_a_blade_shared_with_hunt() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let hull = item(Form::Boat, Mat::Wood);
+    let tar = item(Form::Raw, Mat::Pitch);
+    let mut avail = ItemSet::default();
+    for it in [flint, stone, hull, tar] {
+        avail.add(it);
+    }
+    let info = |_: Item| (1.0f32, 0.0, 0u8);
+    let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0 };
+    let fast = make_kit_with_view(&avail, &info, &view);
+    let slow = slow_make(&avail, &info, &view);
+    assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
+    assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
+    assert_eq!((fast.pitch, fast.ale), (slow.pitch, slow.ale));
+    assert!(pitch_in_use(&fast, view.wet), "a hull and pitch on a wet view");
+    assert_eq!((fast.boat, fast.pitch), (hull, tar));
+    assert!(fast.hunt == flint || fast.hunt == stone, "the hunting tool is one of the blades");
+    for &slot in &CHOOSE {
+        for it in [flint, stone] {
+            if !accepts(slot, it) {
+                continue;
+            }
+            let (a, b) = slot_score(&view, &slow, slot, it, &info);
+            let (c, d) = slow_score(&view, &slow, slot, it, &info);
+            assert_eq!(a.to_bits(), c.to_bits(), "slot {slot}");
+            assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
+        }
+    }
+    // The cut-slot score of the hunting blade is food minus `tool_upkeep(..., PITCH_GLUE)`,
+    // not the bare upkeep. `food_sealed(slot, pitch)` charged the bare rate here.
+    let it = fast.hunt;
+    let (_, _, d) = info(it);
+    let mut empty = fast;
+    set_pay(&mut empty, 1, NONE);
+    let ye = kit_yields(&empty, &info);
+    let mut with = empty;
+    set_pay(&mut with, 1, it);
+    let yw = kit_yields(&with, &info);
+    let dg = yw.digest;
+    let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
+    assert!(sum > HARVEST_EPS);
+    let h = smoothed(&view);
+    let mut food = 0.0;
+    for r in 0..5 {
+        let (m1, m0) = (mult(&yw, r), mult(&ye, r));
+        food += h[r] * dg[r] * (m1 - m0) / m0;
+    }
+    let sk = 1.0f32;
+    let cost = |labour: f32| {
+        let pop = view.pop.max(1.0);
+        let units = labour * LABOUR_SHARE * pop;
+        let price = view.food.max(1e-6) / (WORK_SHARE * LABOUR_SHARE * pop);
+        price * units
+    };
+    let glue = tool_upkeep(view.upkeep_rate, it, d, PITCH_GLUE);
+    let bare = tool_upkeep(view.upkeep_rate, it, d, 1.0);
+    let (cur, full) = slot_score(&view, &fast, 1, it, &info);
+    assert_eq!(cur.to_bits(), (food * (0.5 + 0.5 * sk) - cost(glue)).to_bits(), "cut slot charges PITCH_GLUE");
+    assert_eq!(full.to_bits(), (food - cost(glue)).to_bits());
+    assert_ne!(full.to_bits(), (food - cost(bare)).to_bits(), "bare upkeep is a different charge");
 }

@@ -26,7 +26,7 @@ no population collapse.
 | # | step | status |
 |---|---|---|
 | 0 | Measure first: probe fixes (3.8), new counters and YearStats fields (zero yet) | done |
-| 1 | Layer 1 and blade scoring | not started |
+| 1 | Layer 1 and blade scoring | done on this branch |
 | 2 | User skill by form, save 16 | not started |
 | 3 | Maker skill | not started |
 | 4 | Beliefs | not started |
@@ -122,3 +122,10 @@ no population collapse.
     belief/trial/invariant fields NA, as intended.
   - The step-0 probe is 1.2-3.1x slower than the D1-D6 probe (the yearly held scan): probe runs
     need sim_timeout 300 from now on.
+
+## Step 1. Layer 1 and blade scoring (done on this branch)
+
+Local probe (seed 1, 128x80, 200 y), from the review of this branch: worse in true food 3.6%
+(step 0: 7.3%, before pass 3: 36.2%); worse in true value 4.0%; worse_held 3.3% (food 2.3%).
+Stone blade over flint blade: 162 adopt_worse + 1238 held (before pass 3: 5585 + 18991; step 0
+cause-2 total about 6830). No copper/iron-over-flint pairs.
