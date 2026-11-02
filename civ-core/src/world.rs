@@ -6,7 +6,7 @@
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
-use crate::effects::{make_kit_for_view, pitch_in_use, sealed_factor, tool_upkeep, BandView};
+use crate::effects::{food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -1613,6 +1613,7 @@ impl World {
             upkeep_rate: self.params.upkeep,
             wet: self.near_water(ci),
             at_hand: 0,
+            user: u_eff(&b.use_skill),
         }
     }
 
@@ -1846,12 +1847,18 @@ impl World {
         // fields and herds: tending fields and minding animals take labour every season
         let fm = self.farm_terms(b, &cells, t);
         let upkeep_l = upkeep_l + fm.labour * labour;
+        // Novice spread: rebuild the five food multipliers from the tool terms with a
+        // per-slot draw. At u_eff = 1 the draw's factor is 1, so these match the kit.
+        let user = u_eff(&b.use_skill);
+        let food_m = food_mults(&kit, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
+            novice_factor(&kit, &user, self.cfg.seed, b.id, self.tick, slot)
+        });
         let ks = [
-            3.0 * kit.plants_m * p.forage_eff,
-            2.5 * kit.game_m * p.forage_eff,
-            2.5 * kit.fish_m * p.forage_eff,
-            2.5 * kit.small_m * p.forage_eff,
-            3.5 * kit.farm_m * fm.plough * p.forage_eff,
+            3.0 * food_m[0] * p.forage_eff,
+            2.5 * food_m[1] * p.forage_eff,
+            2.5 * food_m[2] * p.forage_eff,
+            2.5 * food_m[3] * p.forage_eff,
+            3.5 * food_m[4] * fm.plough * p.forage_eff,
         ];
         let mut dg = kit.digest;
         // (inventions step 10) brewing makes a little more of the grain

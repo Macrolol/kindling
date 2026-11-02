@@ -3,8 +3,9 @@
 use crate::band::{edge_q, Band, Kit};
 use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    harvest_for, kit_yields, make_kit_with_view, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects, tool_upkeep, BandView,
-    HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, WORK_SHARE,
+    food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
+    tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_TRANSFER,
+    WORK_SHARE,
 };
 use crate::materials::*;
 use crate::world::PITCH_GLUE;
@@ -143,7 +144,7 @@ fn payout_invariant() {
     let kit = &b.d.kit;
     assert!(view.harvest.iter().sum::<f32>() > 1.0, "the real harvest path, not the nominal fallback");
     let info = |it: Item| recipe_info(&b.d.tk, &b.known, it);
-    let y = kit_yields(kit, &info);
+    let y = kit_yields(kit, &info, &view.user);
     for (got, want, name) in [
         (y.plants_m, kit.plants_m, "plants"),
         (y.game_m, kit.game_m, "game"),
@@ -192,8 +193,8 @@ fn payout_invariant() {
         }
         let mut bare = *kit;
         clear_slot(&mut bare, slot);
-        let yw = kit_yields(kit, &info);
-        let ye = kit_yields(&bare, &info);
+        let yw = kit_yields(kit, &info, &view.user);
+        let ye = kit_yields(&bare, &info, &view.user);
         let dg = yw.digest;
         let hd: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
         assert!(hd > HARVEST_EPS);
@@ -206,7 +207,9 @@ fn payout_invariant() {
         let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
         let fx = tool_effects(&view, kit, slot, it, &info, mask);
         assert!((fx.food - food).abs() < 1e-5, "slot {slot} effects {} formula {food}", fx.food);
-        assert_eq!(fx.food_sd, 0.0);
+        let u = view.user[form(it) as usize];
+        let want_sd = NOVICE_SD * (1.0 - u) / 3.0f32.sqrt() * fx.food.abs();
+        assert_eq!(fx.food_sd.to_bits(), want_sd.to_bits(), "slot {slot} novice spread");
         assert_eq!(fx.p_fail, 0.0);
         checked += 1;
     }
@@ -238,8 +241,8 @@ fn nominal_harvest_fallback_matches_the_mix() {
     let h = NOMINAL_MIX.map(|x| x * pop);
     let mut bare = k;
     bare.cut = NONE;
-    let yw = kit_yields(&k, &info);
-    let ye = kit_yields(&bare, &info);
+    let yw = kit_yields(&k, &info, &view.user);
+    let ye = kit_yields(&bare, &info, &view.user);
     let mut food = 0.0;
     for r in 0..5 {
         food += h[r] * yw.digest[r] * (mult(&yw, r) - mult(&ye, r)) / mult(&ye, r);
@@ -416,28 +419,33 @@ fn accepts(slot: usize, it: Item) -> bool {
 /// The score `slot_score` used to compute by rebuilding the kit. Kept here so a cheaper
 /// evaluation has to match it bit for bit, including the upkeep association.
 fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F) -> (f32, f32) {
-    let (sk, ql, d) = info(it);
+    let (_sk, ql, d) = info(it);
     if matches!(slot, 0 | 1 | 10 | 4 | 12 | 13) {
-        let mut empty = *kit;
-        set_pay(&mut empty, slot, NONE);
-        let ye = kit_yields(&empty, info);
-        let mut with = empty;
-        set_pay(&mut with, slot, it);
-        let yw = kit_yields(&with, info);
-        let dg = yw.digest;
-        let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
-        let h = if sum > HARVEST_EPS { smoothed(view) } else { NOMINAL_MIX.map(|x| x * view.pop.max(1.0)) };
-        let mut food = 0.0;
-        for r in 0..5 {
-            let (m1, m0) = (mult(&yw, r), mult(&ye, r));
-            food += h[r] * dg[r] * (m1 - m0) / m0;
-        }
-        let labour = tool_upkeep(view.upkeep_rate, it, d, sealed_factor(it, &with, pitch_in_use(&with, view.wet)));
+        let food_of = |user: &[f32; NFORM]| {
+            let mut empty = *kit;
+            set_pay(&mut empty, slot, NONE);
+            let ye = kit_yields(&empty, info, user);
+            let mut with = empty;
+            set_pay(&mut with, slot, it);
+            let yw = kit_yields(&with, info, user);
+            let dg = yw.digest;
+            let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
+            let h = if sum > HARVEST_EPS { smoothed(view) } else { NOMINAL_MIX.map(|x| x * view.pop.max(1.0)) };
+            let mut food = 0.0;
+            for r in 0..5 {
+                let (m1, m0) = (mult(&yw, r), mult(&ye, r));
+                food += h[r] * dg[r] * (m1 - m0) / m0;
+            }
+            food
+        };
+        let food = food_of(&view.user);
+        let food_full = food_of(&[1.0; NFORM]);
+        let labour = tool_upkeep(view.upkeep_rate, it, d, sealed_factor(it, &with_slot(kit, slot, it), pitch_in_use(&with_slot(kit, slot, it), view.wet)));
         let pop = view.pop.max(1.0);
         let units = labour * LABOUR_SHARE * pop;
         let price = view.food.max(1e-6) / (WORK_SHARE * LABOUR_SHARE * pop);
         let cost = price * units;
-        (food * (0.5 + 0.5 * sk) - cost, food - cost)
+        (food - cost, food_full - cost)
     } else {
         let m = mat(it);
         let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
@@ -447,8 +455,15 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
             _ => 0.0,
         };
         let gain = qv * (1.0 + QUALITY_YIELD * ql);
-        (gain * (0.5 + 0.5 * sk) - up, gain - up)
+        let uf = user_factor(view.user[form(it) as usize]);
+        (gain * uf - up, gain - up)
     }
+}
+
+fn with_slot(kit: &Kit, slot: usize, it: Item) -> Kit {
+    let mut with = *kit;
+    set_pay(&mut with, slot, it);
+    with
 }
 
 const CHOOSE: [usize; 12] = [0, 1, 10, 4, 12, 13, 11, 14, 15, 16, 18, 22];
@@ -604,10 +619,25 @@ fn fast_choice_matches_full_yields_bits() {
     let info = |it: Item| rows.iter().find(|r| r.0 == it).map(|r| (r.1, r.2, r.3)).unwrap_or((1.0, 0.0, 0));
     let views = [
         BandView::nominal(),
-        BandView { harvest: [0.0; 5], food: 0.0, pop: 8.0, upkeep_rate: 0.02, wet: true, at_hand: 0 },
-        BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0 },
-        BandView { harvest: [10.0, 0.0, 25.0, 0.0, 8.0], food: 12.0, pop: 1.0, upkeep_rate: 0.05, wet: false, at_hand: 0 },
-        BandView { harvest: [0.0, 0.0, 0.0, 0.0, 0.0], food: 3.0, pop: 200.0, upkeep_rate: 0.02, wet: true, at_hand: 0 },
+        BandView { harvest: [0.0; 5], food: 0.0, pop: 8.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] },
+        BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] },
+        BandView { harvest: [10.0, 0.0, 25.0, 0.0, 8.0], food: 12.0, pop: 1.0, upkeep_rate: 0.05, wet: false, at_hand: 0, user: [1.0; NFORM] },
+        BandView { harvest: [0.0, 0.0, 0.0, 0.0, 0.0], food: 3.0, pop: 200.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] },
+        BandView {
+            harvest: [4.0, 4.0, 4.0, 4.0, 1.0],
+            food: 20.0,
+            pop: 25.0,
+            upkeep_rate: 0.02,
+            wet: true,
+            at_hand: 0,
+            user: {
+                let mut u = [0.2f32; NFORM];
+                u[Form::Edge as usize] = 0.9;
+                u[Form::Bow as usize] = 0.0;
+                u[Form::Boat as usize] = 1.0;
+                u
+            },
+        },
     ];
     for view in &views {
         let fast = make_kit_with_view(&avail, &info, view);
@@ -642,7 +672,7 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
         avail.add(it);
     }
     let info = |_: Item| (1.0f32, 0.0, 0u8);
-    let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0 };
+    let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] };
     let fast = make_kit_with_view(&avail, &info, &view);
     let slow = slow_make(&avail, &info, &view);
     assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
@@ -668,10 +698,10 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
     let (_, _, d) = info(it);
     let mut empty = fast;
     set_pay(&mut empty, 1, NONE);
-    let ye = kit_yields(&empty, &info);
+    let ye = kit_yields(&empty, &info, &view.user);
     let mut with = empty;
     set_pay(&mut with, 1, it);
-    let yw = kit_yields(&with, &info);
+    let yw = kit_yields(&with, &info, &view.user);
     let dg = yw.digest;
     let sum: f32 = (0..5).map(|r| view.harvest[r] * dg[r]).sum();
     assert!(sum > HARVEST_EPS);
@@ -681,7 +711,6 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
         let (m1, m0) = (mult(&yw, r), mult(&ye, r));
         food += h[r] * dg[r] * (m1 - m0) / m0;
     }
-    let sk = 1.0f32;
     let cost = |labour: f32| {
         let pop = view.pop.max(1.0);
         let units = labour * LABOUR_SHARE * pop;
@@ -691,7 +720,8 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
     let glue = tool_upkeep(view.upkeep_rate, it, d, PITCH_GLUE);
     let bare = tool_upkeep(view.upkeep_rate, it, d, 1.0);
     let (cur, full) = slot_score(&view, &fast, 1, it, &info);
-    assert_eq!(cur.to_bits(), (food * (0.5 + 0.5 * sk) - cost(glue)).to_bits(), "cut slot charges PITCH_GLUE");
+    // user is 1 and recipe skill no longer discounts, so cur and full are the same food
+    assert_eq!(cur.to_bits(), (food - cost(glue)).to_bits(), "cut slot charges PITCH_GLUE");
     assert_eq!(full.to_bits(), (food - cost(glue)).to_bits());
     assert_ne!(full.to_bits(), (food - cost(bare)).to_bits(), "bare upkeep is a different charge");
 }
@@ -841,4 +871,158 @@ fn v16_fields_round_trip_continues_identically() {
     assert_eq!(a.state_hash(), json.state_hash());
     same_skill_fields(&a, &bin);
     same_skill_fields(&a, &json);
+}
+
+fn no_profile(f: Form) -> bool {
+    matches!(
+        f,
+        Form::Raw
+            | Form::Vessel
+            | Form::Garment
+            | Form::Cooked
+            | Form::Fire
+            | Form::Kiln
+            | Form::Bellows
+            | Form::Bloom
+            | Form::Frame
+            | Form::Ornament
+            | Form::Jar
+            | Form::Mark
+            | Form::Mould
+            | Form::Crucible
+            | Form::Cloth
+            | Form::Loom
+    )
+}
+
+/// Transfer is symmetric, 1 on the diagonal, and 0 wherever either form has no motion profile.
+#[test]
+fn transfer_is_symmetric_and_profiles_only() {
+    let t = transfer_table();
+    for f in 0..NFORM {
+        for g in 0..NFORM {
+            assert_eq!(t[f][g].to_bits(), t[g][f].to_bits(), "T({f},{g})");
+            if f == g {
+                assert_eq!(t[f][g], 1.0);
+            } else {
+                assert!(t[f][g] >= 0.0 && t[f][g] <= USE_TRANSFER, "T({f},{g}) = {}", t[f][g]);
+            }
+        }
+    }
+    for f in ALL_FORMS {
+        if no_profile(f) {
+            for g in 0..NFORM {
+                if g != f as usize {
+                    assert_eq!(t[f as usize][g], 0.0, "{f:?} has no profile");
+                }
+            }
+        }
+    }
+    // Net and Trap train the same motion, so the cosine is 1 and T is USE_TRANSFER.
+    assert_eq!(t[Form::Net as usize][Form::Trap as usize], USE_TRANSFER);
+    let mut sk = vec![0.0; NFORM];
+    sk[Form::Axe as usize] = 1.0;
+    let u = u_eff(&sk);
+    assert_eq!(u[Form::Axe as usize], 1.0);
+    assert!(u[Form::Edge as usize] > 0.0 && u[Form::Edge as usize] < 1.0, "axe transfers to edge");
+    assert_eq!(u[Form::Vessel as usize], 0.0);
+    assert_eq!(u_eff(&[]), [1.0; NFORM]);
+}
+
+/// A band that barely handles an edge gets less from it than the same kit at full skill.
+#[test]
+fn low_edge_skill_lowers_cut_yield() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    let info = |_: Item| (1.0f32, 0.0, 0u8);
+    let full = make_kit_with_view(&avail, &info, &BandView::nominal());
+    let mut user = [1.0f32; NFORM];
+    user[Form::Edge as usize] = 0.0;
+    let view = BandView { user, ..BandView::nominal() };
+    let low = make_kit_with_view(&avail, &info, &view);
+    assert_eq!((low.hunt, low.cut), (flint, flint));
+    assert!(low.game_m < full.game_m, "game {} vs {}", low.game_m, full.game_m);
+    assert!(low.farm_m < full.farm_m, "farm {} vs {}", low.farm_m, full.farm_m);
+    assert_eq!(full.game_m.to_bits(), {
+        let c = cut_q(Mat::Flint);
+        ((1.0 + 1.4 * 0.2 * c) * (1.0 + 0.35 * c)).to_bits()
+    });
+}
+
+/// The novice factor averages out, shrinks as skill rises, and is exactly 1 at full skill.
+#[test]
+fn novice_spread_is_mean_preserving_and_shrinks() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let mut k = Kit::default();
+    k.hunt = flint;
+    k.cut = flint;
+    let qual = |_: Item| 0.0;
+    let quiet = food_mults(&k, &[1.0; NFORM], qual, |_| 1.0);
+    // the kit's own multipliers, fitted at u = 1, are that same number
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    let fitted = make_kit_with_view(&avail, &|_| (1.0, 0.0, 0), &BandView::nominal());
+    assert_eq!(quiet[1].to_bits(), fitted.game_m.to_bits());
+    assert_eq!(quiet[4].to_bits(), fitted.farm_m.to_bits());
+
+    let spread = |u_edge: f32| {
+        let mut user = [1.0f32; NFORM];
+        user[Form::Edge as usize] = u_edge;
+        let mean = food_mults(&k, &user, qual, |_| 1.0);
+        let n = 4000u32;
+        let mut acc = 0.0f32;
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        for tick in 0..n {
+            let m = food_mults(&k, &user, qual, |slot| novice_factor(&k, &user, 9, 3, tick, slot));
+            acc += m[1];
+            lo = lo.min(m[1]);
+            hi = hi.max(m[1]);
+            if u_edge == 1.0 {
+                assert_eq!(m[1].to_bits(), mean[1].to_bits(), "tick {tick}");
+                assert_eq!(m[4].to_bits(), mean[4].to_bits());
+            }
+        }
+        (acc / n as f32, hi - lo, mean[1])
+    };
+    let (avg0, width0, mean0) = spread(0.0);
+    let (avg9, width9, _) = spread(0.9);
+    let (_, width1, _) = spread(1.0);
+    assert!((avg0 - mean0).abs() < 0.01, "mean {avg0} vs quiet {mean0}");
+    assert!((avg9 - spread(0.9).2).abs() < 0.01);
+    assert!(width0 > width9, "spread shrinks with skill: {width0} vs {width9}");
+    assert_eq!(width1, 0.0);
+}
+
+/// At full skill the economy's noisy multipliers are the kit's, so the harvest does not
+/// depend on the tick. A novice's does.
+#[test]
+fn economy_novice_spread_tracks_skill() {
+    let mut w = world();
+    let flint = item(Form::Edge, Mat::Flint);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    let kit = crate::band::make_kit(&avail);
+    assert!(kit.game_m > 1.0);
+    {
+        let b = &mut w.bands[0];
+        b.use_skill = vec![1.0; NFORM];
+        b.d.kit = kit;
+    }
+    let mw = w.map.w;
+    let ci = w.bands[0].cell(mw);
+    w.game[ci] = 20.0;
+    w.plants[ci] = 20.0;
+    w.tick = 0;
+    let h0 = w.economy(&w.bands[0], 0).h;
+    w.tick = 100;
+    let h1 = w.economy(&w.bands[0], 0).h;
+    assert_eq!(h0.map(f32::to_bits), h1.map(f32::to_bits), "u = 1 is not noisy");
+    w.bands[0].use_skill = vec![0.0; NFORM];
+    w.tick = 0;
+    let n0 = w.economy(&w.bands[0], 0).h;
+    w.tick = 1;
+    let n1 = w.economy(&w.bands[0], 0).h;
+    assert_ne!(n0.map(f32::to_bits), n1.map(f32::to_bits), "a novice's harvest moves with the tick");
 }
