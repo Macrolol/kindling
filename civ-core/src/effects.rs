@@ -147,19 +147,34 @@ pub(crate) fn u_eff(use_skill: &[f32]) -> [f32; NFORM] {
         return USER_FULL;
     }
     assert!(use_skill.len() == NFORM, "use_skill must be empty or NFORM, got {}", use_skill.len());
-    let t = transfer_table();
+    // Sparse walk over the non-zero off-diagonal entries of `T` (same maxima as the full
+    // NFORM x NFORM loop: the diagonal adds `use_skill[g]` itself and zero entries add 0).
     let mut out = [0.0f32; NFORM];
-    for g in 0..NFORM {
-        let mut m = use_skill[g];
-        for f in 0..NFORM {
-            let v = t[f][g] * use_skill[f];
-            if v > m {
-                m = v;
-            }
+    out.copy_from_slice(use_skill);
+    for &(f, g, t) in transfer_pairs() {
+        let v = t * use_skill[f as usize];
+        if v > out[g as usize] {
+            out[g as usize] = v;
         }
-        out[g] = m;
     }
     out
+}
+
+/// Non-zero off-diagonal entries `(f, g, T(f, g))` of `transfer_table`, in (f, g) order.
+fn transfer_pairs() -> &'static [(u8, u8, f32)] {
+    static P: OnceLock<Vec<(u8, u8, f32)>> = OnceLock::new();
+    P.get_or_init(|| {
+        let t = transfer_table();
+        let mut v = Vec::new();
+        for f in 0..NFORM {
+            for g in 0..NFORM {
+                if f != g && t[f][g] != 0.0 {
+                    v.push((f as u8, g as u8, t[f][g]));
+                }
+            }
+        }
+        v
+    })
 }
 
 /// `USE_NOVICE + (1 - USE_NOVICE) * u`, written so `u == 1` is 1.0 bit-exactly.
@@ -535,6 +550,28 @@ where
     F: Fn(Item) -> (f32, f32, u8),
     N: Fn(usize) -> f32,
 {
+    let q = [
+        qual(info, if slot == 0 { NONE } else { k.hunt }),
+        qual(info, if slot == 1 { NONE } else { k.cut }),
+        qual(info, if slot == 12 { NONE } else { k.net }),
+        qual(info, if slot == 13 { NONE } else { k.trap }),
+        qual(info, k.vessel),
+        qual(info, k.dig),
+    ];
+    yargs_rescaled(k, slot, user, noise, q)
+}
+
+/// The recipe qualities `yargs_of` read into `a`, in `yargs_rescaled` order.
+fn quals_of(a: &YArgs) -> [f32; 6] {
+    [a.q_hunt, a.q_cut, a.q_net, a.q_trap, a.q_vessel, a.q_dig]
+}
+
+/// `yargs_of` with the recipe qualities `q` already read (hunt, cut, net, trap, vessel, dig;
+/// they do not depend on the user), so a second user can reuse them.
+fn yargs_rescaled<N>(k: &Kit, slot: usize, user: &[f32; NFORM], noise: &N, q: [f32; 6]) -> YArgs
+where
+    N: Fn(usize) -> f32,
+{
     let hunt = if slot == 0 { NONE } else { k.hunt };
     let cut = if slot == 1 { NONE } else { k.cut };
     let point = if slot == 10 { NONE } else { k.point };
@@ -554,12 +591,12 @@ where
         trapq: mesh_term(trap) * scale(user, trap, 13, noise),
         bow: k.bow != NONE && point != NONE,
         bow_uf: if k.bow == NONE { 1.0 } else { user_factor(user[Form::Bow as usize]) },
-        q_hunt: qual(info, hunt),
-        q_cut: qual(info, cut),
-        q_net: qual(info, net),
-        q_trap: qual(info, trap),
-        q_vessel: qual(info, k.vessel),
-        q_dig: qual(info, k.dig),
+        q_hunt: q[0],
+        q_cut: q[1],
+        q_net: q[2],
+        q_trap: q[3],
+        q_vessel: q[4],
+        q_dig: q[5],
     }
 }
 
@@ -1010,7 +1047,7 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     }
     let base = yargs_of(k, slot, info, &view.user, &quiet);
     let m0 = yields(&base);
-    let base_f = yargs_of(k, slot, info, &USER_FULL, &quiet);
+    let base_f = yargs_rescaled(k, slot, &USER_FULL, &quiet, quals_of(&base));
     let m0_f = yields(&base_f);
     let pitch = pitch_in_use(k, view.wet);
     // one food for every point: presence changes the multipliers, the material does not,
