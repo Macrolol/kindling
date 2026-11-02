@@ -191,7 +191,8 @@ fn d5_recent_recipes_fade_slower() {
     assert!(e.skill > b.skill);
 }
 
-/// D5: bands' recipes carry their dates in play and through a save (bands blob layout 2).
+/// D5: bands' recipes carry their dates in play and through a save. The column was added
+/// in bands blob layout 2 and is still written in layout 3 (save format 16).
 #[test]
 fn d5_last_ok_kept_and_saved() {
     let mut w = world();

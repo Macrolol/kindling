@@ -988,7 +988,7 @@ impl World {
             }
             let id = w.next_id;
             w.next_id += 1;
-            let b = Band {
+            let mut b = Band {
                 id,
                 lineage: id,
                 parent: 0,
@@ -1005,6 +1005,7 @@ impl World {
                 craft: culture.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 ..Default::default()
             };
+            b.start_skills();
             w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
         }
@@ -1130,8 +1131,9 @@ impl World {
             }
         }
         // (inventions step 12) recipes the rules no longer allow go, before toolkits and kits
-        // are derived again from what is left
+        // are derived again from what is left. The skill fill-in reads what is left.
         self.clean_recipes();
+        self.fill_use_skill();
         // derived toolkits so a freshly loaded (paused) world can be inspected
         // and the season's figures (food, stress, cold...), which are not saved: recompute them
         // from the loaded world so the inspector and stats are right before the first step
@@ -1153,6 +1155,34 @@ impl World {
             b.d.food = food;
         }
         self.bands = bands;
+    }
+
+    /// (skills step 2) A save from before format 16 has an empty `use_skill`. Fill each
+    /// form with the best `Known.skill` among this band's recipes whose output has that
+    /// form (0 when none). `learn_curve` becomes `LC_PRIOR`, `last_fight_switch` becomes
+    /// never, and fight calibration, raid tallies and beliefs stay at 0 / empty.
+    /// Every band leaves here with `use_skill.len() == NFORM`.
+    fn fill_use_skill(&mut self) {
+        let outputs: Vec<Item> = self.reg.recipes.iter().map(|r| r.output).collect();
+        for b in &mut self.bands {
+            if b.use_skill.is_empty() {
+                let mut skill = vec![0.0f32; NFORM];
+                for kn in &b.known {
+                    let Some(&out) = outputs.get(kn.recipe as usize) else { continue };
+                    if !valid_item(out) {
+                        continue;
+                    }
+                    let f = form(out) as usize;
+                    if kn.skill > skill[f] {
+                        skill[f] = kn.skill;
+                    }
+                }
+                b.start_skills();
+                b.use_skill = skill;
+            } else if b.use_skill.len() != NFORM {
+                b.use_skill.resize(NFORM, 0.0);
+            }
+        }
     }
 
     /// (inventions step 12) Save cleanup on load. Recipes learned under older, laxer rules
@@ -2953,6 +2983,7 @@ impl World {
             ..Default::default()
         };
         let mut nb = nb;
+        nb.start_skills();
         nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
         nb.d.sailed_sea = sea;
         nb.d.sailed_tech = TECH_ADRIFT;
@@ -3800,6 +3831,7 @@ impl World {
                 ride: b.ride,
                 ..Default::default()
             };
+            d.start_skills();
             if let Some((sea, signs, aimed, expedition)) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;

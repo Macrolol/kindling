@@ -217,14 +217,19 @@ pub mod column {
     }
 }
 
-/// layout 2 (save format v15, diffusion D5) appends the `Known::last_ok` column
-const BANDS_V: u64 = 2;
+/// layout 1: `known` / `partners` / `craft` columns.
+/// layout 2 (save format v15, diffusion D5) appends the `Known::last_ok` varint column.
+/// layout 3 (save format v16, skills step 2) appends the skill columns (`encode_skill_cols`).
+/// Layouts 1 and 2 still decode; the new fields stay at their absent defaults
+/// (`use_skill` empty) so `World::after_load` can fill them.
+const BANDS_V: u64 = 3;
 const FROM_SELF: u64 = 0;
 const FROM_INHERITED: u64 = 1;
 
-/// Bands as a blob: the rows (every field but the three below, positional MessagePack: new
+/// Bands as a blob: the rows (every field but the column fields, positional MessagePack: new
 /// fields must be appended at the end of `Band` and default when missing), then `known`,
-/// `partners` and `craft` as columns across all bands, in their original order.
+/// `partners` and `craft` as columns across all bands, in their original order. Layout 3
+/// appends the skill columns after `craft`.
 pub fn encode_bands(bands: &[Band]) -> Result<Vec<u8>, String> {
     let mut w = Wr::default();
     w.u(BANDS_V);
@@ -293,7 +298,153 @@ pub fn encode_bands(bands: &[Band]) -> Result<Vec<u8>, String> {
     }
     c.f32s(&all);
     w.bytes(&c.0);
+    w.bytes(&encode_skill_cols(bands)?);
     Ok(w.0)
+}
+
+/// Layout 3 (save format v16), one blob after `craft`:
+/// `use_skill` (NFORM shuffled f32 per band), `learn_curve`, `fight_calib` (2),
+/// `raid` (4), `raid_share`, `year_food`, `year_raid_food` (shuffled f32 columns),
+/// `last_fight_switch` (shuffled u32 column, length = bands), then beliefs: a u8
+/// count per band, an item u16 column, slot and flags u8 columns, and eight
+/// shuffled f32 columns (`n`, `mean`, `var`, `fail`, `labour`, `fight_n`,
+/// `fight_mean`, `fight_var`).
+fn encode_skill_cols(bands: &[Band]) -> Result<Vec<u8>, String> {
+    use crate::materials::NFORM;
+    let n = bands.len();
+    let mut c = Wr::default();
+    let mut use_skill = Vec::with_capacity(n * NFORM);
+    let mut learn = Vec::with_capacity(n);
+    let mut calib = Vec::with_capacity(n * 2);
+    let mut raid = Vec::with_capacity(n * 4);
+    let mut share = Vec::with_capacity(n);
+    let mut year_food = Vec::with_capacity(n);
+    let mut year_raid = Vec::with_capacity(n);
+    let mut switches = Vec::with_capacity(n);
+    let mut counts = Vec::with_capacity(n);
+    let mut items: Vec<u16> = Vec::new();
+    let mut slots: Vec<u8> = Vec::new();
+    let mut flags: Vec<u8> = Vec::new();
+    let mut bf = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    for b in bands {
+        if b.beliefs.len() > 255 {
+            return Err(format!("band {} has {} beliefs; the layout stores a u8 count", b.id, b.beliefs.len()));
+        }
+        for i in 0..NFORM {
+            use_skill.push(b.use_skill.get(i).copied().unwrap_or(0.0));
+        }
+        learn.push(b.learn_curve);
+        calib.extend_from_slice(&b.fight_calib);
+        raid.extend_from_slice(&b.raid);
+        share.push(b.raid_share);
+        year_food.push(b.year_food);
+        year_raid.push(b.year_raid_food);
+        switches.push(b.last_fight_switch);
+        counts.push(b.beliefs.len() as u8);
+        for bel in &b.beliefs {
+            items.push(bel.item);
+            slots.push(bel.slot);
+            flags.push(bel.flags);
+            let fs = [bel.n, bel.mean, bel.var, bel.fail, bel.labour, bel.fight_n, bel.fight_mean, bel.fight_var];
+            for (col, x) in bf.iter_mut().zip(fs) {
+                col.push(x);
+            }
+        }
+    }
+    c.f32s(&use_skill);
+    c.f32s(&learn);
+    c.f32s(&calib);
+    c.f32s(&raid);
+    c.f32s(&share);
+    c.f32s(&year_food);
+    c.f32s(&year_raid);
+    c.u(n as u64);
+    c.u32s_shuffled(switches.into_iter());
+    c.0.extend_from_slice(&counts);
+    for it in items {
+        c.0.extend_from_slice(&it.to_le_bytes());
+    }
+    c.0.extend_from_slice(&slots);
+    c.0.extend_from_slice(&flags);
+    for col in &bf {
+        c.f32s(col);
+    }
+    Ok(c.0)
+}
+
+fn decode_skill_cols(bands: &mut [Band], blob: &[u8]) -> Result<(), String> {
+    use crate::band::Belief;
+    use crate::materials::NFORM;
+    let n = bands.len();
+    let mut c = Rd::new(blob);
+    let use_skill = c.f32s()?;
+    let learn = c.f32s()?;
+    let calib = c.f32s()?;
+    let raid = c.f32s()?;
+    let share = c.f32s()?;
+    let year_food = c.f32s()?;
+    let year_raid = c.f32s()?;
+    let nswitch = c.u()? as usize;
+    if use_skill.len() != n * NFORM
+        || learn.len() != n
+        || calib.len() != n * 2
+        || raid.len() != n * 4
+        || share.len() != n
+        || year_food.len() != n
+        || year_raid.len() != n
+        || nswitch != n
+    {
+        return Err("skill columns do not match".into());
+    }
+    let switches = c.u32s_shuffled(n)?;
+    let counts = c.take(n)?;
+    let total: usize = counts.iter().map(|&x| x as usize).sum();
+    let item_bytes = c.take(total.checked_mul(2).ok_or("overflow")?)?;
+    let slots = c.take(total)?;
+    let flags = c.take(total)?;
+    let mut bf = Vec::with_capacity(8);
+    for _ in 0..8 {
+        let col = c.f32s()?;
+        if col.len() != total {
+            return Err("belief columns do not match".into());
+        }
+        bf.push(col);
+    }
+    if !c.done() {
+        return Err("skill columns have trailing bytes".into());
+    }
+    let mut j = 0;
+    for (i, b) in bands.iter_mut().enumerate() {
+        b.use_skill = use_skill[i * NFORM..(i + 1) * NFORM].to_vec();
+        b.learn_curve = learn[i];
+        b.fight_calib = [calib[i * 2], calib[i * 2 + 1]];
+        b.raid = [raid[i * 4], raid[i * 4 + 1], raid[i * 4 + 2], raid[i * 4 + 3]];
+        b.raid_share = share[i];
+        b.year_food = year_food[i];
+        b.year_raid_food = year_raid[i];
+        b.last_fight_switch = switches[i];
+        let nb = counts[i] as usize;
+        b.beliefs = (0..nb)
+            .map(|k| {
+                let t = j + k;
+                Belief {
+                    item: u16::from_le_bytes([item_bytes[t * 2], item_bytes[t * 2 + 1]]),
+                    slot: slots[t],
+                    flags: flags[t],
+                    n: bf[0][t],
+                    mean: bf[1][t],
+                    var: bf[2][t],
+                    fail: bf[3][t],
+                    labour: bf[4][t],
+                    fight_n: bf[5][t],
+                    fight_mean: bf[6][t],
+                    fight_var: bf[7][t],
+                }
+            })
+            .collect();
+        j += nb;
+    }
+    Ok(())
 }
 
 pub fn decode_bands(blob: &[u8]) -> Result<Vec<Band>, String> {
@@ -392,6 +543,10 @@ pub fn decode_bands(blob: &[u8]) -> Result<Vec<Band>, String> {
     for (b, n) in bands.iter_mut().zip(lens) {
         b.craft = all[j..j + n].to_vec();
         j += n;
+    }
+    // layouts 1 and 2 stop here: use_skill stays empty and after_load fills it
+    if v >= 3 {
+        decode_skill_cols(&mut bands, r.bytes()?)?;
     }
     Ok(bands)
 }

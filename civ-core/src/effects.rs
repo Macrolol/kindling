@@ -28,6 +28,10 @@ pub const NOMINAL_MIX: [f32; 5] = [0.3, 0.3, 0.25, 0.15, 0.0];
 /// toward the long-run nominal mix at the same total. This damps seasonal kit
 /// flip-flopping without new saved state.
 pub const HARVEST_PRIOR: f32 = 0.5;
+/// (skills step 2) Starting `Band::learn_curve`. Founders, daughter bands and the
+/// pre-v16 fill-in all use this prior (the skills proposal's 1.3). Later steps
+/// move it per band.
+pub const LC_PRIOR: f32 = 1.3;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 

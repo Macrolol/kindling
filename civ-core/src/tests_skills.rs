@@ -695,3 +695,150 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
     assert_eq!(full.to_bits(), (food - cost(glue)).to_bits());
     assert_ne!(full.to_bits(), (food - cost(bare)).to_bits(), "bare upkeep is a different charge");
 }
+
+/// (skills step 2) A v15 save has no user-skill column. Load fills each form from the best
+/// known recipe of that output, then the world runs on for 20 years.
+#[test]
+fn v15_fixture_loads_fills_use_skill_and_runs() {
+    use crate::effects::LC_PRIOR;
+    let bytes = include_bytes!("../tests/fixtures/v15_seed9_y150_64x40.civsave");
+    let (mut w, _, info) = World::load_bytes(bytes).expect("v15 save loads");
+    assert_eq!(info.format_version, 15);
+    assert_eq!(info.migrated_from, Some(15));
+    assert!(w.bands.iter().all(|b| b.use_skill.len() == NFORM), "every band has one skill per form");
+    assert!(w.bands.iter().all(|b| b.learn_curve == LC_PRIOR && b.last_fight_switch == u32::MAX && b.beliefs.is_empty()));
+    assert!(w.bands.iter().all(|b| b.fight_calib == [0.0; 2] && b.raid == [0.0; 4] && b.raid_share == 0.0));
+    let b = w
+        .bands
+        .iter()
+        .find(|b| {
+            b.known.iter().any(|kn| {
+                w.reg.recipes.get(kn.recipe as usize).is_some_and(|r| valid_item(r.output) && form(r.output) == Form::Edge)
+            })
+        })
+        .expect("a band knows an Edge recipe");
+    let best = b
+        .known
+        .iter()
+        .filter_map(|kn| {
+            let r = w.reg.recipes.get(kn.recipe as usize)?;
+            (valid_item(r.output) && form(r.output) == Form::Edge).then_some(kn.skill)
+        })
+        .fold(0.0f32, f32::max);
+    assert!(best > 0.0, "the Edge recipe has some skill");
+    assert_eq!(b.use_skill[Form::Edge as usize], best);
+    let t0 = w.tick;
+    for _ in 0..80 {
+        w.step();
+    }
+    assert_eq!(w.tick, t0 + 80);
+    assert!(w.bands.iter().all(|b| b.use_skill.len() == NFORM));
+}
+
+fn same_skill_fields(a: &World, b: &World) {
+    use crate::band::Belief;
+    assert_eq!(a.bands.len(), b.bands.len());
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    let belief = |xs: &[Belief]| {
+        xs.iter()
+            .map(|e| {
+                (
+                    e.item,
+                    e.slot,
+                    e.flags,
+                    e.n.to_bits(),
+                    e.mean.to_bits(),
+                    e.var.to_bits(),
+                    e.fail.to_bits(),
+                    e.labour.to_bits(),
+                    e.fight_n.to_bits(),
+                    e.fight_mean.to_bits(),
+                    e.fight_var.to_bits(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for (x, y) in a.bands.iter().zip(&b.bands) {
+        assert_eq!(bits(&x.use_skill), bits(&y.use_skill));
+        assert_eq!(x.learn_curve.to_bits(), y.learn_curve.to_bits());
+        assert_eq!(x.fight_calib.map(f32::to_bits), y.fight_calib.map(f32::to_bits));
+        assert_eq!(x.last_fight_switch, y.last_fight_switch);
+        assert_eq!(x.raid.map(f32::to_bits), y.raid.map(f32::to_bits));
+        assert_eq!(x.raid_share.to_bits(), y.raid_share.to_bits());
+        assert_eq!(x.year_food.to_bits(), y.year_food.to_bits());
+        assert_eq!(x.year_raid_food.to_bits(), y.year_raid_food.to_bits());
+        assert_eq!(belief(&x.beliefs), belief(&y.beliefs));
+    }
+}
+
+/// (skills step 2) Layout 3 round-trips the new columns in binary and JSON, and the loaded
+/// worlds keep stepping in lockstep with the one that was saved.
+#[test]
+fn v16_fields_round_trip_continues_identically() {
+    use crate::band::Belief;
+    assert_eq!(crate::save::FORMAT_VERSION, 16);
+    let mut a = world();
+    for _ in 0..8 {
+        a.step();
+    }
+    a.bands[0].use_skill[Form::Edge as usize] = 0.42;
+    a.bands[0].use_skill[Form::Bow as usize] = 0.2;
+    a.bands[0].learn_curve = 1.7;
+    a.bands[0].fight_calib = [0.3, 0.4];
+    a.bands[0].last_fight_switch = 17;
+    a.bands[0].raid = [2.0, 0.5, 0.25, 1.0];
+    a.bands[0].raid_share = 0.15;
+    a.bands[0].year_food = 3.5;
+    a.bands[0].year_raid_food = 0.75;
+    a.bands[0].beliefs = vec![
+        Belief {
+            item: item(Form::Edge, Mat::Flint),
+            slot: 1,
+            flags: 2,
+            n: 4.0,
+            mean: 0.5,
+            var: 0.1,
+            fail: 0.2,
+            labour: 0.3,
+            fight_n: 1.0,
+            fight_mean: 0.4,
+            fight_var: 0.05,
+        },
+        Belief {
+            item: item(Form::Spear, Mat::Wood),
+            slot: 3,
+            flags: 0,
+            n: 2.0,
+            mean: 0.8,
+            var: 0.2,
+            fail: 0.0,
+            labour: 0.1,
+            fight_n: 3.0,
+            fight_mean: 0.9,
+            fight_var: 0.07,
+        },
+    ];
+    assert_eq!(a.bands[0].beliefs.len(), 2);
+    assert!(a.bands[1].beliefs.is_empty(), "a second band keeps zero beliefs");
+    assert_eq!(a.bands[1].use_skill.len(), NFORM);
+    let bytes = a.save_bytes(None, "test", "now").unwrap();
+    let js = a.save_json(None, "test", "now").unwrap();
+    let (mut bin, _, info) = World::load_bytes(&bytes).unwrap();
+    assert_eq!(info.format_version, 16);
+    let (mut json, _, info_j) = World::load_bytes(js.as_bytes()).unwrap();
+    assert_eq!(info_j.format_version, 16);
+    same_skill_fields(&a, &bin);
+    same_skill_fields(&a, &json);
+    assert_eq!(bin.bands[0].beliefs.len(), 2);
+    assert!(bin.bands[1].beliefs.is_empty());
+    assert!(json.bands[1].beliefs.is_empty());
+    for _ in 0..8 {
+        a.step();
+        bin.step();
+        json.step();
+    }
+    assert_eq!(a.state_hash(), bin.state_hash());
+    assert_eq!(a.state_hash(), json.state_hash());
+    same_skill_fields(&a, &bin);
+    same_skill_fields(&a, &json);
+}

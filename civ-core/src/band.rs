@@ -23,6 +23,25 @@ pub fn fit_craft(c: &mut Vec<f32>) {
     c.splice(at..at, std::iter::repeat(1.0).take(n));
 }
 
+/// (skills step 2) What a band believes one tool does. Empty on every band until
+/// step 4; saved now so format 16 does not bump again. The eight `f32`s are
+/// `n`, `mean`, `var`, `fail`, `labour`, `fight_n`, `fight_mean`, `fight_var`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Belief {
+    pub item: u16,
+    pub slot: u8,
+    pub flags: u8,
+    pub n: f32,
+    pub mean: f32,
+    pub var: f32,
+    pub fail: f32,
+    pub labour: f32,
+    pub fight_n: f32,
+    pub fight_mean: f32,
+    pub fight_var: f32,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Band {
@@ -145,6 +164,37 @@ pub struct Band {
     /// (inventions step 8) tribute owed or owing, 0..1: set by a tribute paid either way and
     /// fading year by year (one of the things worth keeping count of)
     pub owed: f32,
+    // ---- skills step 2 (save format 16). Appended: older band rows load these as defaults.
+    // In a bands blob they are columns, not row fields (`codec::column`).
+    /// How practised this band is with each form, 0..1. One entry per form after load.
+    /// Empty only in a save from before v16; `World::after_load` then fills it from
+    /// recipe skill. Daughters start at zeros in this pass (inheritance is later).
+    #[serde(with = "crate::codec::column")]
+    pub use_skill: Vec<f32>,
+    /// Beliefs about tools. Empty until step 4.
+    #[serde(with = "crate::codec::column")]
+    pub beliefs: Vec<Belief>,
+    /// How fast beliefs move when a tool surprises the band. Starts at `LC_PRIOR`.
+    #[serde(with = "crate::codec::column")]
+    pub learn_curve: f32,
+    /// Fight-outcome calibration. `[0, 0]` means unset until step 6.
+    #[serde(with = "crate::codec::column")]
+    pub fight_calib: [f32; 2],
+    /// Last tick a weapon was switched on a fight belief. `u32::MAX` = never.
+    #[serde(with = "crate::codec::column")]
+    pub last_fight_switch: u32,
+    /// Raid tally `(n, mean, var, dead)`. Zeros until step 8.
+    #[serde(with = "crate::codec::column")]
+    pub raid: [f32; 4],
+    /// Share of this year's effort spent raiding. 0 until step 8.
+    #[serde(with = "crate::codec::column")]
+    pub raid_share: f32,
+    /// Food taken this year, so a mid-year save continues. 0 until step 8.
+    #[serde(with = "crate::codec::column")]
+    pub year_food: f32,
+    /// Food taken by raiding this year. 0 until step 8.
+    #[serde(with = "crate::codec::column")]
+    pub year_raid_food: f32,
 }
 
 /// A standing exchange relationship with another band (grows with use, fades without).
@@ -446,6 +496,8 @@ pub const ANCESTRY_SLOTS: usize = 8;
 
 impl Band {
     /// Older saves carry stock / origin vectors for fewer materials: pad them.
+    /// An empty `use_skill` is left empty (the pre-v16 sentinel). Any other length
+    /// is brought up to `NFORM` with zeros; `after_load` fills the empty case.
     pub fn fit_vectors(&mut self) {
         if self.stock.len() < NMAT {
             self.stock.resize(NMAT, 0.0);
@@ -454,6 +506,25 @@ impl Band {
             self.origin.resize(NMAT, u32::MAX);
         }
         fit_craft(&mut self.craft);
+        if !self.use_skill.is_empty() && self.use_skill.len() != NFORM {
+            self.use_skill.resize(NFORM, 0.0);
+        }
+    }
+
+    /// (skills step 2) Starting values of the format-16 fields. `use_skill` is one
+    /// zero per form (not inherited — daughters get the same zeros in this pass).
+    /// `learn_curve` is `LC_PRIOR`, `last_fight_switch` is never, beliefs are
+    /// empty, and fight calibration and the raid tallies are 0.
+    pub fn start_skills(&mut self) {
+        self.use_skill = vec![0.0; NFORM];
+        self.beliefs.clear();
+        self.learn_curve = crate::effects::LC_PRIOR;
+        self.fight_calib = [0.0; 2];
+        self.last_fight_switch = u32::MAX;
+        self.raid = [0.0; 4];
+        self.raid_share = 0.0;
+        self.year_food = 0.0;
+        self.year_raid_food = 0.0;
     }
     pub fn partner(&self, id: u32) -> Option<&Partner> {
         self.partners.iter().find(|p| p.id == id)

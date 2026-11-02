@@ -10,7 +10,7 @@
 2. A breaking change bumps `FORMAT_VERSION` and appends a function to `MIGRATIONS`. That function rewrites the envelope's generic value tree from version N to N+1. The loader runs every step from the file's version up to the current one.
 3. Never delete or reorder a migration. Saves from newer versions are refused with a clear message.
 
-Current: `FORMAT_VERSION = 15` (the diffusion step, after v0.9.0). Kindling v0.9.0 writes format 14 (formats 9-14 were added during 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5.
+Current: `FORMAT_VERSION = 16` (skills step 2: user skill by form). Kindling v0.9.0 writes format 14 (formats 9-14 were added during 0.9 development). v0.8.0 writes format 8, v0.7.0 format 7, v0.6.1 format 6, v0.5.x and v0.6.0 format 5. The diffusion step writes format 15.
 
 ## Version history
 - **v1**: first stable format (stage 1: stone/fire/pottery/metal emergence on the old generator).
@@ -240,5 +240,35 @@ Current: `FORMAT_VERSION = 15` (the diffusion step, after v0.9.0). Kindling v0.9
     of four (older frames) with it 0, and skips any values a later build appends.
   - Event kind 41 `ForgottenEverywhere` is new (an older build reads it as its last kind).
   - Binary v14 saves are decoded directly; JSON v14 saves go through `v14_to_v15`.
+- **v16** (skills step 2: user skill by form). Migration `v15_to_v16` (identity; every
+  change is additive, but old builds cannot read the new bands blob):
+  - Nine fields appended at the end of `Band`. Named in JSON. In the binary bands blob
+    (**layout 3**) they are columns after `craft`, and the row leaves them out the same
+    way as `known`, `partners` and `craft`. Layouts 1 and 2 still decode and leave the
+    new fields at their absent defaults (`use_skill` empty).
+    - `bands[].use_skill`: one shuffled f32 per form (`NFORM` per band).
+    - `bands[].learn_curve`, `fight_calib` (2 f32), `raid` (4 f32: n, mean, var, dead),
+      `raid_share`, `year_food`, `year_raid_food`: shuffled f32 columns.
+    - `bands[].last_fight_switch`: a shuffled u32 column (`u32::MAX` = never).
+    - `bands[].beliefs`: ragged. A u8 count per band, then an item u16 column, slot and
+      flags u8 columns, and eight shuffled f32 columns (`n`, `mean`, `var`, `fail`,
+      `labour`, `fight_n`, `fight_mean`, `fight_var`).
+  - On load, an empty `use_skill` (every pre-v16 save) is filled in `World::after_load`,
+    after recipe cleanup: for each form, the best `Known.skill` among that band's recipes
+    whose output has that form, else 0. `learn_curve` becomes `LC_PRIOR`,
+    `last_fight_switch` becomes `u32::MAX`. The rest stay 0 and `beliefs` stay empty.
+    `fight_calib` 0 = unset until step 6; raid zeros until step 8; beliefs empty until
+    step 4.
+  - Founders and both kinds of daughter band are born with the same defaults (`use_skill`
+    zeros of length `NFORM`, not copied from the parent). `Band::fit_vectors` pads a short
+    non-empty vector; together with the fill-in, every loaded band has
+    `use_skill.len() == NFORM`.
+  - Binary v15 saves are decoded directly (the layout-2 reader); JSON v15 saves go
+    through `v15_to_v16`.
+  - Fixture `v15_seed9_y150_64x40.civsave` is loaded by
+    `v15_fixture_loads_fills_use_skill_and_runs`, which checks the fill-in and runs the
+    world on 20 years. `v16_fields_round_trip_continues_identically` saves a world with
+    the new columns set (including a band with two beliefs and one with none) as binary
+    and JSON, loads both, and checks they continue identically.
 - Fixtures `civ-core/tests/fixtures/v1_seed7_y60.civsave` … `v4_seed7_y60.civsave` (written by
   the v1–v4 builds) are loaded by `v1_fixture_loads_and_runs` … `v4_fixture_loads_and_runs`.
