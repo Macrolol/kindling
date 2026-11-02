@@ -34,9 +34,11 @@
 //!   with the kit the band would have with A kept (A forced back into the slot); if A can no
 //!   longer be made the change is "forced";
 //! - **own valuation** (skills step 3 fix 1): for that changed slot only, B and A are scored
-//!   in the band's chosen kit with only that slot swapped, by `slot_score(...).0`. That is the
-//!   number `make_kit_with_view` ranks the slot by (`choose_food`'s price on a food slot,
-//!   `nonfood_scores` otherwise). The delta is chosen minus alternative. Worse is about 0% by
+//!   in the band's chosen kit with only that slot swapped, by `slot_score_m(...).0` at that
+//!   item's chain skill (1 when the chain was never filled). That is the number
+//!   `make_kit_for_view` ranks the slot by (`choose_food`'s price on a food slot, with waste
+//!   and failure on the current side only; `nonfood_scores` otherwise, still `KIT_UPKEEP`).
+//!   The delta is chosen minus alternative. Worse is about 0% by
 //!   construction: the pick is the strict maximum of that score in the context the pass
 //!   scored, so it falls below `-PROBE_TIE` only when a later greedy pass changed a slot this
 //!   one reads (pass 2 re-scores a food slot whose dependency moved; a hull does not read the
@@ -52,7 +54,7 @@
 //! whole-kit own columns) and `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted
 //! over which better one).
 use crate::band::{loss_guard, make_kit, refine_kit, weapon_q, Kit, KIT_UPKEEP};
-use crate::effects::{fills_payoff, make_kit_among_view, make_kit_for_view, recipe_info, slot_score, BandView, PAYOFF_SLOTS};
+use crate::effects::{fills_payoff, make_kit_among_view, make_kit_for_view, recipe_info, slot_score_m, BandView, PAYOFF_SLOTS};
 use crate::knowledge::{closure, fill_chain, Known, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::materials::*;
 use crate::{Config, Params, World};
@@ -189,9 +191,10 @@ fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
 }
 
 /// Decision score of `it` in payoff slot `j` of context `k`. Food slots: `choose_food`'s
-/// price. The rest: `nonfood_scores`. Both are `slot_score(...).0`.
+/// current price at `tk.chain_m` (waste and failure; the full side is not used here).
+/// The rest: `nonfood_scores`, which ignore maker skill. `slot_score_m(...).0`.
 fn slot_own(view: &BandView, k: &Kit, j: usize, it: Item, tk: &Toolkit, known: &[Known]) -> f32 {
-    slot_score(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it)).0
+    slot_score_m(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it), tk.chain_m(it)).0
 }
 
 /// `k` with payoff slot `j` (`Kit::slot_item` order) set to `it`. The other slots stay,

@@ -3,10 +3,10 @@
 use crate::band::{edge_q, Band, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_waste, novice_factor, pitch_in_use, recipe_info,
-    sealed_factor, slot_score, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS, CHAIN_W_MIN, HARVEST_EPS,
-    HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX,
-    NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
+    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_waste,
+    novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
+    CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
+    USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
 use crate::knowledge::{closure, fill_chain, maker_skill, technique, Known, Recipe, Registry, Tech};
 use crate::materials::*;
@@ -457,7 +457,7 @@ fn accepts(slot: usize, it: Item) -> bool {
 
 /// The score `slot_score` used to compute by rebuilding the kit. Kept here so a cheaper
 /// evaluation has to match it bit for bit, including the upkeep association.
-fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F) -> (f32, f32) {
+fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, m_item: f32) -> (f32, f32) {
     let (_sk, ql, d) = info(it);
     if matches!(slot, 0 | 1 | 10 | 4 | 12 | 13) {
         let food_of = |user: &[f32; NFORM]| {
@@ -481,10 +481,20 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         let food_full = food_of(&[1.0; NFORM]);
         let labour = tool_upkeep(view.upkeep_rate, it, d, sealed_factor(it, &with_slot(kit, slot, it), pitch_in_use(&with_slot(kit, slot, it), view.wet)));
         let pop = view.pop.max(1.0);
-        let units = labour * LABOUR_SHARE * pop;
         let price = view.food.max(1e-6) / (WORK_SHARE * LABOUR_SHARE * pop);
-        let cost = price * units;
-        (food - cost, food_full - cost)
+        // Same association as `price_of`: scale labour to person-seasons first, then by price.
+        // Multiplying price by labour first is one ulp off on some slots.
+        let cost = |lab: f32| {
+            let units = lab * LABOUR_SHARE * pop;
+            price * units
+        };
+        if m_item == 1.0 {
+            let c = cost(labour);
+            (food - c, food_full - c)
+        } else {
+            let pm = maker_p_fail(m_item);
+            (food * (1.0 - pm) - cost(labour * maker_waste(m_item)), food_full - cost(labour))
+        }
     } else {
         let m = mat(it);
         let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
@@ -526,7 +536,11 @@ fn trial_j(slot: usize) -> usize {
 }
 
 /// The two-pass choice as it was when every candidate rebuilt a kit, trials on pass 2 only.
-fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &BandView) -> Kit {
+fn slow_make<F, M>(avail: &ItemSet, info: &F, view: &BandView, m_of: &M) -> Kit
+where
+    F: Fn(Item) -> (f32, f32, u8),
+    M: Fn(Item) -> f32,
+{
     let mut k = Kit::default();
     let mut best = [0f32; 24];
     for it in avail.iter() {
@@ -573,7 +587,7 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
                 if !accepts(slot, it) {
                     continue;
                 }
-                let (cur, full) = slow_score(view, &k, slot, it, info);
+                let (cur, full) = slow_score(view, &k, slot, it, info, m_of(it));
                 if cur > best_cur {
                     second_cur = best_cur;
                     second_it = best_it;
@@ -690,7 +704,7 @@ fn fast_choice_matches_full_yields_bits() {
     ];
     for view in &views {
         let fast = make_kit_with_view(&avail, &info, view);
-        let slow = slow_make(&avail, &info, view);
+        let slow = slow_make(&avail, &info, view, &|_| 1.0);
         assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
         assert_eq!(fast.fallback, slow.fallback, "fallback diverged");
         assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
@@ -701,7 +715,7 @@ fn fast_choice_matches_full_yields_bits() {
                     continue;
                 }
                 let (a, b) = slot_score(view, &slow, slot, it, &info);
-                let (c, d) = slow_score(view, &slow, slot, it, &info);
+                let (c, d) = slow_score(view, &slow, slot, it, &info, 1.0);
                 assert_eq!(a.to_bits(), c.to_bits(), "slot {slot} discounted");
                 assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
             }
@@ -724,7 +738,7 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
     let info = |_: Item| (1.0f32, 0.0, 0u8);
     let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] };
     let fast = make_kit_with_view(&avail, &info, &view);
-    let slow = slow_make(&avail, &info, &view);
+    let slow = slow_make(&avail, &info, &view, &|_| 1.0);
     assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
     assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
     assert_eq!((fast.pitch, fast.ale), (slow.pitch, slow.ale));
@@ -737,7 +751,7 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
                 continue;
             }
             let (a, b) = slot_score(&view, &slow, slot, it, &info);
-            let (c, d) = slow_score(&view, &slow, slot, it, &info);
+            let (c, d) = slow_score(&view, &slow, slot, it, &info, 1.0);
             assert_eq!(a.to_bits(), c.to_bits(), "slot {slot}");
             assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
         }
@@ -1735,6 +1749,79 @@ fn chain_cache_follows_skill_without_a_new_closure() {
     for b in &w.bands {
         for it in b.d.tk.producible.iter() {
             assert_eq!(b.d.tk.chain_m(it).to_bits(), 1.0f32.to_bits(), "{}", item_name(it));
+        }
+    }
+}
+
+/// Nominal kit choice ignores a filled chain. `make_kit_for` matches `make_kit_with`
+/// (maker skill forced to 1) even when every edge was made at 0.2. `slot_score` matches
+/// `slot_score_m(..., 1)`; the live chain skill moves only the current side.
+#[test]
+fn nominal_kit_ignores_a_weak_chain() {
+    let flint_raw = item(Form::Raw, Mat::Flint);
+    let stone_raw = item(Form::Raw, Mat::Stone);
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut reg = Registry::default();
+    let mut known = Vec::new();
+    for (r, skill) in [(shape_recipe(flint_raw, NONE, flint), 0.2f32), (shape_recipe(stone_raw, NONE, stone), 0.2)] {
+        let id = reg.insert(r);
+        known.push(Known { recipe: id, skill, ..Default::default() });
+    }
+    let mut have = ItemSet::default();
+    have.add(flint_raw);
+    have.add(stone_raw);
+    let mut tk = closure(&reg, &known, &have, false);
+    fill_chain(&reg, &known, &mut tk);
+    let mf = tk.chain_m(flint);
+    assert!(mf < 0.5 && mf > 0.1, "flint chain skill {mf}");
+    assert!(tk.chain_m(stone) < 0.5, "stone chain skill");
+
+    let info = |it: Item| recipe_info(&tk, &known, it);
+    let forced = make_kit_for(&tk, &known);
+    let plain = make_kit_with(&tk.avail, &info);
+    assert_eq!(kit_picks(&forced), kit_picks(&plain), "nominal choice saw the chain");
+    assert_eq!(forced.fallback, plain.fallback, "nominal fallback saw the chain");
+    assert_eq!(kit_rest(&forced), kit_rest(&plain), "nominal non-payoff saw the chain");
+
+    let view = BandView::nominal();
+    let (a, b) = slot_score(&view, &plain, 1, flint, &info);
+    let (c, d) = slot_score_m(&view, &plain, 1, flint, &info, 1.0);
+    assert_eq!(a.to_bits(), c.to_bits(), "m = 1 current side");
+    assert_eq!(b.to_bits(), d.to_bits(), "m = 1 full side");
+    let (e, f) = slot_score_m(&view, &plain, 1, flint, &info, mf);
+    assert_ne!(e.to_bits(), a.to_bits(), "a weak maker should change the current food price");
+    assert_eq!(f.to_bits(), b.to_bits(), "the full side stays the mastered price");
+}
+
+/// Fast and slow choice agree, including the runner-up, when maker skill is not all 1.
+#[test]
+fn fast_choice_matches_slow_when_maker_skill_varies() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    avail.add(stone);
+    let info = |it: Item| if it == flint { (0.4f32, 0.1, 1u8) } else { (0.8, 0.0, 0) };
+    let m_of = |it: Item| if it == flint { 0.2 } else { 1.0 };
+    // Same view as the m = 1 bit-match (user 1). A uniform user of 0.4 leaves a
+    // one-ulp gap in the cut slot that the mastered path already had; this view does not.
+    let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] };
+    let fast = make_kit_scored(&avail, &info, &view, &m_of);
+    let slow = slow_make(&avail, &info, &view, &m_of);
+    assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
+    assert_eq!(fast.fallback, slow.fallback, "fallback diverged");
+    assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
+    for &slot in &CHOOSE {
+        for it in [flint, stone] {
+            if !accepts(slot, it) {
+                continue;
+            }
+            let m = m_of(it);
+            let (a, b) = slot_score_m(&view, &slow, slot, it, &info, m);
+            let (c, d) = slow_score(&view, &slow, slot, it, &info, m);
+            assert_eq!(a.to_bits(), c.to_bits(), "slot {slot} m {m}");
+            assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
         }
     }
 }

@@ -370,7 +370,7 @@ pub struct Toolkit {
     via: Vec<(u16, u32, u8)>,
     /// (skills step 3) chain skill of each available item, same order as `via`.
     /// Raw items and a kept flame are 1. Filled by `fill_chain`, never saved.
-    /// The economy reads `chain_m`. The decision does not yet.
+    /// The economy reads `chain_m`. The live kit choice does too; nominal callers force 1.
     chain: Vec<f32>,
 }
 impl Toolkit {
@@ -546,7 +546,8 @@ fn chain_weight(p: f32) -> f32 {
 /// Chain skill of every available item, parallel to `via`.
 /// One walk per item, the same stack bound as `mark_used`, each known recipe at
 /// most once. `m_item` is the weighted geometric mean of those steps' maker
-/// skills; raw items and a kept flame are 1. Not read yet.
+/// skills; raw items and a kept flame are 1. The economy and the live kit
+/// choice read it. Nominal callers force 1.
 pub fn fill_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
     let n = tk.via.len();
     tk.chain.clear();
