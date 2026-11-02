@@ -452,7 +452,13 @@ Additive, `serde(default)`; older saves read a missing field as 0.
   `worse_held_food_share`, `held_gap_mean`) and two files, `skills-*.csv` (per `PROBE_EVERY`
   years: the same split for the period, the fields and counters above, NA for what later steps
   add) and `pairs-*.csv` (which item was held or adopted over which better one).
-  `tools/diffusion_probe_agg.py` prints the split.
+  `adopt_worse_own` / `adopt_tie_own` (skills step 3 fix 1) are the changed slot only: the
+  chosen item and the one it replaced, scored in the band's chosen kit with only that slot
+  swapped, by `slot_score(...).0` (the same number `make_kit_with_view` ranks that slot by).
+  Worse is about 0 by construction. The old whole-kit sum of those scores is not additive, so
+  it is kept as `adopt_worse_own_kit` / `adopt_tie_own_kit`, appended at the end of each
+  `skills-*.csv` row (not on `items-*.csv`). `tools/diffusion_probe_agg.py` prints the split
+  from the items file, so its "own valuation" is the per-slot figure.
 
 ## What a save keeps (format v14)
 
