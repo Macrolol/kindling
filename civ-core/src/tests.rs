@@ -2995,8 +2995,8 @@ fn probe_step13_pitch() {
 
 /// (skills step 0) Counters and YearStats declared for later steps still read 0.
 /// Step 2 filled `use_taught`, `use_inherited_bands` and the five `use_skill_*`
-/// means. Step 3 fills `make_failures` and `make_scrap`. Those are checked
-/// elsewhere and are not required to be 0 here.
+/// means. Step 3 fills `make_failures`, `make_scrap` and the four `maker_*`
+/// means. Those are not required to be 0 here.
 #[test]
 fn skills_unfilled_fields_stay_zero() {
     use crate::world::Counters;
@@ -3014,7 +3014,9 @@ fn skills_unfilled_fields_stay_zero() {
     }
     let fields: Vec<(String, String)> = crate::data::year_fields(w.history.last().unwrap()).into_iter().skip_while(|(k, _)| k != "use_skill_edge").collect();
     assert_eq!(fields.len(), 26);
-    const LIVE_FIELDS: &[&str] = &["use_skill_edge", "use_skill_spear", "use_skill_bow", "use_skill_net", "use_skill_boat"];
+    const LIVE_FIELDS: &[&str] = &[
+        "use_skill_edge", "use_skill_spear", "use_skill_bow", "use_skill_net", "use_skill_boat", "maker_hot_forge", "maker_steel", "maker_cast", "maker_smelt",
+    ];
     for (k, v) in fields {
         if LIVE_FIELDS.contains(&k.as_str()) {
             continue;

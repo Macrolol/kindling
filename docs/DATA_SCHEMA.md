@@ -115,6 +115,11 @@ Additive, no schema change:
   band knows any recipe for an item that some band knew the year before. `item` is the item,
   `other` the most bands that ever knew it at once. Distinct from `LostWorldwide` /
   `LostLocal` (nobody *able to make* it, which can happen while it is still known).
+- event kind `FirstSteelSmith` (id 42, not major; skills step 3): the first band, in band
+  order, whose best steel-making maker skill reaches 0.6, once per world. Whether it has
+  already happened is the event log itself, including after a load (no new saved field).
+  `band` is that band; `x, y` its cell. Text: "Y{year}: band {id} at ({x},{y}) is the first
+  to master steel-making".
 - counter `forgotten_everywhere` (sum): how many such events.
 - Save format v15 (see `SAVE_FORMAT.md`).
 
@@ -408,8 +413,10 @@ Additive, no schema change:
 ## Skills step 0: measure first (no format bump)
 
 Declared ahead of the skills work (`docs/PROPOSAL-skills.md`, step 0; `docs/PROGRESS-skills.md`).
-Step 2 now fills its counters and YearStats (below). Everything else still reads 0 until
-the step named beside it (the test `skills_unfilled_fields_stay_zero` holds those at 0).
+Step 2 now fills its counters and YearStats (below). Step 3 fills `make_failures`,
+`make_scrap` and the four `maker_*` means; those are not required to be 0. Everything
+else still reads 0 until the step named beside it (the test
+`skills_unfilled_fields_stay_zero` holds those at 0).
 Additive, `serde(default)`; older saves read a missing field as 0.
 - Counters (`sum`; `metrics.csv` `c_<name>`, `summary.json` `counters`, frames `counters`),
   placed after `forgotten_everywhere`:
@@ -417,8 +424,15 @@ Additive, `serde(default)`; older saves read a missing field as 0.
     in a meeting: the listener already has that form in its kit, and the lesson never
     passes the teacher), `use_inherited_bands` (daughter bands that stand with any
     inherited user skill above 0, drift landings and splits);
-  - (step 3) `make_failures` (makes that failed outright), `make_scrap` (material scrapped by
-    unskilled makers, stock units x 1000);
+  - (step 3) `make_failures` (a payoff-slot tool failed its maker roll this season,
+    `MAKER_FAIL * (1 - m)^2`; the recipe is still practised). Food slots — hunt, cut,
+    point, axe, net, trap — rebuild that season's food from the slot's fallback, and
+    that fallback's upkeep is paid. A boat, bow, shield, outrigger, plank or ship is
+    counted and costs labour and material only: the fight or sea effect of a failed
+    hull, bow, shield, outrigger, plank or ship is later work.
+  - (step 3) `make_scrap` (thousandths of extra marginal stock drawn because maker
+    skill is below 1, plus a failed tool's marginal draw spent again. At maker skill
+    1 the surplus is 0);
   - (step 4) `beliefs_formed`, `tools_written_off`, `tools_retried`, `beliefs_told`,
     `beliefs_inherited`, `belief_err` (summed absolute belief error x 1000; mean =
     `belief_err / beliefs_formed`), `beliefs_evicted` (dropped from a full belief table);
@@ -432,8 +446,10 @@ Additive, `serde(default)`; older saves read a missing field as 0.
   - (step 2) `use_skill_edge`, `use_skill_spear`, `use_skill_bow`, `use_skill_net`,
     `use_skill_boat`: mean `use_skill` of that form over bands whose kit has an item
     of it (0 if none);
-  - (step 3) `maker_hot_forge`, `maker_steel`, `maker_cast`, `maker_smelt`: mean maker skill of
-    the bands practising each technique;
+  - (step 3) `maker_hot_forge`, `maker_steel`, `maker_cast`, `maker_smelt`: per band the
+    best carried maker skill of that technique (hot-forging, steel-making, casting,
+    smelting), then the mean over bands that know at least one recipe of it (0 if
+    none). Raw means, not floored;
   - (step 5) `trial_p_mean` (mean trial chance), `p_short_mean`, `p_short_p90` (chance of going
     short: mean, 90th percentile);
   - (step 6) `fight_need_mean`, `weapon_over_food_share` (share of slot picks putting fight
@@ -454,7 +470,8 @@ Additive, `serde(default)`; older saves read a missing field as 0.
   add) and `pairs-*.csv` (which item was held or adopted over which better one).
   `adopt_worse_own` / `adopt_tie_own` (skills step 3 fix 1) are the changed slot only: the
   chosen item and the one it replaced, scored in the band's chosen kit with only that slot
-  swapped, by `slot_score(...).0` (the same number `make_kit_with_view` ranks that slot by).
+  swapped, by `slot_score_m(...).0` at the item's chain skill (the same number
+  `make_kit_for_view` ranks that slot by; non-food slots still ignore maker skill).
   Worse is about 0 by construction. The old whole-kit sum of those scores is not additive, so
   it is kept as `adopt_worse_own_kit` / `adopt_tie_own_kit`, appended at the end of each
   `skills-*.csv` row (not on `items-*.csv`). `tools/diffusion_probe_agg.py` prints the split

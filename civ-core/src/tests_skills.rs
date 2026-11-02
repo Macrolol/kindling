@@ -3,17 +3,17 @@
 use crate::band::{edge_q, Band, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_waste,
+    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste,
     novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
     CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
     USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
-use crate::knowledge::{closure, fill_chain, maker_skill, technique, Known, Recipe, Registry, Tech};
+use crate::knowledge::{closure, fill_chain, maker_skill, maker_tech_best, technique, Known, Recipe, Registry, Tech};
 use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{inherit_use, practise_use, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -1824,4 +1824,115 @@ fn fast_choice_matches_slow_when_maker_skill_varies() {
             assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
         }
     }
+}
+
+/// The failure roll repeats for the same seed, band, tick and slot. Its chance is
+/// 0 at maker skill 1, and a skill of 0 fails more often than 0.5. Labour and scrap
+/// factors are bit-identical to 1 at maker skill 1.
+#[test]
+fn maker_fail_roll_is_deterministic_and_rate_falls() {
+    let roll = maker_fail_roll(1, 7, 40, 3);
+    assert_eq!(roll.to_bits(), maker_fail_roll(1, 7, 40, 3).to_bits());
+    assert!(roll >= 0.0 && roll < 1.0);
+    assert_eq!(maker_p_fail(1.0).to_bits(), 0.0f32.to_bits());
+    assert!(maker_p_fail(0.0) > maker_p_fail(0.5));
+    assert_eq!(maker_waste(1.0).to_bits(), 1.0f32.to_bits());
+    assert_eq!(maker_scrap_factor(1.0).to_bits(), 1.0f32.to_bits());
+    let p0 = maker_p_fail(0.0);
+    let p5 = maker_p_fail(0.5);
+    let mut n0 = 0u32;
+    let mut n5 = 0u32;
+    for i in 0..4000u32 {
+        let r = maker_fail_roll(9, i, 1, 0);
+        if r < p0 {
+            n0 += 1;
+        }
+        if r < p5 {
+            n5 += 1;
+        }
+    }
+    assert!(n0 > n5, "skill 0 should fail more often than 0.5 ({n0} vs {n5})");
+}
+
+/// A band that knows hot-forging pulls `maker_hot_forge` off zero. The mean is the
+/// best carried skill of that technique, over bands that know at least one such recipe.
+#[test]
+fn maker_hot_forge_mean_follows_known_skill() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let knife = item(Form::Edge, Mat::Iron);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let mut w = world();
+    assert!(w.bands.len() >= 2, "need two bands");
+    for b in &mut w.bands {
+        b.known.clear();
+    }
+    let id = w.reg.insert(heat_recipe(iron, hammer, fire, kiln, knife));
+    assert_eq!(w.reg.tech(id), Tech::HotForging);
+    w.bands[0].known.push(Known { recipe: id, skill: 0.4, ..Default::default() });
+    w.bands[1].known.push(Known { recipe: id, skill: 0.8, ..Default::default() });
+    w.year_stats();
+    let h = w.history.last().unwrap();
+    assert!(h.maker_hot_forge > 0.0, "hot-forging skill should show in the mean");
+    let mut sum = 0.0f64;
+    let mut n = 0u32;
+    for b in &w.bands {
+        if let Some(m) = maker_tech_best(&w.reg, &b.known)[0] {
+            sum += m as f64;
+            n += 1;
+        }
+    }
+    assert_eq!(n, 2);
+    let expect = (sum / n as f64) as f32;
+    assert_eq!(h.maker_hot_forge.to_bits(), expect.to_bits());
+    assert_eq!(h.maker_steel.to_bits(), 0.0f32.to_bits());
+    assert_eq!(h.maker_cast.to_bits(), 0.0f32.to_bits());
+    assert_eq!(h.maker_smelt.to_bits(), 0.0f32.to_bits());
+}
+
+/// First steel-smith is the first band in order at maker skill 0.6, logged once.
+/// A second `year_stats`, and a log that already holds the event, do not log it again.
+#[test]
+fn first_steel_smith_is_once_and_comes_from_the_log() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let mut w = world();
+    assert!(w.bands.len() >= 2, "need two bands");
+    for b in &mut w.bands {
+        b.known.clear();
+    }
+    let id = w.reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    assert_eq!(w.reg.tech(id), Tech::SteelMaking);
+    w.bands[0].known.push(Known { recipe: id, skill: 0.4, ..Default::default() });
+    w.bands[1].known.push(Known { recipe: id, skill: 0.6, ..Default::default() });
+    assert!(!EventKind::FirstSteelSmith.major());
+    assert_eq!(EventKind::COUNT, 43);
+    assert_eq!(EventKind::FirstSteelSmith as u8, 42);
+    assert_eq!(EventKind::from_u8(42), EventKind::FirstSteelSmith);
+    let n = |w: &World| w.events.iter().filter(|e| e.kind == EventKind::FirstSteelSmith as u8).count();
+    assert_eq!(n(&w), 0);
+    w.year_stats();
+    assert_eq!(n(&w), 1);
+    let e = w.events.iter().find(|e| e.kind == EventKind::FirstSteelSmith as u8).copied().unwrap();
+    assert_eq!(e.band, w.bands[1].id);
+    let mw = w.map.w.max(1);
+    let (cx, cy) = (e.cell as usize % mw, e.cell as usize / mw);
+    assert_eq!(w.event_text(&e), format!("Y{}: band {} at ({cx},{cy}) is the first to master steel-making", e.tick / 4, e.band));
+    w.year_stats();
+    assert_eq!(n(&w), 1, "a second year_stats must not log it again");
+
+    let mut w2 = world();
+    for b in &mut w2.bands {
+        b.known.clear();
+    }
+    let id2 = w2.reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    w2.bands[0].known.push(Known { recipe: id2, skill: 0.9, ..Default::default() });
+    w2.events.push(Event { tick: 4, kind: EventKind::FirstSteelSmith as u8, band: 999_999, other: 0, cell: 0, item: NONE, recipe: u32::MAX });
+    w2.year_stats();
+    assert_eq!(n(&w2), 1);
+    assert_eq!(w2.events.iter().find(|e| e.kind == EventKind::FirstSteelSmith as u8).unwrap().band, 999_999);
 }

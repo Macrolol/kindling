@@ -258,6 +258,10 @@ pub enum EventKind {
     /// (other = most bands that knew it at once). Not the same as `LostWorldwide`, which is
     /// about being able to make it: an item can be known everywhere and made nowhere.
     ForgottenEverywhere,
+    /// (skills step 3) the first band whose best steel-making maker skill reaches 0.6.
+    /// Once per world. Not major. "Already happened" is this event in the log, so a
+    /// load does not need a saved flag.
+    FirstSteelSmith,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -267,11 +271,11 @@ impl EventKind {
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
             FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
-            FirstChart, FirstFeast, Feast, ForgottenEverywhere,
+            FirstChart, FirstFeast, Feast, ForgottenEverywhere, FirstSteelSmith,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 42;
+    pub const COUNT: usize = 43;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -466,7 +470,9 @@ pub struct YearStats {
     pub use_skill_bow: f32,
     pub use_skill_net: f32,
     pub use_skill_boat: f32,
-    /// (step 3) mean maker skill among bands practising hot forging, steel, casting, smelting
+    /// (step 3) mean, over bands that know the technique, of each band's best carried
+    /// maker skill. Hot-forging, steel-making, casting, smelting. 0 if nobody knows it.
+    /// Raw, not floored.
     pub maker_hot_forge: f32,
     pub maker_steel: f32,
     pub maker_cast: f32,
@@ -4412,6 +4418,38 @@ impl World {
             let m = |i: usize| if sk_n[i] == 0 { 0.0 } else { (sk_sum[i] / sk_n[i] as f64) as f32 };
             [m(0), m(1), m(2), m(3), m(4)]
         };
+        // (skills step 3) one maker-skill walk per band. The steel-smith is the first
+        // band in `self.bands` order whose best steel-making skill reaches 0.6.
+        let (maker_means, steel_smith) = {
+            const STEEL_MASTER: f32 = 0.6;
+            let mut sum = [0.0f64; 4];
+            let mut n = [0u32; 4];
+            let mut smith: Option<(u32, u32)> = None;
+            for b in &self.bands {
+                let best = maker_tech_best(&self.reg, &b.known);
+                for i in 0..4 {
+                    if let Some(m) = best[i] {
+                        sum[i] += m as f64;
+                        n[i] += 1;
+                    }
+                }
+                if smith.is_none() {
+                    if let Some(m) = best[1] {
+                        if m >= STEEL_MASTER {
+                            smith = Some((b.id, b.cell(w) as u32));
+                        }
+                    }
+                }
+            }
+            let mean = |i: usize| if n[i] == 0 { 0.0 } else { (sum[i] / n[i] as f64) as f32 };
+            ([mean(0), mean(1), mean(2), mean(3)], smith)
+        };
+        if let Some((id, cell)) = steel_smith {
+            let happened = self.events.iter().any(|e| e.kind == EventKind::FirstSteelSmith as u8);
+            if !happened {
+                self.push_event(EventKind::FirstSteelSmith, id, 0, cell, NONE, u32::MAX);
+            }
+        }
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
         self.feast_year_stats(&mut acc);
@@ -4459,6 +4497,10 @@ impl World {
             use_skill_bow: use_means[2],
             use_skill_net: use_means[3],
             use_skill_boat: use_means[4],
+            maker_hot_forge: maker_means[0],
+            maker_steel: maker_means[1],
+            maker_cast: maker_means[2],
+            maker_smelt: maker_means[3],
             ..acc
         });
         self.archive_year();
@@ -4562,6 +4604,7 @@ impl World {
                 format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){how}", e.band, e.other)
             }
             EventKind::ForgottenEverywhere => format!("Y{yr}: nobody in the world knows how to make {it} any more"),
+            EventKind::FirstSteelSmith => format!("Y{yr}: band {} at ({cx},{cy}) is the first to master steel-making", e.band),
             EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
             EventKind::LostAtSea => format!("Y{yr}: {} of band {} lost at sea near ({cx},{cy})", e.other, e.band),

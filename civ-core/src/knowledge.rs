@@ -499,6 +499,26 @@ pub fn maker_skill(reg: &Registry, known: &[Known], idx: usize) -> f32 {
     maker_skills(reg, known).get(idx).copied().unwrap_or(0.0)
 }
 
+/// Best effective maker skill of hot-forging, steel-making, casting and smelting,
+/// in that order. `None` when the band knows no recipe of that technique.
+/// One `maker_skills` walk. The values are raw, not floored.
+pub fn maker_tech_best(reg: &Registry, known: &[Known]) -> [Option<f32>; 4] {
+    let ms = maker_skills(reg, known);
+    let mut best = [None; 4];
+    for (i, kn) in known.iter().enumerate() {
+        let slot = match reg.tech(kn.recipe) {
+            Tech::HotForging => 0,
+            Tech::SteelMaking => 1,
+            Tech::Casting => 2,
+            Tech::Smelting => 3,
+            _ => continue,
+        };
+        let m = ms.get(i).copied().unwrap_or(0.0);
+        best[slot] = Some(best[slot].map_or(m, |b: f32| b.max(m)));
+    }
+    best
+}
+
 fn maker_skills(reg: &Registry, known: &[Known]) -> Vec<f32> {
     let mut best = [0.0f32; TECH_N];
     let mut second = [0.0f32; TECH_N];

@@ -1,7 +1,8 @@
 # Proposal: users and makers (skill, trials and tool choice)
 
 Status: **approved (Michael, Oct 28 2026), revision 4 with decisions 17-18; being built step by step,
-progress in `docs/PROGRESS-skills.md`.** Written against
+progress in `docs/PROGRESS-skills.md`. Step 3 maker effects (waste, scrap, quality, failure,
+the kit choice, counters, YearStats and FirstSteelSmith) are in on `skills-step3`.** Written against
 `main` 7231103 (the D1-D6 diffusion build reported in `docs/REPORT-diffusion.md` section 9).
 Folded in (section 7, "Decisions"):
 - Michael's answers of Oct 28 to the six design questions;
