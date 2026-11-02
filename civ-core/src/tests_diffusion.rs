@@ -104,9 +104,11 @@ fn d3_metal_blades_outrank_stone_when_practised() {
     assert_eq!(kit(Mat::Copper, Mat::Obsidian).point, item(Form::Point, Mat::Copper));
 }
 
-/// D3: a newly learnt steel knife is not yet relied on while the flint one is honed, but it
-/// is tried out; once practised it takes over and flint is no longer in prospect. Steel, not
-/// copper: a copper knife's food never catches a honed flint one, at any skill.
+/// D3, retuned in skills step 2. Recipe skill no longer discounts a food slot, and a
+/// steel knife and a flint knife are the same form, so they share one user factor.
+/// Steel takes the cut as soon as it is known, even at recipe skill 0.3, and nothing
+/// is left on trial. Copper still never catches a flint knife on food
+/// (`d3_metal_blades_outrank_stone_when_practised`).
 #[test]
 fn d3_newcomer_is_tried_then_takes_over() {
     use crate::band::make_kit_with;
@@ -117,9 +119,9 @@ fn d3_newcomer_is_tried_then_takes_over() {
     a.add(steel);
     let kit = |sk: f32| make_kit_with(&a, &|it| if it == steel { (sk, 0.0, 3) } else { (1.0, 0.0, 1) });
     let k = kit(0.3);
-    assert_eq!((k.cut, k.trial[1]), (flint, steel), "newcomer tried beside the honed tool");
+    assert_eq!((k.cut, k.trial[1]), (steel, NONE), "recipe skill no longer holds steel back");
     let k = kit(0.9);
-    assert_eq!((k.cut, k.trial[1]), (steel, NONE), "practised, it takes over");
+    assert_eq!((k.cut, k.trial[1]), (steel, NONE), "practised, it still holds the cut");
 }
 
 /// D3: a band using a slot with a challenger tries it about one season in five
@@ -191,7 +193,8 @@ fn d5_recent_recipes_fade_slower() {
     assert!(e.skill > b.skill);
 }
 
-/// D5: bands' recipes carry their dates in play and through a save (bands blob layout 2).
+/// D5: bands' recipes carry their dates in play and through a save. The column was added
+/// in bands blob layout 2 and is still written in layout 3 (save format 16).
 #[test]
 fn d5_last_ok_kept_and_saved() {
     let mut w = world();

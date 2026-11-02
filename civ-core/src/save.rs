@@ -9,18 +9,22 @@
 //! fields are ignored); maps are stored as pair lists (so any save converts losslessly to JSON for
 //! migrations); any change that is not purely additive bumps FORMAT_VERSION and appends a frozen
 //! migration to MIGRATIONS.
+//!
+//! Format 16 (skills step 2) is the current one. `v15_to_v16` is the identity: the new band
+//! fields load as their defaults, and an empty `use_skill` is filled in `World::after_load`.
+//! The binary bands blob is layout 3; layouts 1 and 2 still decode.
 use crate::world::World;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 
 pub const MAGIC_BYTES: &[u8; 8] = b"CIVSAVE\x01";
 pub const MAGIC: &str = "civ-sim/world";
-pub const FORMAT_VERSION: u32 = 15;
+pub const FORMAT_VERSION: u32 = 16;
 pub const SUPPORT_FLOOR: u32 = 1;
 
 pub type Migration = fn(serde_json::Value) -> Result<serde_json::Value, String>;
 /// `MIGRATIONS[k]` upgrades a payload from `SUPPORT_FLOOR+k` to `SUPPORT_FLOOR+k+1`. Kept forever.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16];
 
 /// v1 -> v2 (food tech, boats, trade). Frozen: do not edit.
 /// - `bands[].stock` held only the 13 gatherable materials; v2 holds all 18 (metals can be
@@ -342,6 +346,14 @@ fn v13_to_v14(mut v: serde_json::Value) -> Result<serde_json::Value, String> {
 fn v14_to_v15(v: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(v)
 }
+/// (skills step 2) Additive only: `use_skill`, `beliefs`, `learn_curve`, `fight_calib`,
+/// `last_fight_switch` and the raid / year-food fields are new and load as their defaults.
+/// An empty `use_skill` is filled from recipe skills in `World::after_load`. The bands blob
+/// gained those columns (layout 3), which old builds cannot read, hence the bump.
+/// Frozen: do not edit.
+fn v15_to_v16(v: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(v)
+}
 /// The same as `v8_to_v9`, for saves decoded straight into the current schema.
 fn age_old_rumours(w: &mut World) {
     let heard = (w.tick / 4).saturating_sub(40).min(u16::MAX as u32) as u16;
@@ -521,8 +533,11 @@ impl World {
         // v12 -> v13 likewise (gold); an older map keeps generator 4 and decodes against it
         // v13 -> v14 likewise (resinous wood)
         // v14 -> v15 only adds fields that load as 0 (`Known::last_ok`, lore row "know")
-        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5..=14) && matches!(enc, Enc::Mp(_)));
-        if matches!(h.format_version, 5..=14) {
+        // v15 -> v16 adds the layout-3 band columns. A binary v15 save is still a layout-2
+        // blob and decodes directly; empty `use_skill` is filled in `after_load`. JSON v15
+        // goes through the identity migration `v15_to_v16`.
+        let direct = h.format_version == FORMAT_VERSION || (matches!(h.format_version, 5..=15) && matches!(enc, Enc::Mp(_)));
+        if matches!(h.format_version, 5..=15) {
             info.migrated_from = Some(h.format_version);
         }
         let state: SaveState = if direct {

@@ -1121,7 +1121,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x3c7d56f68109ae55); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower), skills step 1 pass 3 (harvest prior)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xafe04140e8a75fb5); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower), skills step 1 pass 3 (harvest prior), skills step 2 pass 2, skills step 2 pass 3
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2993,11 +2993,11 @@ fn probe_step13_pitch() {
     }
 }
 
-/// (skills step 0) The skills counters and YearStats fields are declared but nothing fills
-/// them yet: they read 0 in a running world (each step of docs/PROPOSAL-skills.md that fills one
-/// in takes it out of these lists).
+/// (skills step 0) Counters and YearStats declared for later steps still read 0.
+/// Step 2 filled `use_taught`, `use_inherited_bands` and the five `use_skill_*`
+/// means; those are checked in `tests_skills` and are not required to be 0 here.
 #[test]
-fn skills_step0_fields_stay_zero() {
+fn skills_unfilled_fields_stay_zero() {
     use crate::world::Counters;
     let mut w = small();
     for _ in 0..200 {
@@ -3005,14 +3005,19 @@ fn skills_step0_fields_stay_zero() {
     }
     let names: Vec<&str> = Counters::NAMES.iter().copied().skip_while(|n| *n != "kit_switches").take_while(|n| *n != "max_fight_deaths").collect();
     assert_eq!(names.len(), 27);
+    const LIVE: &[&str] = &["use_taught", "use_inherited_bands"];
     for (n, v) in Counters::NAMES.iter().zip(w.counters.values()) {
-        if names.contains(n) {
+        if names.contains(n) && !LIVE.contains(n) {
             assert_eq!(v, 0, "counter {n}");
         }
     }
     let fields: Vec<(String, String)> = crate::data::year_fields(w.history.last().unwrap()).into_iter().skip_while(|(k, _)| k != "use_skill_edge").collect();
     assert_eq!(fields.len(), 26);
+    const LIVE_FIELDS: &[&str] = &["use_skill_edge", "use_skill_spear", "use_skill_bow", "use_skill_net", "use_skill_boat"];
     for (k, v) in fields {
+        if LIVE_FIELDS.contains(&k.as_str()) {
+            continue;
+        }
         assert!(v.parse::<f64>().unwrap() == 0.0, "YearStats {k} = {v}");
     }
 }

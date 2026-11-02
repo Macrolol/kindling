@@ -26,8 +26,8 @@ no population collapse.
 | # | step | status |
 |---|---|---|
 | 0 | Measure first: probe fixes (3.8), new counters and YearStats fields (zero yet) | done |
-| 1 | Layer 1 and blade scoring | done on this branch |
-| 2 | User skill by form, save 16 | not started |
+| 1 | Layer 1 and blade scoring | done |
+| 2 | User skill by form, save 16 | done on this branch |
 | 3 | Maker skill | not started |
 | 4 | Beliefs | not started |
 | 5 | Layer 2: risk and trials | not started |
@@ -138,3 +138,63 @@ Guard rails on branch head c416994 (archive=false), files docs/results-skills-st
     (step 0: 8.10M, +0.6%); seed 499246298 dies early as expected.
   - No crossing before Y100 in either check. All guard rails pass.
   - Probes for step 1 were not run (optional; they need sim_timeout 300).
+
+## Step 2. User skill by form, save 16 (done on branch skills-step2, PR #4)
+
+Code (passes 1-3 by Grok Build, review fix by Build Bot): save format 16 and band layout 3 with a
+per-form `use_skill` table (v15 saves get it filled by `fill_use_skill`); the form-to-form motion
+`transfer` table and `u_eff`; `user_factor` scales a tool's payoff by the band's skill with its
+form, with the novice spread; `choose_food` / `price_of` score at the band's own skill and at full
+skill (`USER_FULL`); `practise_use` (founders start at 0.7 in generation 0, practice starts from
+max(own, u_eff)), fade, `inherit_use` (x0.9) and teaching through kin or a close tie; YearStats
+`use_skill` means. Commits 35017da, 4c45f01, e44bd7e, ed1d286, 1009816.
+
+Local checks on 1009816 (RAYON_NUM_THREADS=4):
+- `cargo test --release --workspace`: 100 passed, 6 ignored. `build-web`: OK.
+- A v15 save (main, seed 1, 128x80, Y200) loads on the branch and runs on to Y250 (pop 30083).
+- Probe seed 1, 128x80, 200 y: worse in true food 2.1% (step 1: 3.6%), worse in true value 1.7%
+  (4.0%), worse_held 0.3% (3.3%; food 0.5%, step 1 2.3%). Population 23118 (step 1: 17972; one
+  seed in its growth phase). No band reached steel by Y200, so iron-over-steel is read from the
+  (a) probe below.
+- Bench, local (seed 5, 128x80, 300 y, 1 thread): about 32-33 s against main 26.5-28 s, about
+  +21%; the review fix 1009816 (sparse transfer list in `u_eff`, reuse of the recipe qualities
+  for the full-skill food) took back 2-3 s and is bit-identical. The rest is the second
+  `choose_food` scoring at full skill and about 15% more `knowledge::closure` calls.
+- Bench, GitHub (run 41490084690, seed 5, 300 y, default 256x160): main 77.1 s (1 thread, pop
+  111 687); branch 69.3 s (pop 140 788), 45.9 s with 2 threads, 39.0 s with 4. Faster with more
+  people at this size, so the 128x80 slowdown does not carry over. The bench gate is at steps 1,
+  4 and 5, so this is noted, not blocking.
+
+Guard rails on branch head 1009816 (archive=false), files docs/results-skills-step2-*.txt,
+against step 1:
+  - (a) run 41490059983 (seeds 1..10, 500 y, 256x160): crossings 5/10 (limit 6), the same five
+    seeds, earliest Y130 (step 1: Y112); war 0.347 %/y (step 1: 0.334 by the same script);
+    total population 1.291M (step 1: 1.208M, +6.8%); no collapse.
+  - (b) run 41490072122 (seeds 499246292..301, 750 y, 800x800): crossings 1/10 (limit under 7),
+    Y622 (step 1: Y624); war 0.273 %/y over all 10 seeds, about 0.30 over the 9 live ones (step
+    1: 0.273 and about 0.30); total population 8.42M (step 1: 8.14M, +3.4%); seed 499246298 dies
+    early (Y210) as expected. Sim time 15 991 s against 12 490 s (+28%); the slowest job
+    (seeds 292-293) ran about 107 minutes of the 150 allowed.
+  - No crossing before Y100 in either check. All guard rails pass; population is within 10% in
+    both checks.
+  - v15 saves: loaded locally (above) and by the `fill_use_skill` test.
+
+Probe, (a) run 41490059983 (`probe: true`, 256x160, 500 y). Seeds 6-10 finished (73 min); seeds
+1-5 were still running when this was written. Compared with the step 0 256x160 probe (seeds 1-5,
+1000 y, so a rough comparison):
+  - Of 1.69M adoptions with a choice: worse in true food 15.6% (tie 51.7%), in true value 14.2%
+    (tie 41.3%), by own valuation 8.8% (tie 32.5%); worse_held 3.9% of 47.6M held band-years
+    (food 3.5%). Step 0: 11.2%, 12.6%, 0.0%, 9.9%.
+  - Iron over steel is mostly gone: iron knife or iron-tipped spear held over its steel form is
+    5 764 band-years (0.3% of worse-held, 0.01% of held band-years); step 0 had about 7.2M (about
+    a fifth of worse-held, 2.1% of held band-years). Adoptions of iron over steel: 11 462 (4.8% of
+    worse adoptions; step 0 iron knife over steel knife alone 173 397, 28%).
+  - New top pair: copper axe held over steel axe, 438 316 band-years (24% of worse-held; step 0
+    234k), plus 67 168 worse adoptions; then plant fibre net over flax net (673k held, as in step
+    0) and iron knife over flint blade (66k). Axes are the next thing to look at.
+  - Measure gap: "worse by own valuation" was 0.0% by construction and is now 8.8%. The probe's
+    `own_value` (probe_diffusion.rs) sums `slot_score` on the band's view, but the kit choice now
+    also scores food at the band's own skill (`choose_food` at `view.user`), so the probe no
+    longer measures quite what the band ranks by. Also `true_value` is at full skill, so some
+    "worse in true value" picks are right for a novice band. The probe needs updating (step 4 or
+    sooner); this is not a sim bug.

@@ -6,13 +6,17 @@
 //! are exactly today's (`apply_base` then `apply_quality`); only which item fills a slot changes.
 //!
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
-//! grown. The skill discount stays on that decision (it is fixed at step 2, not here). `edge_q`
-//! is not used. Non-food payoff slots keep the old `KIT_UPKEEP` ranking.
-use crate::band::{edge_q, has_bow, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
+//! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
+//! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
+//! food. Non-food payoff slots keep the old `KIT_UPKEEP` ranking, with the user factor in
+//! place of the recipe-skill discount.
+use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use crate::params::Params;
+use crate::rng::hash3;
 use crate::world::{PITCH_CAULK, PITCH_GLUE};
+use std::sync::OnceLock;
 
 /// Share of the people who work. `World::economy` sets `labour = LABOUR_SHARE * pop`.
 pub const LABOUR_SHARE: f32 = 0.55;
@@ -28,8 +32,196 @@ pub const NOMINAL_MIX: [f32; 5] = [0.3, 0.3, 0.25, 0.15, 0.0];
 /// toward the long-run nominal mix at the same total. This damps seasonal kit
 /// flip-flopping without new saved state.
 pub const HARVEST_PRIOR: f32 = 0.5;
+/// (skills step 2) Starting `Band::learn_curve`. Founders, daughter bands and the
+/// pre-v16 fill-in all use this prior (the skills proposal's 1.3). Later steps
+/// move it per band.
+pub const LC_PRIOR: f32 = 1.3;
+/// (skills step 2) User factor of a form the band has never handled.
+pub const USE_NOVICE: f32 = 0.5;
+/// (skills step 2) Founders start here on the forms of their starting kit (pass 3).
+pub const USE_FOUNDER: f32 = 0.7;
+/// (skills step 2) One season of use closes this fraction of the gap to 1 (pass 3).
+pub const USE_PRACTICE: f32 = 0.08;
+/// (skills step 2) An unused form fades by `USE_FADE_X * floss` a season (pass 3).
+pub const USE_FADE_X: f32 = 0.5;
+/// (skills step 2) Cosine of two motion profiles is scaled by this. `T`'s diagonal is 1.
+pub const USE_TRANSFER: f32 = 0.6;
+/// (skills step 2) A daughter inherits this share of the parent's `use_skill` (pass 3).
+pub const USE_INHERIT: f32 = 0.9;
+/// (skills step 2) Chance a close tie teaches one form in a year (pass 3).
+pub const USE_TEACH_P: f32 = 0.2;
+/// (skills step 2) Fraction of the gap to the teacher that one lesson closes (pass 3).
+pub const USE_TEACH_SHARE: f32 = 0.15;
+/// (skills step 2) Half-width of a novice's season-to-season yield factor at `u_eff` 0.
+pub const NOVICE_SD: f32 = 0.3;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
+/// All-ones effective skill: the nominal view, and a trial's potential.
+const USER_FULL: [f32; NFORM] = [1.0; NFORM];
+/// Hash salt for the novice yield draw. Not the kit-trial salt.
+const NOVICE_SALT: u64 = 0x4E6F_7669_6365_5A01;
+/// Motion axes, proposal order: cut, chop, thrust, throw, aim, fend, knot, dig, paddle, sail, pound.
+const MOTION_N: usize = 11;
+
+struct MotionRow {
+    form: u8,
+    w: [f32; MOTION_N],
+}
+
+/// One row per form that trains a motion. A form with no row has no profile.
+const MOTION_ROWS: &[MotionRow] = &[
+    MotionRow { form: Form::Edge as u8, w: [1.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Axe as u8, w: [0.3, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.3] },
+    MotionRow { form: Form::Spear as u8, w: [0.2, 0.0, 1.0, 0.5, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Point as u8, w: [0.0, 0.0, 0.3, 0.4, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Bow as u8, w: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Shield as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Net as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Trap as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Cord as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.6, 0.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Shaft as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0] },
+    MotionRow { form: Form::Boat as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0] },
+    MotionRow { form: Form::Outrigger as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.3, 0.0] },
+    MotionRow { form: Form::Plank as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0] },
+    MotionRow { form: Form::Ship as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.6, 0.6, 0.0] },
+    MotionRow { form: Form::Sail as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] },
+    MotionRow { form: Form::Hammer as u8, w: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0] },
+];
+
+/// `T(f, g)`. Diagonal is 1. Off-diagonal is `USE_TRANSFER * cos`, or 0 if either form has no profile.
+pub(crate) fn transfer_table() -> &'static [[f32; NFORM]; NFORM] {
+    static T: OnceLock<[[f32; NFORM]; NFORM]> = OnceLock::new();
+    T.get_or_init(|| {
+        let mut prof = [None; NFORM];
+        let mut seen = [false; NFORM];
+        for row in MOTION_ROWS {
+            let i = row.form as usize;
+            assert!(i < NFORM && !seen[i], "duplicate motion profile");
+            seen[i] = true;
+            prof[i] = Some(row.w);
+        }
+        let mut nrm = [0.0f32; NFORM];
+        for f in 0..NFORM {
+            if let Some(p) = prof[f] {
+                let mut s = 0.0;
+                for w in p {
+                    s += w * w;
+                }
+                nrm[f] = s.sqrt();
+            }
+        }
+        let mut t = [[0.0f32; NFORM]; NFORM];
+        for f in 0..NFORM {
+            t[f][f] = 1.0;
+            for g in (f + 1)..NFORM {
+                let v = match (prof[f], prof[g]) {
+                    (Some(pf), Some(pg)) if pf == pg => USE_TRANSFER,
+                    (Some(pf), Some(pg)) => {
+                        let mut dot = 0.0;
+                        for i in 0..MOTION_N {
+                            dot += pf[i] * pg[i];
+                        }
+                        let mut c = dot / (nrm[f] * nrm[g]);
+                        if c > 1.0 {
+                            c = 1.0;
+                        }
+                        if c < 0.0 {
+                            c = 0.0;
+                        }
+                        USE_TRANSFER * c
+                    }
+                    _ => 0.0,
+                };
+                t[f][g] = v;
+                t[g][f] = v;
+            }
+        }
+        t
+    })
+}
+
+/// Effective skill with each form. An empty slice (a band not yet filled) is all 1.0.
+/// Any other length must be `NFORM`.
+pub(crate) fn u_eff(use_skill: &[f32]) -> [f32; NFORM] {
+    if use_skill.is_empty() {
+        return USER_FULL;
+    }
+    assert!(use_skill.len() == NFORM, "use_skill must be empty or NFORM, got {}", use_skill.len());
+    // Sparse walk over the non-zero off-diagonal entries of `T` (same maxima as the full
+    // NFORM x NFORM loop: the diagonal adds `use_skill[g]` itself and zero entries add 0).
+    let mut out = [0.0f32; NFORM];
+    out.copy_from_slice(use_skill);
+    for &(f, g, t) in transfer_pairs() {
+        let v = t * use_skill[f as usize];
+        if v > out[g as usize] {
+            out[g as usize] = v;
+        }
+    }
+    out
+}
+
+/// Non-zero off-diagonal entries `(f, g, T(f, g))` of `transfer_table`, in (f, g) order.
+fn transfer_pairs() -> &'static [(u8, u8, f32)] {
+    static P: OnceLock<Vec<(u8, u8, f32)>> = OnceLock::new();
+    P.get_or_init(|| {
+        let t = transfer_table();
+        let mut v = Vec::new();
+        for f in 0..NFORM {
+            for g in 0..NFORM {
+                if f != g && t[f][g] != 0.0 {
+                    v.push((f as u8, g as u8, t[f][g]));
+                }
+            }
+        }
+        v
+    })
+}
+
+/// `USE_NOVICE + (1 - USE_NOVICE) * u`, written so `u == 1` is 1.0 bit-exactly.
+#[inline]
+pub(crate) fn user_factor(u: f32) -> f32 {
+    1.0 - (1.0 - USE_NOVICE) * (1.0 - u)
+}
+
+fn quiet(_: usize) -> f32 {
+    1.0
+}
+
+/// Deterministic draw in [-1, 1), the same mapping the map noise uses.
+pub(crate) fn novice_z(seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
+    let h = hash3(seed ^ NOVICE_SALT, band as i64, (tick as i64) * 32 + slot as i64);
+    (h >> 40) as f32 / (1u64 << 24) as f32 * 2.0 - 1.0
+}
+
+/// `1 + NOVICE_SD*(1-u)*z` for the tool in `slot`. Empty slot, or `u == 1`, is exactly 1.
+pub(crate) fn novice_factor(k: &Kit, user: &[f32; NFORM], seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
+    let it = match slot {
+        0 => k.hunt,
+        1 => k.cut,
+        2 => k.dig,
+        4 => k.axe,
+        10 => k.point,
+        12 => k.net,
+        13 => k.trap,
+        _ => NONE,
+    };
+    if it == NONE {
+        return 1.0;
+    }
+    let u = user[form(it) as usize];
+    let z = novice_z(seed, band, tick, slot);
+    1.0 + NOVICE_SD * (1.0 - u) * z
+}
+
+/// Five food multipliers (plants, game, fish, small, farm), quality included.
+/// `noise(slot)` is 1 on the kit's stored multipliers and the novice factor in the economy.
+pub(crate) fn food_mults<Q, N>(k: &Kit, user: &[f32; NFORM], qual: Q, noise: N) -> [f32; 5]
+where
+    Q: Fn(Item) -> f32,
+    N: Fn(usize) -> f32,
+{
+    yields(&yargs_of(k, usize::MAX, &|it| (0.0, qual(it), 0), user, &noise))
+}
 
 /// best[] index of each payoff slot, in `Kit::slot_item` order.
 #[cfg(test)]
@@ -40,10 +232,10 @@ pub(crate) const PAYOFF_SLOTS: [usize; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 1
 const CHOOSE_ORDER: [usize; 12] = [0, 1, 10, 4, 12, 13, 11, 14, 15, 16, 18, 22];
 
 /// What putting `it` in a slot does, beyond the kit with that slot empty.
-/// `food_sd` and `p_fail` stay 0 until a later step. `fight` is informational: the decision
-/// does not read it. `labour` is the economy's fraction of the labour pool (the economy
-/// multiplies by `LABOUR_SHARE * pop`). `mats` is the marginal stock draw, up to four
-/// materials, index order, unused entries `(0, 0)`.
+/// `food_sd` is the novice spread on a food-slot tool (`p_fail` stays 0 until a later step).
+/// `fight` is informational: the decision does not read it. `labour` is the economy's fraction
+/// of the labour pool (the economy multiplies by `LABOUR_SHARE * pop`). `mats` is the marginal
+/// stock draw, up to four materials, index order, unused entries `(0, 0)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Effects {
     pub food: f32,
@@ -67,10 +259,13 @@ pub struct BandView {
     /// Bit `i` set when material `i` is at hand. Hide and bone are not, unless a deposit
     /// says so: this season's hunt has not happened yet (`mat_at_hand` with `hunted = 0`).
     pub at_hand: u32,
+    /// Effective user skill per form (`u_eff`). Nominal callers are all 1.0.
+    pub user: [f32; NFORM],
 }
 
 impl BandView {
     /// Callers with no band (`make_kit` in tests). Food equals pop, so the price is finite.
+    /// User skill is all 1.0, so yields match the pre-user-factor formulas.
     pub fn nominal() -> Self {
         let pop = NOMINAL_POP;
         BandView {
@@ -80,6 +275,7 @@ impl BandView {
             upkeep_rate: Params::default().upkeep,
             wet: false,
             at_hand: 0,
+            user: USER_FULL,
         }
     }
 }
@@ -298,6 +494,8 @@ struct YArgs {
     trapq: f32,
     /// `has_bow`: the bow is in the kit and the point slot is filled.
     bow: bool,
+    /// User factor of the bow. Unused when `bow` is false. Exactly 1.0 keeps the old bonus.
+    bow_uf: f32,
     q_hunt: f32,
     q_cut: f32,
     q_net: f32,
@@ -306,30 +504,74 @@ struct YArgs {
     q_dig: f32,
 }
 
-/// Plants, game, fish, small, farm. Same operations, in the same order, as `apply_base`
-/// (multipliers, then the bow factors) followed by the food lines of `apply_quality`.
+/// Plants, game, fish, small, farm, before recipe quality. Same operations, in the same
+/// order, as the food lines of `apply_base` (which calls this).
 #[inline(always)]
-fn yields(a: &YArgs) -> [f32; 5] {
-    let mut plants = 1.0 + 0.35 * a.dig + 0.3 * a.vq + 0.1 * a.hammer + 0.1 * a.axe;
+fn yields_base(a: &YArgs) -> [f32; 5] {
+    let plants = 1.0 + 0.35 * a.dig + 0.3 * a.vq + 0.1 * a.hammer + 0.1 * a.axe;
     let mut game = (1.0 + 1.4 * a.hunt_q + 0.15 * a.cord) * (1.0 + 0.35 * a.cut + 0.05 * a.hammer);
-    let mut fish = 1.0 + 0.8 * a.hunt_q + 0.4 * a.vq + 0.3 * a.point + 0.2 * a.cord + 0.9 * a.netq;
+    let fish = 1.0 + 0.8 * a.hunt_q + 0.4 * a.vq + 0.3 * a.point + 0.2 * a.cord + 0.9 * a.netq;
     let mut small = 0.35 + 0.4 * a.hunt_q + 1.6 * a.trapq + 0.4 * a.netq;
     if a.bow {
-        game *= 1.2;
-        small *= 1.15;
+        // `bow_uf == 1` keeps the old literals. `1 + 0.2*1` is not the f32 closest to 1.2.
+        let (bg, bs) = if a.bow_uf == 1.0 { (1.2, 1.15) } else { (1.0 + 0.2 * a.bow_uf, 1.0 + 0.15 * a.bow_uf) };
+        game *= bg;
+        small *= bs;
     }
-    let mut farm = 0.5 + 0.3 * a.dig + 0.35 * a.cut + 0.2 * a.axe;
-    let y = |x: f32| 1.0 + QUALITY_YIELD * x;
-    game *= y(a.q_hunt);
-    fish *= y(a.q_net.max(a.q_hunt));
-    small *= y(a.q_trap.max(a.q_net));
-    plants *= y(0.5 * (a.q_vessel + a.q_dig));
-    farm *= y(0.5 * (a.q_dig + a.q_cut));
+    let farm = 0.5 + 0.3 * a.dig + 0.35 * a.cut + 0.2 * a.axe;
     [plants, game, fish, small, farm]
 }
 
-/// The kit with payoff `slot` treated as empty. Other slots stay as they are.
-fn yargs_empty<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, slot: usize, info: &F) -> YArgs {
+/// `yields_base` then the food lines of `apply_quality`, same operations.
+#[inline(always)]
+fn yields(a: &YArgs) -> [f32; 5] {
+    let mut m = yields_base(a);
+    let y = |x: f32| 1.0 + QUALITY_YIELD * x;
+    m[1] *= y(a.q_hunt);
+    m[2] *= y(a.q_net.max(a.q_hunt));
+    m[3] *= y(a.q_trap.max(a.q_net));
+    m[0] *= y(0.5 * (a.q_vessel + a.q_dig));
+    m[4] *= y(0.5 * (a.q_dig + a.q_cut));
+    m
+}
+
+/// User factor times the novice factor for `slot`. `noise` is 1 on the decision path.
+fn scale<N: Fn(usize) -> f32>(user: &[f32; NFORM], it: Item, slot: usize, noise: &N) -> f32 {
+    if it == NONE {
+        return 1.0;
+    }
+    user_factor(user[form(it) as usize]) * noise(slot)
+}
+
+/// The kit with payoff `slot` treated as empty (`usize::MAX` clears nothing). Hunt, cut,
+/// point, axe, net, trap and dig terms are multiplied by the user factor (and `noise`).
+fn yargs_of<F, N>(k: &Kit, slot: usize, info: &F, user: &[f32; NFORM], noise: &N) -> YArgs
+where
+    F: Fn(Item) -> (f32, f32, u8),
+    N: Fn(usize) -> f32,
+{
+    let q = [
+        qual(info, if slot == 0 { NONE } else { k.hunt }),
+        qual(info, if slot == 1 { NONE } else { k.cut }),
+        qual(info, if slot == 12 { NONE } else { k.net }),
+        qual(info, if slot == 13 { NONE } else { k.trap }),
+        qual(info, k.vessel),
+        qual(info, k.dig),
+    ];
+    yargs_rescaled(k, slot, user, noise, q)
+}
+
+/// The recipe qualities `yargs_of` read into `a`, in `yargs_rescaled` order.
+fn quals_of(a: &YArgs) -> [f32; 6] {
+    [a.q_hunt, a.q_cut, a.q_net, a.q_trap, a.q_vessel, a.q_dig]
+}
+
+/// `yargs_of` with the recipe qualities `q` already read (hunt, cut, net, trap, vessel, dig;
+/// they do not depend on the user), so a second user can reuse them.
+fn yargs_rescaled<N>(k: &Kit, slot: usize, user: &[f32; NFORM], noise: &N, q: [f32; 6]) -> YArgs
+where
+    N: Fn(usize) -> f32,
+{
     let hunt = if slot == 0 { NONE } else { k.hunt };
     let cut = if slot == 1 { NONE } else { k.cut };
     let point = if slot == 10 { NONE } else { k.point };
@@ -337,28 +579,29 @@ fn yargs_empty<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, slot: usize, info: &F) ->
     let net = if slot == 12 { NONE } else { k.net };
     let trap = if slot == 13 { NONE } else { k.trap };
     YArgs {
-        hunt_q: hunt_q_of(hunt),
-        cut: cut_term(cut),
+        hunt_q: hunt_q_of(hunt) * scale(user, hunt, 0, noise),
+        cut: cut_term(cut) * scale(user, cut, 1, noise),
         vq: if k.vessel == NONE { 0.0 } else { vessel_q(mat(k.vessel)) },
-        dig: if k.dig == NONE { 0.0 } else { 1.0 },
-        axe: axe_term(axe),
+        dig: if k.dig == NONE { 0.0 } else { scale(user, k.dig, 2, noise) },
+        axe: axe_term(axe) * scale(user, axe, 4, noise),
         cord: if k.cord == NONE { 0.0 } else { 1.0 },
         hammer: if k.hammer == NONE { 0.0 } else { 1.0 },
-        point: if point == NONE { 0.0 } else { 1.0 },
-        netq: mesh_term(net),
-        trapq: mesh_term(trap),
+        point: if point == NONE { 0.0 } else { scale(user, point, 10, noise) },
+        netq: mesh_term(net) * scale(user, net, 12, noise),
+        trapq: mesh_term(trap) * scale(user, trap, 13, noise),
         bow: k.bow != NONE && point != NONE,
-        q_hunt: qual(info, hunt),
-        q_cut: qual(info, cut),
-        q_net: qual(info, net),
-        q_trap: qual(info, trap),
-        q_vessel: qual(info, k.vessel),
-        q_dig: qual(info, k.dig),
+        bow_uf: if k.bow == NONE { 1.0 } else { user_factor(user[Form::Bow as usize]) },
+        q_hunt: q[0],
+        q_cut: q[1],
+        q_net: q[2],
+        q_trap: q[3],
+        q_vessel: q[4],
+        q_dig: q[5],
     }
 }
 
-/// One producible item, with the material terms the choice reuses across passes.
-/// `hunt_q` / `term` are exactly the expressions `apply_base` would recompute.
+/// One producible item, with the unscaled material terms the choice reuses across passes.
+/// `sk` is `u_eff` of the form, not recipe skill. `hunt_q` / `term` match `apply_base` before the user factor.
 #[derive(Clone, Copy)]
 struct Cand {
     it: Item,
@@ -389,29 +632,30 @@ fn cand_new(it: Item, sk: f32, ql: f32, d: u8) -> Cand {
 }
 
 #[inline(always)]
-fn yields_with(slot: usize, base: &YArgs, c: &Cand, bow_item: bool) -> [f32; 5] {
+fn yields_with<N: Fn(usize) -> f32>(slot: usize, base: &YArgs, c: &Cand, bow_item: bool, user: &[f32; NFORM], noise: &N) -> [f32; 5] {
     let mut a = *base;
+    let s = scale(user, c.it, slot, noise);
     match slot {
         0 => {
-            a.hunt_q = c.hunt_q;
+            a.hunt_q = c.hunt_q * s;
             a.q_hunt = c.ql;
         }
         1 => {
-            a.cut = c.term;
+            a.cut = c.term * s;
             a.q_cut = c.ql;
         }
         // every point fills the slot the same way: the multiplier is presence, not material
         10 => {
-            a.point = 1.0;
+            a.point = s;
             a.bow = bow_item;
         }
-        4 => a.axe = c.term,
+        4 => a.axe = c.term * s,
         12 => {
-            a.netq = c.term;
+            a.netq = c.term * s;
             a.q_net = c.ql;
         }
         13 => {
-            a.trapq = c.term;
+            a.trapq = c.term * s;
             a.q_trap = c.ql;
         }
         _ => {}
@@ -495,14 +739,13 @@ fn food_deps_changed(slot: usize, then: &Kit, now: &Kit, pitch_then: bool, pitch
     }
 }
 
-/// Food the upkeep labour would have grown, and the same with the skill discount on the
-/// food only. `labour` is the economy's fraction; price is food per unit of working labour.
-fn priced(food: f32, labour: f32, sk: f32, view: &BandView) -> (f32, f32) {
+/// Food minus the food the upkeep labour would have grown. Recipe skill does not scale it.
+/// `labour` is the economy's fraction; price is food per unit of working labour.
+fn price_of(food: f32, labour: f32, view: &BandView) -> f32 {
     let pop = view.pop.max(1.0);
     let units = labour * LABOUR_SHARE * pop;
     let price = view.food.max(FOOD_EPS) / (WORK_SHARE * LABOUR_SHARE * pop);
-    let cost = price * units;
-    (food * (0.5 + 0.5 * sk) - cost, food - cost)
+    food - price * units
 }
 
 fn marginal_mats(mask: u32, at_hand: u32) -> [(u8, f32); 4] {
@@ -559,41 +802,25 @@ fn fight_of(slot: usize, it: Item, kit: &Kit) -> f32 {
     }
 }
 
-/// Material term and recipe quality, nothing else (no user or maker factor yet).
-/// `info` supplies quality; skill and depth are not applied here.
-pub fn kit_yields<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, info: &F) -> Kit {
+/// Material term, user factor and recipe quality. `info` supplies quality; recipe skill
+/// and depth are not applied here. `user` all 1.0 reproduces the pre-factor multipliers.
+pub fn kit_yields<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, info: &F, user: &[f32; NFORM]) -> Kit {
     let mut y = *k;
-    apply_base(&mut y);
+    apply_base(&mut y, user);
     apply_quality(&mut y, &|it| info(it).1);
     y
 }
 
-/// Multipliers from the items in the kit, before recipe quality. The tail of the old
-/// `make_kit_with`, same operations in the same order.
-pub(crate) fn apply_base(k: &mut Kit) {
+/// Multipliers from the items in the kit, before recipe quality. Food lines go through
+/// `yields_base` (user factor on hunt, cut, point, axe, net, trap and dig). Boat, digest
+/// and protection stay unscaled; the axe inside protection is the material term, not `uf`.
+pub(crate) fn apply_base(k: &mut Kit, user: &[f32; NFORM]) {
     let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };
-    let hunt_q = if k.hunt == NONE {
-        0.0
-    } else {
-        let m = mat(k.hunt);
-        match form(k.hunt) {
-            Form::Spear => 0.35 + 0.65 * cut_q(m),
-            Form::Point => 0.35 * cut_q(m),
-            _ => 0.2 * cut_q(m),
-        }
-    };
-    let cut = q(k.cut, &cut_q);
-    let vq = q(k.vessel, &vessel_q);
-    let dig = if k.dig == NONE { 0.0 } else { 1.0 };
     let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * durability(m));
-    let cord = if k.cord == NONE { 0.0 } else { 1.0 };
     let hammer = if k.hammer == NONE { 0.0 } else { 1.0 };
-    let point = if k.point == NONE { 0.0 } else { 1.0 };
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
     let ceramic = if k.vessel != NONE && mat(k.vessel) == Mat::Ceramic { 1.0 } else { 0.0 };
-    let netq = q(k.net, &mesh_q);
-    let trapq = q(k.trap, &mesh_q);
     k.boat_q = q(k.boat, &boat_q);
     // an outrigger canoe or a plank boat is a boat too, and a plank hull is the soundest
     k.boat_q = k.boat_q.max(q(k.outrigger, &boat_q));
@@ -604,22 +831,16 @@ pub(crate) fn apply_base(k: &mut Kit) {
     if k.ship != NONE {
         k.boat_q = k.boat_q.max((boat_q(mat(k.ship)) + 0.25).min(1.0));
     }
-    k.plants_m = 1.0 + 0.35 * dig + 0.3 * vq + 0.1 * hammer + 0.1 * axe;
-    k.game_m = (1.0 + 1.4 * hunt_q + 0.15 * cord) * (1.0 + 0.35 * cut + 0.05 * hammer);
-    k.fish_m = 1.0 + 0.8 * hunt_q + 0.4 * vq + 0.3 * point + 0.2 * cord + 0.9 * netq;
-    // small game: hard to catch by hand, easy with snares and nets
-    k.small_m = 0.35 + 0.4 * hunt_q + 1.6 * trapq + 0.4 * netq;
-    // a bow reaches fast game and birds a spear cannot
-    if has_bow(k) {
-        k.game_m *= 1.2;
-        k.small_m *= 1.15;
-    }
+    let m = yields_base(&yargs_of(k, usize::MAX, &|_| (0.0, 0.0, 0), user, &quiet));
+    k.plants_m = m[0];
+    k.game_m = m[1];
+    k.fish_m = m[2];
+    k.small_m = m[3];
+    k.farm_m = m[4];
     let ck = |j: usize, g: f32| if k.cooked[j] != NONE { g } else { 1.0 };
     // grain: boiled into porridge (pots help) or ground on a quern and baked
     let grain = if k.cooked_grain != NONE { 1.3 + 0.15 * ceramic + 0.1 * hammer } else { 1.0 + 0.1 * hammer };
     k.digest = [ck(0, 1.25 + 0.15 * ceramic), ck(1, 1.2), ck(2, 1.15), ck(1, 1.2), grain];
-    // field work: digging stick to plant, a sharp edge as a sickle, an axe to clear ground
-    k.farm_m = 0.5 + 0.3 * dig + 0.35 * cut + 0.2 * axe;
     k.smoke = fire > 0.0 && (k.cooked[1] != NONE || k.cooked[2] != NONE);
     let _ = kiln;
     let gq = q(k.garment, &garment_q);
@@ -665,9 +886,9 @@ pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, s
         // the five food numbers. A bow or a hull still goes through the full kit below.
         let c = cand_new(it, 0.0, info(it).1, info(it).2);
         let w = weights(view, &digest_of(kit));
-        let base = yargs_empty(kit, slot, info);
+        let base = yargs_of(kit, slot, info, &view.user, &quiet);
         let m0 = yields(&base);
-        let m1 = yields_with(slot, &base, &c, kit.bow != NONE);
+        let m1 = yields_with(slot, &base, &c, kit.bow != NONE, &view.user, &quiet);
         let food = food_acc(&w, &m0, &m1);
         let mut with = *kit;
         set_slot(&mut with, slot, it);
@@ -676,19 +897,29 @@ pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, s
     } else {
         let mut empty = *kit;
         set_slot(&mut empty, slot, NONE);
-        let ye = kit_yields(&empty, info);
+        let ye = kit_yields(&empty, info, &view.user);
         let mut with = empty;
         set_slot(&mut with, slot, it);
-        let yw = kit_yields(&with, info);
+        let yw = kit_yields(&with, info, &view.user);
         let food = food_delta(view, &yw, &ye);
         let labour = tool_upkeep(view.upkeep_rate, it, info(it).2, sealed_factor(it, &with, pitch_in_use(&with, view.wet)));
         (food, labour)
     };
     let mut with = *kit;
     set_slot(&mut with, slot, it);
+    // Novice spread is `1 + NOVICE_SD*(1-u)*z` on the tool term, z uniform on [-1, 1]
+    // (sd 1/sqrt(3)). Counted here as that relative width times |food|, and added onto
+    // `food_sd`. Later steps add their own contributions the same way (a sum, not a
+    // root-sum-square). Only the food-slot tools carry it; `p_fail` stays 0.
+    let food_sd = if it != NONE && is_food_slot(slot) {
+        let u = view.user[form(it) as usize];
+        NOVICE_SD * (1.0 - u) / 3.0f32.sqrt() * food.abs()
+    } else {
+        0.0
+    };
     Effects {
         food,
-        food_sd: 0.0,
+        food_sd,
         labour,
         mats: marginal_mats(if it == NONE { 0 } else { mask }, view.at_hand),
         p_fail: 0.0,
@@ -696,25 +927,28 @@ pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, s
     }
 }
 
-/// The decision's discounted and undiscounted scores for `it` in `slot`, given the other
-/// slots in `kit`. Food slots use the same food and labour as `tool_effects` (food minus the
-/// food that labour would have grown). The other payoff slots keep `KIT_UPKEEP`, not the real
-/// upkeep: a hull is still ranked by soundness, and the probe's `true_value` still subtracts
-/// `KIT_UPKEEP`.
+/// The decision's current and full-skill scores for `it` in `slot`, given the other slots
+/// in `kit`. Food: `cur` uses `view.user`, `full` is the same yields at user 1 (trial
+/// potential). Both are food minus the food that labour would have grown; recipe skill does
+/// not scale them. The other payoff slots keep `KIT_UPKEEP`, with `uf` in place of the old
+/// recipe-skill discount. A hull is still ranked by soundness.
 pub fn slot_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F) -> (f32, f32) {
-    let (sk, ql, d) = info(it);
+    let (_sk, ql, d) = info(it);
+    let u = if it == NONE { 1.0 } else { view.user[form(it) as usize] };
     if is_food_slot(slot) {
-        let c = cand_new(it, sk, ql, d);
+        let c = cand_new(it, u, ql, d);
         let w = weights(view, &digest_of(kit));
-        let base = yargs_empty(kit, slot, info);
-        let m0 = yields(&base);
-        let m1 = yields_with(slot, &base, &c, kit.bow != NONE);
-        let food = food_acc(&w, &m0, &m1);
         let pitch = pitch_in_use(kit, view.wet);
         let labour = tool_upkeep(view.upkeep_rate, it, d, food_sealed(slot, it, kit, pitch));
-        priced(food, labour, sk, view)
+        let food_at = |user: &[f32; NFORM]| {
+            let base = yargs_of(kit, slot, info, user, &quiet);
+            let m0 = yields(&base);
+            let m1 = yields_with(slot, &base, &c, kit.bow != NONE, user, &quiet);
+            food_acc(&w, &m0, &m1)
+        };
+        (price_of(food_at(&view.user), labour, view), price_of(food_at(&USER_FULL), labour, view))
     } else {
-        nonfood_scores(slot, it, sk, ql, d)
+        nonfood_scores(slot, it, u, ql, d)
     }
 }
 
@@ -726,17 +960,19 @@ fn nonfood_qv(slot: usize, m: Mat) -> f32 {
     }
 }
 
-/// Old ranking for a boat, bow, shield, outrigger, plank or ship: material term times recipe
-/// quality, minus `KIT_UPKEEP`. Not the real upkeep (a hull is not ranked by caulking).
-fn nonfood_scores(slot: usize, it: Item, sk: f32, ql: f32, d: u8) -> (f32, f32) {
+/// Ranking for a boat, bow, shield, outrigger, plank or ship: material term times recipe
+/// quality, times the user factor, minus `KIT_UPKEEP`. `full` is the same at `u_eff` 1.
+/// Not the real upkeep (a hull is not ranked by caulking).
+fn nonfood_scores(slot: usize, it: Item, u_eff: f32, ql: f32, d: u8) -> (f32, f32) {
     let m = mat(it);
-    nonfood_from(nonfood_qv(slot, m), sk, ql, 1.15 - durability(m), 1.0 + 0.3 * d as f32)
+    nonfood_from(nonfood_qv(slot, m), u_eff, ql, 1.15 - durability(m), 1.0 + 0.3 * d as f32)
 }
 
-fn nonfood_from(term: f32, sk: f32, ql: f32, dur_term: f32, depth_f: f32) -> (f32, f32) {
+fn nonfood_from(term: f32, u_eff: f32, ql: f32, dur_term: f32, depth_f: f32) -> (f32, f32) {
     let up = KIT_UPKEEP * dur_term * depth_f;
     let gain = term * (1.0 + QUALITY_YIELD * ql);
-    (gain * (0.5 + 0.5 * sk) - up, gain - up)
+    let uf = user_factor(u_eff);
+    (gain * uf - up, gain - up)
 }
 
 /// Whether `it` can fill payoff slot `j` (`Kit::slot_item` order).
@@ -809,29 +1045,37 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
         write_choice(k, slot, NONE, best_cur, pot, record_trial);
         return;
     }
-    let base = yargs_empty(k, slot, info);
+    let base = yargs_of(k, slot, info, &view.user, &quiet);
     let m0 = yields(&base);
+    let base_f = yargs_rescaled(k, slot, &USER_FULL, &quiet, quals_of(&base));
+    let m0_f = yields(&base_f);
     let pitch = pitch_in_use(k, view.wet);
-    // one food for every point: presence changes the multipliers, the material does not
+    // one food for every point: presence changes the multipliers, the material does not,
+    // and every point is the same form so it has the same user factor
     let point_food = if slot == 10 {
         let mut a = base;
-        a.point = 1.0;
+        a.point = user_factor(view.user[Form::Point as usize]);
         a.bow = k.bow != NONE;
-        Some(food_acc(w, &m0, &yields(&a)))
+        let mut af = base_f;
+        af.point = 1.0;
+        af.bow = k.bow != NONE;
+        Some((food_acc(w, &m0, &yields(&a)), food_acc(w, &m0_f, &yields(&af))))
     } else {
         None
     };
     let bow_item = k.bow != NONE;
     for list in lists {
         for c in *list {
-            let food = if let Some(food) = point_food {
-                food
+            let (food, food_f) = if let Some(pair) = point_food {
+                pair
             } else {
-                food_acc(w, &m0, &yields_with(slot, &base, c, bow_item))
+                (
+                    food_acc(w, &m0, &yields_with(slot, &base, c, bow_item, &view.user, &quiet)),
+                    food_acc(w, &m0_f, &yields_with(slot, &base_f, c, bow_item, &USER_FULL, &quiet)),
+                )
             };
             let labour = tool_upkeep(view.upkeep_rate, c.it, c.d, food_sealed(slot, c.it, k, pitch));
-            let (cur, full) = priced(food, labour, c.sk, view);
-            consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut pot);
+            consider(price_of(food, labour, view), price_of(food_f, labour, view), c.it, &mut best_cur, &mut best_it, &mut pot);
         }
     }
     write_choice(k, slot, best_it, best_cur, pot, record_trial);
@@ -876,8 +1120,8 @@ pub fn make_kit_with_view<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: 
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         if let Some(bi) = bucket_of(f) {
-            let (sk, ql, d) = info(it);
-            buckets[bi].push(cand_new(it, sk, ql, d));
+            let (_sk, ql, d) = info(it);
+            buckets[bi].push(cand_new(it, view.user[f as usize], ql, d));
             continue;
         }
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -976,7 +1220,7 @@ pub fn make_kit_with_view<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: 
         }
         choose_food(&mut k, slot, &lists, info, view, &w, true);
     }
-    apply_base(&mut k);
+    apply_base(&mut k, &view.user);
     k
 }
 

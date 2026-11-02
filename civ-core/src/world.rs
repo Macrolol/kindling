@@ -6,7 +6,10 @@
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
-use crate::effects::{make_kit_for_view, pitch_in_use, sealed_factor, tool_upkeep, BandView};
+use crate::effects::{
+    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER,
+    USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
+};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -988,7 +991,7 @@ impl World {
             }
             let id = w.next_id;
             w.next_id += 1;
-            let b = Band {
+            let mut b = Band {
                 id,
                 lineage: id,
                 parent: 0,
@@ -1005,12 +1008,53 @@ impl World {
                 craft: culture.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 ..Default::default()
             };
+            // Decision R1: founders start at USE_FOUNDER on every form of the kit
+            // they are founded with, and practice floors a gen == 0 band at
+            // USE_FOUNDER on a form it uses. A fresh world does not stay at the
+            // novice factor.
+            w.seed_founder_skills(&mut b);
             w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
         }
         w.rng_state = rng.0;
         w.archive.begun = Some(0);
         w
+    }
+
+    /// (skills step 2) Decision R1. `start_skills` zeros `use_skill`; this then
+    /// sets `USE_FOUNDER` on every form of the kit the founder is actually
+    /// founded with, and refits until that kit and those skills agree. Practice
+    /// applies the same floor to a `gen == 0` band on a form it uses later.
+    fn seed_founder_skills(&self, b: &mut Band) {
+        b.start_skills();
+        let mut raws = ItemSet::default();
+        let mut tk = Toolkit::default();
+        let mut kit = Kit::default();
+        let mut stable = false;
+        for _ in 0..8 {
+            raws = self.raws_at(b);
+            tk = closure(&self.reg, &b.known, &raws, b.flame);
+            kit = self.fit_kit(b, &tk);
+            let mut want = [0.0f32; NFORM];
+            for &it in kit.used_items().iter() {
+                if valid_item(it) {
+                    want[form(it) as usize] = USE_FOUNDER;
+                }
+            }
+            if b.use_skill.as_slice() == want.as_slice() {
+                stable = true;
+                break;
+            }
+            b.use_skill = want.to_vec();
+        }
+        if !stable {
+            raws = self.raws_at(b);
+            tk = closure(&self.reg, &b.known, &raws, b.flame);
+            kit = self.fit_kit(b, &tk);
+        }
+        b.d.tk = tk;
+        b.d.kit = kit;
+        b.d.tk_key = Some((raws, b.flame, b.d.known_ver));
     }
 
     pub fn year(&self) -> f32 {
@@ -1130,8 +1174,9 @@ impl World {
             }
         }
         // (inventions step 12) recipes the rules no longer allow go, before toolkits and kits
-        // are derived again from what is left
+        // are derived again from what is left. The skill fill-in reads what is left.
         self.clean_recipes();
+        self.fill_use_skill();
         // derived toolkits so a freshly loaded (paused) world can be inspected
         // and the season's figures (food, stress, cold...), which are not saved: recompute them
         // from the loaded world so the inspector and stats are right before the first step
@@ -1153,6 +1198,34 @@ impl World {
             b.d.food = food;
         }
         self.bands = bands;
+    }
+
+    /// (skills step 2) A save from before format 16 has an empty `use_skill`. Fill each
+    /// form with the best `Known.skill` among this band's recipes whose output has that
+    /// form (0 when none). `learn_curve` becomes `LC_PRIOR`, `last_fight_switch` becomes
+    /// never, and fight calibration, raid tallies and beliefs stay at 0 / empty.
+    /// Every band leaves here with `use_skill.len() == NFORM`.
+    fn fill_use_skill(&mut self) {
+        let outputs: Vec<Item> = self.reg.recipes.iter().map(|r| r.output).collect();
+        for b in &mut self.bands {
+            if b.use_skill.is_empty() {
+                let mut skill = vec![0.0f32; NFORM];
+                for kn in &b.known {
+                    let Some(&out) = outputs.get(kn.recipe as usize) else { continue };
+                    if !valid_item(out) {
+                        continue;
+                    }
+                    let f = form(out) as usize;
+                    if kn.skill > skill[f] {
+                        skill[f] = kn.skill;
+                    }
+                }
+                b.start_skills();
+                b.use_skill = skill;
+            } else if b.use_skill.len() != NFORM {
+                b.use_skill.resize(NFORM, 0.0);
+            }
+        }
     }
 
     /// (inventions step 12) Save cleanup on load. Recipes learned under older, laxer rules
@@ -1583,6 +1656,7 @@ impl World {
             upkeep_rate: self.params.upkeep,
             wet: self.near_water(ci),
             at_hand: 0,
+            user: u_eff(&b.use_skill),
         }
     }
 
@@ -1812,16 +1886,29 @@ impl World {
             upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0);
             used.push(ch);
         }
+        // one bit per form, trial included. The `used` vec already exists; this adds none.
+        let mut used_forms = 0u32;
+        for &it in &used {
+            if valid_item(it) {
+                used_forms |= 1u32 << (form(it) as u32);
+            }
+        }
         let upkeep_l = upkeep * labour;
         // fields and herds: tending fields and minding animals take labour every season
         let fm = self.farm_terms(b, &cells, t);
         let upkeep_l = upkeep_l + fm.labour * labour;
+        // Novice spread: rebuild the five food multipliers from the tool terms with a
+        // per-slot draw. At u_eff = 1 the draw's factor is 1, so these match the kit.
+        let user = u_eff(&b.use_skill);
+        let food_m = food_mults(&kit, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
+            novice_factor(&kit, &user, self.cfg.seed, b.id, self.tick, slot)
+        });
         let ks = [
-            3.0 * kit.plants_m * p.forage_eff,
-            2.5 * kit.game_m * p.forage_eff,
-            2.5 * kit.fish_m * p.forage_eff,
-            2.5 * kit.small_m * p.forage_eff,
-            3.5 * kit.farm_m * fm.plough * p.forage_eff,
+            3.0 * food_m[0] * p.forage_eff,
+            2.5 * food_m[1] * p.forage_eff,
+            2.5 * food_m[2] * p.forage_eff,
+            2.5 * food_m[3] * p.forage_eff,
+            3.5 * food_m[4] * fm.plough * p.forage_eff,
         ];
         let mut dg = kit.digest;
         // (inventions step 10) brewing makes a little more of the grain
@@ -1902,6 +1989,7 @@ impl World {
             upkeep,
             needed,
             used,
+            used_forms,
             food_ratio: 0.0,
             store_after: 0.0,
             spare,
@@ -2084,6 +2172,9 @@ impl World {
                 forgot.push(k.recipe);
             }
         }
+        // user skill: the form of each item used this season (a trial counts),
+        // then the same floss fades every other form that is above 0
+        practise_use(&mut b.use_skill, ec.used_forms, floss, b.gen);
         b.d.kit_dirty = true;
         if !forgot.is_empty() {
             b.known.retain(|k| k.skill >= 0.04);
@@ -2953,6 +3044,10 @@ impl World {
             ..Default::default()
         };
         let mut nb = nb;
+        nb.start_skills();
+        if inherit_use(&mut nb.use_skill, &b.use_skill) {
+            fx.counters.use_inherited_bands += 1;
+        }
         nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
         nb.d.sailed_sea = sea;
         nb.d.sailed_tech = TECH_ADRIFT;
@@ -3609,6 +3704,45 @@ impl World {
                 bands[dst].records += SEA_TEACH_SHARE * gap;
             }
         }
+        // (skills step 2) user skill, for a form the listener already carries.
+        // Kin, or a tie the listener keeps at CLOSE_TIE. One draw per form, in
+        // form order, and only where the teacher is strictly ahead. The lesson
+        // closes USE_TEACH_SHARE of the gap and never passes the teacher.
+        {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            let src_id = bands[src].id;
+            let pstr = bands[dst].partner(src_id).map(|p| p.strength).unwrap_or(0.0);
+            if (kin || pstr >= CLOSE_TIE) && bands[src].use_skill.len() == NFORM && bands[dst].use_skill.len() == NFORM {
+                let mut forms = 0u32;
+                for &it in bands[dst].d.kit.used_items().iter() {
+                    if valid_item(it) {
+                        forms |= 1u32 << (form(it) as u32);
+                    }
+                }
+                let mut teach = [0u8; NFORM];
+                let mut nteach = 0usize;
+                for f in 0..NFORM {
+                    if forms & (1u32 << f) != 0 && bands[src].use_skill[f] > bands[dst].use_skill[f] {
+                        teach[nteach] = f as u8;
+                        nteach += 1;
+                    }
+                }
+                for &f in &teach[..nteach] {
+                    if !rng.chance(USE_TEACH_P) {
+                        continue;
+                    }
+                    let f = f as usize;
+                    let u_src = bands[src].use_skill[f];
+                    let u = bands[dst].use_skill[f];
+                    let mut next = u + USE_TEACH_SHARE * (u_src - u);
+                    if next > u_src {
+                        next = u_src;
+                    }
+                    bands[dst].use_skill[f] = next;
+                    fx.counters.use_taught += 1;
+                }
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
@@ -3800,6 +3934,8 @@ impl World {
                 ride: b.ride,
                 ..Default::default()
             };
+            d.start_skills();
+            let inherited = inherit_use(&mut d.use_skill, &b.use_skill);
             if let Some((sea, signs, aimed, expedition)) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
@@ -3849,6 +3985,9 @@ impl World {
             }
             if d.pop < 4 {
                 continue; // the daughter band was lost at sea (or too few made it to stand alone)
+            }
+            if inherited {
+                self.counters.use_inherited_bands += 1;
             }
             bm.store *= 0.6;
             bm.bond(id, 0.5, 0.0, self.tick);
@@ -4144,6 +4283,34 @@ impl World {
         }
         let tp = self.total_pop();
         let top_lineage_pct = if tp > 0 { 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tp as f32 } else { 0.0 };
+        // (skills step 2) mean use_skill of bands whose kit has an item of that form
+        let use_means = {
+            const FORMS: [Form; 5] = [Form::Edge, Form::Spear, Form::Bow, Form::Net, Form::Boat];
+            let mut sk_sum = [0.0f64; 5];
+            let mut sk_n = [0u32; 5];
+            for b in &self.bands {
+                let mut has = 0u32;
+                for &it in b.d.kit.used_items().iter() {
+                    if !valid_item(it) {
+                        continue;
+                    }
+                    let f = form(it);
+                    for (i, want) in FORMS.iter().enumerate() {
+                        if f == *want {
+                            has |= 1u32 << i;
+                        }
+                    }
+                }
+                for i in 0..5 {
+                    if has & (1u32 << i) != 0 {
+                        sk_sum[i] += b.use_skill.get(FORMS[i] as usize).copied().unwrap_or(0.0) as f64;
+                        sk_n[i] += 1;
+                    }
+                }
+            }
+            let m = |i: usize| if sk_n[i] == 0 { 0.0 } else { (sk_sum[i] / sk_n[i] as f64) as f32 };
+            [m(0), m(1), m(2), m(3), m(4)]
+        };
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
         self.feast_year_stats(&mut acc);
@@ -4186,6 +4353,11 @@ impl World {
             opened_fields,
             forest_fields,
             wet_fields,
+            use_skill_edge: use_means[0],
+            use_skill_spear: use_means[1],
+            use_skill_bow: use_means[2],
+            use_skill_net: use_means[3],
+            use_skill_boat: use_means[4],
             ..acc
         });
         self.archive_year();
@@ -4377,6 +4549,46 @@ pub fn practise(k: &mut Known, practice: f32, floss: f32, tick: u32, at_hand: bo
     }
 }
 
+/// One season of user skill. `used` is the economy's form bitmask (each form
+/// once, trial included). `u_eff` is taken from the skills as they stood, so
+/// this season's practice does not transfer onward until next season.
+/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on a
+/// form it uses, before the practice step. An unused form above 0 fades by
+/// `USE_FADE_X * floss` (the recipe forgetting rate) and clamps at 0.
+pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u32) {
+    if use_skill.len() != NFORM {
+        return;
+    }
+    let ue = u_eff(use_skill);
+    let founder = gen == 0;
+    for g in 0..NFORM {
+        let u0 = use_skill[g];
+        if used & (1u32 << g) != 0 {
+            let mut u = if u0 > ue[g] { u0 } else { ue[g] };
+            if founder && u < USE_FOUNDER {
+                u = USE_FOUNDER;
+            }
+            use_skill[g] = u + USE_PRACTICE * (1.0 - u);
+        } else if u0 > 0.0 {
+            let u = u0 - USE_FADE_X * floss;
+            use_skill[g] = if u > 0.0 { u } else { 0.0 };
+        }
+    }
+}
+
+/// A daughter's user skill is `USE_INHERIT` of the parent's, element-wise.
+/// True when any inherited entry is above 0 (`use_inherited_bands`).
+pub(crate) fn inherit_use(dst: &mut [f32], src: &[f32]) -> bool {
+    let mut any = false;
+    for (d, &s) in dst.iter_mut().zip(src.iter()) {
+        *d = s * USE_INHERIT;
+        if *d > 0.0 {
+            any = true;
+        }
+    }
+    any
+}
+
 /// (diffusion D4) Extra weight a recipe gets, when one is shown to another band, per share of
 /// its inputs the learner already has at hand.
 pub const TEACH_USABLE: f32 = 3.0;
@@ -4407,6 +4619,9 @@ pub struct Econ {
     pub upkeep: f32,
     pub needed: u32,
     pub used: Vec<Item>,
+    /// Forms of `used`, one bit per form (`1 << form as u32`). The D3 trial is
+    /// included, because it is pushed onto `used`. No extra allocation.
+    pub used_forms: u32,
     pub food_ratio: f32,
     pub store_after: f32,
     pub spare: f32,

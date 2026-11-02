@@ -408,13 +408,15 @@ Additive, no schema change:
 ## Skills step 0: measure first (no format bump)
 
 Declared ahead of the skills work (`docs/PROPOSAL-skills.md`, step 0; `docs/PROGRESS-skills.md`).
-Nothing fills them yet: every one reads 0 until the step named beside it (the test
-`skills_step0_fields_stay_zero` holds them at 0 until then). Additive, `serde(default)`; the sim
-is unchanged (same `state_hash`), and older saves read them as 0.
+Step 2 now fills its counters and YearStats (below). Everything else still reads 0 until
+the step named beside it (the test `skills_unfilled_fields_stay_zero` holds those at 0).
+Additive, `serde(default)`; older saves read a missing field as 0.
 - Counters (`sum`; `metrics.csv` `c_<name>`, `summary.json` `counters`, frames `counters`),
   placed after `forgotten_everywhere`:
-  - (step 2) `use_taught` (user skill passed on by teaching), `use_inherited_bands` (bands
-    founded with inherited user skill);
+  - (step 2) `use_taught` (one per form a kin band or a close tie successfully teaches
+    in a meeting: the listener already has that form in its kit, and the lesson never
+    passes the teacher), `use_inherited_bands` (daughter bands that stand with any
+    inherited user skill above 0, drift landings and splits);
   - (step 3) `make_failures` (makes that failed outright), `make_scrap` (material scrapped by
     unskilled makers, stock units x 1000);
   - (step 4) `beliefs_formed`, `tools_written_off`, `tools_retried`, `beliefs_told`,
@@ -428,7 +430,8 @@ is unchanged (same `state_hash`), and older saves read them as 0.
   - (step 8) `raids`, `raid_food` (person-seasons x 1000), `raid_deaths`.
 - `YearStats` / `metrics.csv` columns, after `gold_prestige_x`:
   - (step 2) `use_skill_edge`, `use_skill_spear`, `use_skill_bow`, `use_skill_net`,
-    `use_skill_boat`: mean user skill of the bands using each form;
+    `use_skill_boat`: mean `use_skill` of that form over bands whose kit has an item
+    of it (0 if none);
   - (step 3) `maker_hot_forge`, `maker_steel`, `maker_cast`, `maker_smelt`: mean maker skill of
     the bands practising each technique;
   - (step 5) `trial_p_mean` (mean trial chance), `p_short_mean`, `p_short_p90` (chance of going
