@@ -198,3 +198,23 @@ Probe, (a) run 41490059983 (`probe: true`, 256x160, 500 y). Seeds 6-10 finished 
     longer measures quite what the band ranks by. Also `true_value` is at full skill, so some
     "worse in true value" picks are right for a novice band. The probe needs updating (step 4 or
     sooner); this is not a sim bug.
+
+## Copper axe over steel axe (step 2 follow-up)
+
+Diagnostic only (`#[ignore] diag_copper_over_steel_axe` in `civ-core/src/tests_diag.rs`). No sim
+change, and `FIXTURE_V10_HASH` is untouched. On the main seed-6 256x160 year-350 save (3354
+bands, pop 67836), 747 fitted kits hold a copper axe while a steel axe is makeable. Every one
+ranks the copper axe higher on `slot_score` cur: mean copper minus steel +0.043 (the 65 farming
+bands +0.024; the 331 with few plants and no fields +0.053). A forced steel axe moves no other
+slot, the held axe is never a stale pick, and `u_eff(Axe)` is 0.996, so both axes share one user
+factor. This is not a missing step-2 user term.
+
+Steel does give more food in the band's own terms, but not enough to pay its chain. Own-terms
+food gain is +0.046 (+0.121 on farms, +0.023 where little is farmed or gathered), against about
+twice the labour (0.0055 vs 0.0109; depth 3.2 vs 8.1). The priced labour gap is about 0.089 in
+the same food units. The probe still prefers steel by +0.031 in every case, which matches the
+step-2 mean true-value gap of +0.032. Unweighted food is +0.044, and +0.029 of that is the farm
+multiplier, counted in full while these bands' farm weight is 0.012. `KIT_UPKEEP` then charges
+only +0.017 for the deeper chain, and fight adds +0.004, which the decision does not read.
+Recipe skill is lower on the steel axe (0.46 vs 0.97) and does not enter the axe term. The held
+pair is the probe's yardstick, not the band's ranking.
