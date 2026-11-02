@@ -1,14 +1,16 @@
 //! (skills step 1) The economy pays what `tool_effects` says, and a food slot is the item
 //! that maximises food minus the food its upkeep labour would have grown.
-use crate::band::{edge_q, Band, Kit};
+use crate::band::{edge_q, Band, Kit, Partner};
 use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
     food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
     tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_FADE_X,
-    USE_FOUNDER, USE_PRACTICE, USE_TRANSFER, WORK_SHARE,
+    USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
 use crate::materials::*;
-use crate::world::{practise_use, PITCH_GLUE};
+use crate::rng::Rng;
+use crate::world::fx::{Fx, Pair};
+use crate::world::{inherit_use, practise_use, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -1155,4 +1157,152 @@ fn economy_used_forms_match_used_items() {
         let on = ec.used_forms & (1u32 << f) != 0;
         assert_eq!(on, n > 0, "form {f} counted {n}");
     }
+}
+
+/// A daughter keeps 0.9 of the parent. That is above a novice, and above the one
+/// lesson a tied partner can pick up from the same teacher.
+#[test]
+fn daughters_inherit_above_a_novice_partner() {
+    let mut parent = vec![0.0; NFORM];
+    parent[Form::Edge as usize] = 0.8;
+    parent[Form::Spear as usize] = 0.5;
+    let mut daughter = vec![0.0; NFORM];
+    assert!(inherit_use(&mut daughter, &parent));
+    assert_eq!(daughter[Form::Edge as usize].to_bits(), (0.8 * USE_INHERIT).to_bits());
+    assert_eq!(daughter[Form::Spear as usize].to_bits(), (0.5 * USE_INHERIT).to_bits());
+    assert_eq!(daughter[Form::Bow as usize], 0.0);
+    assert!(daughter[Form::Edge as usize] > USE_NOVICE);
+    let one_lesson = USE_TEACH_SHARE * 0.8;
+    assert!(daughter[Form::Edge as usize] > one_lesson);
+    let mut blank = vec![0.0; NFORM];
+    assert!(!inherit_use(&mut blank, &[0.0; NFORM]));
+
+    let mut w = world();
+    let parent_id = w.bands[0].id;
+    w.bands.truncate(1);
+    w.bands[0].pop = 90;
+    w.bands[0].use_skill = vec![0.0; NFORM];
+    w.bands[0].use_skill[Form::Edge as usize] = 0.85;
+    let before = w.counters.use_inherited_bands;
+    let mut found = false;
+    for _ in 0..12 {
+        w.step();
+        if let Some(d) = w.bands.iter().find(|b| b.parent == parent_id) {
+            assert!(d.use_skill[Form::Edge as usize] > USE_NOVICE, "daughter edge {}", d.use_skill[Form::Edge as usize]);
+            assert!(d.use_skill[Form::Edge as usize] < 1.0);
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "a crowded band should split");
+    assert!(w.counters.use_inherited_bands > before);
+}
+
+/// Teaching moves the listener toward the teacher and never past them. A stranger
+/// with no close tie learns nothing. A form the listener does not carry is skipped.
+#[test]
+fn teaching_stays_with_kin_and_close_ties() {
+    let w = world();
+    let mut src = w.bands[0].clone();
+    let mut dst = w.bands[1].clone();
+    src.start_skills();
+    dst.start_skills();
+    src.use_skill[Form::Edge as usize] = 0.9;
+    src.use_skill[Form::Spear as usize] = 0.8;
+    src.use_skill[Form::Bow as usize] = 0.7;
+    dst.use_skill[Form::Edge as usize] = 0.2;
+    dst.use_skill[Form::Spear as usize] = 0.2;
+    dst.d.kit.cut = item(Form::Edge, Mat::Flint);
+    dst.d.kit.hunt = item(Form::Spear, Mat::Wood);
+    // bow is not in the kit, so it is not taught
+    dst.lineage = src.lineage;
+    dst.parent = src.id;
+    dst.anc = [0, 0, 0];
+    dst.born = w.tick;
+    src.born = w.tick;
+    assert!(src.kinship(&dst, w.tick) >= 0.2);
+
+    let mut rng = Rng::new(11);
+    let mut fx = Fx::default();
+    for _ in 0..40 {
+        let mut pair = Pair(&mut src, &mut dst);
+        w.exchange(&mut pair, 0, 1, &mut rng, &mut fx);
+    }
+    assert!(dst.use_skill[Form::Edge as usize] > 0.2);
+    assert!(dst.use_skill[Form::Spear as usize] > 0.2);
+    assert!(dst.use_skill[Form::Edge as usize] <= src.use_skill[Form::Edge as usize]);
+    assert!(dst.use_skill[Form::Spear as usize] <= src.use_skill[Form::Spear as usize]);
+    assert_eq!(dst.use_skill[Form::Bow as usize], 0.0, "a form not in the kit is not taught");
+    assert!(fx.counters.use_taught > 0);
+    assert_eq!(src.use_skill[Form::Edge as usize], 0.9, "the teacher is unchanged");
+
+    // already at the teacher's level: a lesson cannot go past
+    dst.use_skill[Form::Edge as usize] = src.use_skill[Form::Edge as usize];
+    let held = dst.use_skill[Form::Edge as usize];
+    for _ in 0..15 {
+        let mut pair = Pair(&mut src, &mut dst);
+        w.exchange(&mut pair, 0, 1, &mut rng, &mut fx);
+    }
+    assert!(dst.use_skill[Form::Edge as usize] <= held);
+
+    // stranger: different lineage, partner strength under CLOSE_TIE
+    let mut stranger = dst.clone();
+    stranger.lineage = src.lineage.wrapping_add(9);
+    stranger.parent = 0;
+    stranger.partners.clear();
+    stranger.partners.push(Partner { id: src.id, strength: CLOSE_TIE * 0.5, ..Default::default() });
+    stranger.use_skill[Form::Edge as usize] = 0.2;
+    stranger.use_skill[Form::Spear as usize] = 0.2;
+    let mut fx2 = Fx::default();
+    for _ in 0..30 {
+        let mut pair = Pair(&mut src, &mut stranger);
+        w.exchange(&mut pair, 0, 1, &mut rng, &mut fx2);
+    }
+    assert_eq!(stranger.use_skill[Form::Edge as usize], 0.2);
+    assert_eq!(stranger.use_skill[Form::Spear as usize], 0.2);
+    assert_eq!(fx2.counters.use_taught, 0);
+
+    // the same stranger, once the tie is close, can be taught
+    stranger.partners[0].strength = CLOSE_TIE;
+    let mut fx3 = Fx::default();
+    let mut rose = false;
+    for _ in 0..50 {
+        let mut pair = Pair(&mut src, &mut stranger);
+        w.exchange(&mut pair, 0, 1, &mut rng, &mut fx3);
+        if stranger.use_skill[Form::Edge as usize] > 0.2 || stranger.use_skill[Form::Spear as usize] > 0.2 {
+            rose = true;
+            break;
+        }
+    }
+    assert!(rose, "a close tie is taught");
+    assert!(stranger.use_skill[Form::Edge as usize] <= src.use_skill[Form::Edge as usize]);
+    assert!(stranger.use_skill[Form::Spear as usize] <= src.use_skill[Form::Spear as usize]);
+    assert!(fx3.counters.use_taught > 0);
+}
+
+/// Year-end means are the mean use_skill of bands whose kit carries that form.
+#[test]
+fn yearstats_use_skill_matches_kit_means() {
+    let mut w = world();
+    for _ in 0..16 {
+        w.step();
+    }
+    let h = w.history.last().unwrap();
+    let mean = |f: Form| {
+        let mut s = 0.0f64;
+        let mut n = 0u32;
+        for b in &w.bands {
+            let has = b.d.kit.used_items().iter().any(|&it| valid_item(it) && form(it) == f);
+            if has {
+                s += b.use_skill.get(f as usize).copied().unwrap_or(0.0) as f64;
+                n += 1;
+            }
+        }
+        if n == 0 { 0.0 } else { (s / n as f64) as f32 }
+    };
+    assert_eq!(h.use_skill_edge.to_bits(), mean(Form::Edge).to_bits());
+    assert_eq!(h.use_skill_spear.to_bits(), mean(Form::Spear).to_bits());
+    assert_eq!(h.use_skill_bow.to_bits(), mean(Form::Bow).to_bits());
+    assert_eq!(h.use_skill_net.to_bits(), mean(Form::Net).to_bits());
+    assert_eq!(h.use_skill_boat.to_bits(), mean(Form::Boat).to_bits());
 }

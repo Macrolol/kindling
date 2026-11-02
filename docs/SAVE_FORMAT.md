@@ -259,10 +259,12 @@ Current: `FORMAT_VERSION = 16` (skills step 2: user skill by form). Kindling v0.
     `last_fight_switch` becomes `u32::MAX`. The rest stay 0 and `beliefs` stay empty.
     `fight_calib` 0 = unset until step 6; raid zeros until step 8; beliefs empty until
     step 4.
-  - Founders and both kinds of daughter band are born with the same defaults (`use_skill`
-    zeros of length `NFORM`, not copied from the parent). `Band::fit_vectors` pads a short
-    non-empty vector; together with the fill-in, every loaded band has
-    `use_skill.len() == NFORM`.
+  - `start_skills` still zeros `use_skill` to length `NFORM`. Founders then set
+    `USE_FOUNDER` on each form of the kit they are founded with (decision R1). Both
+    daughter sites overwrite that with `USE_INHERIT` of the parent. `Band::fit_vectors`
+    pads a short non-empty vector; together with the fill-in, every loaded band has
+    `use_skill.len() == NFORM`. A pre-v16 save is filled from recipe skill, not from
+    `USE_FOUNDER`.
   - Binary v15 saves are decoded directly (the layout-2 reader); JSON v15 saves go
     through `v15_to_v16`.
   - Fixture `v15_seed9_y150_64x40.civsave` is loaded by

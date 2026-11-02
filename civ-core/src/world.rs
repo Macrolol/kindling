@@ -7,7 +7,8 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::effects::{
-    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_PRACTICE,
+    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER,
+    USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
 use crate::map::*;
@@ -3044,6 +3045,9 @@ impl World {
         };
         let mut nb = nb;
         nb.start_skills();
+        if inherit_use(&mut nb.use_skill, &b.use_skill) {
+            fx.counters.use_inherited_bands += 1;
+        }
         nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
         nb.d.sailed_sea = sea;
         nb.d.sailed_tech = TECH_ADRIFT;
@@ -3700,6 +3704,45 @@ impl World {
                 bands[dst].records += SEA_TEACH_SHARE * gap;
             }
         }
+        // (skills step 2) user skill, for a form the listener already carries.
+        // Kin, or a tie the listener keeps at CLOSE_TIE. One draw per form, in
+        // form order, and only where the teacher is strictly ahead. The lesson
+        // closes USE_TEACH_SHARE of the gap and never passes the teacher.
+        {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            let src_id = bands[src].id;
+            let pstr = bands[dst].partner(src_id).map(|p| p.strength).unwrap_or(0.0);
+            if (kin || pstr >= CLOSE_TIE) && bands[src].use_skill.len() == NFORM && bands[dst].use_skill.len() == NFORM {
+                let mut forms = 0u32;
+                for &it in bands[dst].d.kit.used_items().iter() {
+                    if valid_item(it) {
+                        forms |= 1u32 << (form(it) as u32);
+                    }
+                }
+                let mut teach = [0u8; NFORM];
+                let mut nteach = 0usize;
+                for f in 0..NFORM {
+                    if forms & (1u32 << f) != 0 && bands[src].use_skill[f] > bands[dst].use_skill[f] {
+                        teach[nteach] = f as u8;
+                        nteach += 1;
+                    }
+                }
+                for &f in &teach[..nteach] {
+                    if !rng.chance(USE_TEACH_P) {
+                        continue;
+                    }
+                    let f = f as usize;
+                    let u_src = bands[src].use_skill[f];
+                    let u = bands[dst].use_skill[f];
+                    let mut next = u + USE_TEACH_SHARE * (u_src - u);
+                    if next > u_src {
+                        next = u_src;
+                    }
+                    bands[dst].use_skill[f] = next;
+                    fx.counters.use_taught += 1;
+                }
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
@@ -3892,6 +3935,7 @@ impl World {
                 ..Default::default()
             };
             d.start_skills();
+            let inherited = inherit_use(&mut d.use_skill, &b.use_skill);
             if let Some((sea, signs, aimed, expedition)) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
@@ -3941,6 +3985,9 @@ impl World {
             }
             if d.pop < 4 {
                 continue; // the daughter band was lost at sea (or too few made it to stand alone)
+            }
+            if inherited {
+                self.counters.use_inherited_bands += 1;
             }
             bm.store *= 0.6;
             bm.bond(id, 0.5, 0.0, self.tick);
@@ -4236,6 +4283,34 @@ impl World {
         }
         let tp = self.total_pop();
         let top_lineage_pct = if tp > 0 { 100.0 * lin.values().copied().max().unwrap_or(0) as f32 / tp as f32 } else { 0.0 };
+        // (skills step 2) mean use_skill of bands whose kit has an item of that form
+        let use_means = {
+            const FORMS: [Form; 5] = [Form::Edge, Form::Spear, Form::Bow, Form::Net, Form::Boat];
+            let mut sk_sum = [0.0f64; 5];
+            let mut sk_n = [0u32; 5];
+            for b in &self.bands {
+                let mut has = 0u32;
+                for &it in b.d.kit.used_items().iter() {
+                    if !valid_item(it) {
+                        continue;
+                    }
+                    let f = form(it);
+                    for (i, want) in FORMS.iter().enumerate() {
+                        if f == *want {
+                            has |= 1u32 << i;
+                        }
+                    }
+                }
+                for i in 0..5 {
+                    if has & (1u32 << i) != 0 {
+                        sk_sum[i] += b.use_skill.get(FORMS[i] as usize).copied().unwrap_or(0.0) as f64;
+                        sk_n[i] += 1;
+                    }
+                }
+            }
+            let m = |i: usize| if sk_n[i] == 0 { 0.0 } else { (sk_sum[i] / sk_n[i] as f64) as f32 };
+            [m(0), m(1), m(2), m(3), m(4)]
+        };
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
         self.feast_year_stats(&mut acc);
@@ -4278,6 +4353,11 @@ impl World {
             opened_fields,
             forest_fields,
             wet_fields,
+            use_skill_edge: use_means[0],
+            use_skill_spear: use_means[1],
+            use_skill_bow: use_means[2],
+            use_skill_net: use_means[3],
+            use_skill_boat: use_means[4],
             ..acc
         });
         self.archive_year();
@@ -4494,6 +4574,19 @@ pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u3
             use_skill[g] = if u > 0.0 { u } else { 0.0 };
         }
     }
+}
+
+/// A daughter's user skill is `USE_INHERIT` of the parent's, element-wise.
+/// True when any inherited entry is above 0 (`use_inherited_bands`).
+pub(crate) fn inherit_use(dst: &mut [f32], src: &[f32]) -> bool {
+    let mut any = false;
+    for (d, &s) in dst.iter_mut().zip(src.iter()) {
+        *d = s * USE_INHERIT;
+        if *d > 0.0 {
+            any = true;
+        }
+    }
+    any
 }
 
 /// (diffusion D4) Extra weight a recipe gets, when one is shown to another band, per share of
