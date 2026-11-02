@@ -1112,6 +1112,47 @@ fn founders_start_at_use_founder() {
     assert_eq!(sk[Form::Bow as usize], 0.0);
 }
 
+/// A founder that has just gained an edge still has stored skill 0. The decision
+/// and the economy both read that form at USE_FOUNDER in the same season. A
+/// gen-1 band with the same stored skill does not.
+#[test]
+fn founder_reads_use_founder_the_season_an_edge_is_gained() {
+    let mut w = world();
+    let flint = item(Form::Edge, Mat::Flint);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    let kit = crate::band::make_kit(&avail);
+    assert!(kit.hunt == flint || kit.cut == flint, "the new edge has to fill a food slot");
+    let mw = w.map.w;
+    let ci = w.bands[0].cell(mw);
+    w.game[ci] = 20.0;
+    w.plants[ci] = 20.0;
+    w.tick = 3;
+    let arm = |b: &mut Band, gen: u32, skill: f32| {
+        b.gen = gen;
+        b.use_skill = vec![skill; NFORM];
+        b.d.kit = kit;
+    };
+    arm(&mut w.bands[0], 0, 0.0);
+    let view = w.band_view(&w.bands[0]);
+    assert_eq!(view.user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    assert!(view.user.iter().all(|u| u.to_bits() == USE_FOUNDER.to_bits()));
+    assert_eq!(w.bands[0].use_skill[Form::Edge as usize], 0.0, "the floor is not written back before practice");
+    let h_founder = w.economy(&w.bands[0], 0).h;
+    // Stored skill already at the floor, and not a founder: the same user array,
+    // so the economy's harvest matches. A gen-1 band still at 0 does not.
+    arm(&mut w.bands[0], 1, USE_FOUNDER);
+    assert_eq!(w.band_view(&w.bands[0]).user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    let h_at_floor = w.economy(&w.bands[0], 0).h;
+    assert_eq!(h_founder.map(f32::to_bits), h_at_floor.map(f32::to_bits), "economy did not read the founder floor");
+    arm(&mut w.bands[0], 1, 0.0);
+    let view1 = w.band_view(&w.bands[0]);
+    assert_eq!(view1.user[Form::Edge as usize], 0.0);
+    assert_ne!(view1.user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    let h_novice = w.economy(&w.bands[0], 0).h;
+    assert_ne!(h_novice.map(f32::to_bits), h_founder.map(f32::to_bits), "a gen-1 novice must not get the founder floor");
+}
+
 /// A used form climbs toward 1. An unused one fades by USE_FADE_X * floss and stops at 0.
 #[test]
 fn practice_raises_and_fade_lowers() {

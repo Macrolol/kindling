@@ -1009,9 +1009,9 @@ impl World {
                 ..Default::default()
             };
             // Decision R1: founders start at USE_FOUNDER on every form of the kit
-            // they are founded with, and practice floors a gen == 0 band at
-            // USE_FOUNDER on a form it uses. A fresh world does not stay at the
-            // novice factor.
+            // they are founded with. `band_user` floors every form while gen == 0,
+            // so a tool taken up later is not used as a novice that first season.
+            // Practice then stores the same floor.
             w.seed_founder_skills(&mut b);
             w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
@@ -1023,8 +1023,9 @@ impl World {
 
     /// (skills step 2) Decision R1. `start_skills` zeros `use_skill`; this then
     /// sets `USE_FOUNDER` on every form of the kit the founder is actually
-    /// founded with, and refits until that kit and those skills agree. Practice
-    /// applies the same floor to a `gen == 0` band on a form it uses later.
+    /// founded with, and refits until that kit and those skills agree. The
+    /// founding kit is raw materials, so the stamp often changes nothing.
+    /// `band_user` floors every form while `gen == 0`, and practice stores it.
     fn seed_founder_skills(&self, b: &mut Band) {
         b.start_skills();
         let mut raws = ItemSet::default();
@@ -1656,7 +1657,7 @@ impl World {
             upkeep_rate: self.params.upkeep,
             wet: self.near_water(ci),
             at_hand: 0,
-            user: u_eff(&b.use_skill),
+            user: band_user(b),
         }
     }
 
@@ -1899,7 +1900,8 @@ impl World {
         let upkeep_l = upkeep_l + fm.labour * labour;
         // Novice spread: rebuild the five food multipliers from the tool terms with a
         // per-slot draw. At u_eff = 1 the draw's factor is 1, so these match the kit.
-        let user = u_eff(&b.use_skill);
+        // A founder is floored at USE_FOUNDER on every form (`band_user`).
+        let user = band_user(b);
         let food_m = food_mults(&kit, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
             novice_factor(&kit, &user, self.cfg.seed, b.id, self.tick, slot)
         });
@@ -4552,26 +4554,49 @@ pub fn practise(k: &mut Known, practice: f32, floss: f32, tick: u32, at_hand: bo
 /// One season of user skill. `used` is the economy's form bitmask (each form
 /// once, trial included). `u_eff` is taken from the skills as they stood, so
 /// this season's practice does not transfer onward until next season.
-/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on a
-/// form it uses, before the practice step. An unused form above 0 fades by
-/// `USE_FADE_X * floss` (the recipe forgetting rate) and clamps at 0.
+/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on
+/// every form of that effective skill, before the practice step, the same floor
+/// `band_user` applies when the season's decision and economy are read. An
+/// unused form above 0 fades by `USE_FADE_X * floss` (the recipe forgetting
+/// rate) and clamps at 0. The raw `use_skill` is what teaching and inheritance
+/// copy.
 pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u32) {
     if use_skill.len() != NFORM {
         return;
     }
-    let ue = u_eff(use_skill);
-    let founder = gen == 0;
+    let mut ue = u_eff(use_skill);
+    floor_founder(&mut ue, gen);
     for g in 0..NFORM {
         let u0 = use_skill[g];
         if used & (1u32 << g) != 0 {
-            let mut u = if u0 > ue[g] { u0 } else { ue[g] };
-            if founder && u < USE_FOUNDER {
-                u = USE_FOUNDER;
-            }
+            let u = if u0 > ue[g] { u0 } else { ue[g] };
             use_skill[g] = u + USE_PRACTICE * (1.0 - u);
         } else if u0 > 0.0 {
             let u = u0 - USE_FADE_X * floss;
             use_skill[g] = if u > 0.0 { u } else { 0.0 };
+        }
+    }
+}
+
+/// (skills step 3 fix 3) Effective user skill the decision and the economy read
+/// for this band. `u_eff` of the stored skills, then every entry floored at
+/// `USE_FOUNDER` while `gen == 0`, including a form whose stored skill is still
+/// 0. Not written back. YearStats, teaching and inheritance keep the raw vector.
+pub(crate) fn band_user(b: &Band) -> [f32; NFORM] {
+    let mut u = u_eff(&b.use_skill);
+    floor_founder(&mut u, b.gen);
+    u
+}
+
+/// Floor every entry at `USE_FOUNDER` for a founding band. Other generations
+/// are left as `u_eff` computed them.
+fn floor_founder(u: &mut [f32; NFORM], gen: u32) {
+    if gen != 0 {
+        return;
+    }
+    for x in u {
+        if *x < USE_FOUNDER {
+            *x = USE_FOUNDER;
         }
     }
 }
