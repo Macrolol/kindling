@@ -64,20 +64,44 @@ pub const CHAIN_EPS: f32 = 0.05;
 /// still counts a little; a hard step (small `p`) counts more.
 pub const CHAIN_W_MIN: f32 = 0.1;
 /// (skills step 3) Extra upkeep of an unskilled maker: labour is multiplied by
-/// `1 + MAKER_WASTE * (1 - m_item)`. Not applied yet.
+/// `1 + MAKER_WASTE * (1 - m_item)`.
 pub const MAKER_WASTE: f32 = 0.8;
 /// (skills step 3) Extra marginal material draw of an unskilled maker:
-/// `1 + MAKER_SCRAP * (1 - m)`. Not applied yet.
+/// `1 + MAKER_SCRAP * (1 - m)`.
 pub const MAKER_SCRAP: f32 = 1.0;
 /// (skills step 3) Season failure chance at maker skill 0, times `(1 - m_item)^2`.
-/// Not applied yet.
 pub const MAKER_FAIL: f32 = 0.25;
+/// Hash salt for the maker-failure roll. Not `NOVICE_SALT` and not the D3 trial salt.
+const MAKER_FAIL_SALT: u64 = 0x4D61_6B65_4661_696C;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 /// All-ones effective skill: the nominal view, and a trial's potential.
 const USER_FULL: [f32; NFORM] = [1.0; NFORM];
-/// Hash salt for the novice yield draw. Not the kit-trial salt.
+/// Hash salt for the novice yield draw. Not the kit-trial salt and not `MAKER_FAIL_SALT`.
 const NOVICE_SALT: u64 = 0x4E6F_7669_6365_5A01;
+
+/// Labour factor of maker skill `m`. At `m = 1` this is bit-identical to `1.0`.
+pub fn maker_waste(m: f32) -> f32 {
+    1.0 + MAKER_WASTE * (1.0 - m)
+}
+
+/// Marginal-draw factor of maker skill `m`. At `m = 1` this is bit-identical to `1.0`.
+pub fn maker_scrap_factor(m: f32) -> f32 {
+    1.0 + MAKER_SCRAP * (1.0 - m)
+}
+
+/// Chance a payoff tool made at skill `m` fails this season. `0` at `m = 1`.
+pub fn maker_p_fail(m: f32) -> f32 {
+    let g = 1.0 - m;
+    MAKER_FAIL * g * g
+}
+
+/// Uniform draw in `[0, 1)` for the maker-failure roll. Same mapping as the D3 trial
+/// (`hash3` high bits), with `MAKER_FAIL_SALT`. Slot is the payoff index (`Kit::slot_item`).
+pub fn maker_fail_roll(seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
+    let roll = hash3(seed ^ MAKER_FAIL_SALT, band as i64, (tick as i64) * 16 + slot as i64);
+    (roll >> 40) as f32 / (1u64 << 24) as f32
+}
 /// Motion axes, proposal order: cut, chop, thrust, throw, aim, fend, knot, dig, paddle, sail, pound.
 const MOTION_N: usize = 11;
 
@@ -1017,11 +1041,17 @@ pub fn fills_payoff(it: Item, j: usize) -> bool {
     )
 }
 
-fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Item, pot: &mut [(f32, Item); 2]) {
-    // strict: a tie keeps the earlier item, and candidates arrive in item-id order
+fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Item, second_cur: &mut f32, second_it: &mut Item, pot: &mut [(f32, Item); 2]) {
+    // strict: a tie keeps the earlier item, and candidates arrive in item-id order.
+    // The displaced best becomes the runner-up (the season's fallback if this tool fails).
     if cur > *best_cur {
+        *second_cur = *best_cur;
+        *second_it = *best_it;
         *best_cur = cur;
         *best_it = it;
+    } else if it != *best_it && cur > *second_cur {
+        *second_cur = cur;
+        *second_it = it;
     }
     if full > pot[0].0 {
         pot[1] = pot[0];
@@ -1031,9 +1061,12 @@ fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Ite
     }
 }
 
-fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f32, Item); 2], record_trial: bool) {
+fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f32, Item); 2], second_it: Item, record_trial: bool) {
     // a negative score still fills the slot when anything can
     set_slot(k, slot, best_it);
+    // NONE when the slot is empty or only one item can fill it. Every scoring writes this;
+    // a later pass overwrites. A slot that is not re-scored keeps the earlier pass.
+    k.fallback[trial_j(slot)] = if best_it != NONE { second_it } else { NONE };
     if record_trial {
         let ch = if pot[0].1 != best_it { pot[0] } else { pot[1] };
         k.trial[trial_j(slot)] = if best_it != NONE && ch.1 != NONE && ch.0 > best_cur { ch.1 } else { NONE };
@@ -1043,12 +1076,14 @@ fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f
 fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
+    let mut second_cur = f32::NEG_INFINITY;
+    let mut second_it = NONE;
     let mut pot = [(f32::NEG_INFINITY, NONE); 2];
     for c in list {
         let (cur, full) = nonfood_from(c.term, c.sk, c.ql, c.dur_term, c.depth_f);
-        consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut pot);
+        consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut second_cur, &mut second_it, &mut pot);
     }
-    write_choice(k, slot, best_it, best_cur, pot, record_trial);
+    write_choice(k, slot, best_it, best_cur, pot, second_it, record_trial);
 }
 
 /// Food-slot choice. `lists` are the candidate forms in item-id order (an edge before a point
@@ -1057,10 +1092,12 @@ fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
 fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
+    let mut second_cur = f32::NEG_INFINITY;
+    let mut second_it = NONE;
     let mut pot = [(f32::NEG_INFINITY, NONE); 2];
     let n: usize = lists.iter().map(|l| l.len()).sum();
     if n == 0 {
-        write_choice(k, slot, NONE, best_cur, pot, record_trial);
+        write_choice(k, slot, NONE, best_cur, pot, second_it, record_trial);
         return;
     }
     let base = yargs_of(k, slot, info, &view.user, &quiet);
@@ -1093,10 +1130,10 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
                 )
             };
             let labour = tool_upkeep(view.upkeep_rate, c.it, c.d, food_sealed(slot, c.it, k, pitch));
-            consider(price_of(food, labour, view), price_of(food_f, labour, view), c.it, &mut best_cur, &mut best_it, &mut pot);
+            consider(price_of(food, labour, view), price_of(food_f, labour, view), c.it, &mut best_cur, &mut best_it, &mut second_cur, &mut second_it, &mut pot);
         }
     }
-    write_choice(k, slot, best_it, best_cur, pot, record_trial);
+    write_choice(k, slot, best_it, best_cur, pot, second_it, record_trial);
 }
 
 struct Bucket {

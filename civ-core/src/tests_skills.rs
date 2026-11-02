@@ -1,16 +1,17 @@
 //! (skills step 1) The economy pays what `tool_effects` says, and a food slot is the item
 //! that maximises food minus the food its upkeep labour would have grown.
 use crate::band::{edge_q, Band, Kit, Partner};
-use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
+use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
-    tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS, CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX,
+    food_mults, harvest_for, kit_yields, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_waste, novice_factor, pitch_in_use, recipe_info,
+    sealed_factor, slot_score, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS, CHAIN_W_MIN, HARVEST_EPS,
+    HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX,
     NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
 use crate::knowledge::{closure, fill_chain, maker_skill, technique, Known, Recipe, Registry, Tech};
 use crate::materials::*;
 use crate::physics::{canonical, Action};
-use crate::rng::Rng;
+use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
 use crate::world::{inherit_use, practise_use, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
@@ -169,23 +170,57 @@ fn payout_invariant() {
     let charged = charged_kit_items(b, ec.ys[2], view.wet, pitch);
     let mut sum_fx = 0.0;
     let mut sum_wear = 0.0;
-    let mut rest = ec.used.clone();
+    let mut used = Vec::new();
     for &it in &charged {
         let depth = b.d.tk.via(it).map(|v| v.2).unwrap_or(0);
         let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
         let sealed = sealed_factor(it, kit, pitch);
-        sum_fx += tool_effects(&view, kit, slot_holding(kit, it), it, &info, mask).labour;
-        sum_wear += wear(w.params.upkeep, it, depth, sealed);
-        if let Some(i) = rest.iter().position(|&x| x == it) {
-            rest.remove(i);
+        let waste = maker_waste(b.d.tk.chain_m(it));
+        sum_fx += tool_effects(&view, kit, slot_holding(kit, it), it, &info, mask).labour * waste;
+        sum_wear += wear(w.params.upkeep, it, depth, sealed) * waste;
+        used.push(it);
+    }
+    // D3 trials wear at sealed = 1. A failed food slot then wears its fallback, glued
+    // against the original kit, and only if that item is not already in `used`.
+    for j in 0..kit.trial.len() {
+        let (inc, ch) = (kit.slot_item(j), kit.trial[j]);
+        if ch == NONE || !used.contains(&inc) || used.contains(&ch) {
+            continue;
         }
-    }
-    // what is left was tried out beside the kit. Trials are not glued or caulked.
-    for &ch in &rest {
+        let roll = hash3(w.cfg.seed ^ 0x7121_A15E_D3D3_0001, b.id as i64, (w.tick as i64) * 16 + j as i64);
+        if (roll >> 40) as f32 / (1u64 << 24) as f32 >= KIT_TRIAL_P {
+            continue;
+        }
         let depth = b.d.tk.via(ch).map(|v| v.2).unwrap_or(0);
-        sum_fx += tool_upkeep(w.params.upkeep, ch, depth, 1.0);
-        sum_wear += wear(w.params.upkeep, ch, depth, 1.0);
+        let waste = maker_waste(b.d.tk.chain_m(ch));
+        sum_fx += tool_upkeep(w.params.upkeep, ch, depth, 1.0) * waste;
+        sum_wear += wear(w.params.upkeep, ch, depth, 1.0) * waste;
+        used.push(ch);
     }
+    for j in 0..12 {
+        let it = kit.slot_item(j);
+        if it == NONE || !used.contains(&it) {
+            continue;
+        }
+        let pm = maker_p_fail(b.d.tk.chain_m(it));
+        if pm <= 0.0 || maker_fail_roll(w.cfg.seed, b.id, w.tick, j) >= pm {
+            continue;
+        }
+        if !matches!(j, 0 | 1 | 2 | 3 | 5 | 6) {
+            continue;
+        }
+        let fb = kit.fallback[j];
+        if fb == NONE || used.contains(&fb) {
+            continue;
+        }
+        let depth = b.d.tk.via(fb).map(|v| v.2).unwrap_or(0);
+        let sealed = sealed_factor(fb, kit, pitch);
+        let waste = maker_waste(b.d.tk.chain_m(fb));
+        sum_fx += tool_upkeep(w.params.upkeep, fb, depth, sealed) * waste;
+        sum_wear += wear(w.params.upkeep, fb, depth, sealed) * waste;
+        used.push(fb);
+    }
+    assert_eq!(used, ec.used, "practised list");
     assert!((sum_fx - ec.upkeep).abs() < 1e-6, "effects {sum_fx} economy {}", ec.upkeep);
     assert!((sum_wear - ec.upkeep).abs() < 1e-6, "wear {sum_wear} economy {}", ec.upkeep);
 
@@ -531,6 +566,8 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
         for &slot in &CHOOSE {
             let mut best_cur = f32::NEG_INFINITY;
             let mut best_it = NONE;
+            let mut second_cur = f32::NEG_INFINITY;
+            let mut second_it = NONE;
             let mut pot = [(f32::NEG_INFINITY, NONE); 2];
             for it in avail.iter() {
                 if !accepts(slot, it) {
@@ -538,8 +575,13 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
                 }
                 let (cur, full) = slow_score(view, &k, slot, it, info);
                 if cur > best_cur {
+                    second_cur = best_cur;
+                    second_it = best_it;
                     best_cur = cur;
                     best_it = it;
+                } else if it != best_it && cur > second_cur {
+                    second_cur = cur;
+                    second_it = it;
                 }
                 if full > pot[0].0 {
                     pot[1] = pot[0];
@@ -549,9 +591,12 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
                 }
             }
             set_pay(&mut k, slot, best_it);
+            // The second pass is the final context. Slots the fast path does not re-score
+            // kept their first-pass runner-up, which matches this one when the inputs did not move.
             if pass == 1 {
                 let ch = if pot[0].1 != best_it { pot[0] } else { pot[1] };
                 k.trial[trial_j(slot)] = if best_it != NONE && ch.1 != NONE && ch.0 > best_cur { ch.1 } else { NONE };
+                k.fallback[trial_j(slot)] = if best_it != NONE { second_it } else { NONE };
             }
         }
     }
@@ -647,6 +692,7 @@ fn fast_choice_matches_full_yields_bits() {
         let fast = make_kit_with_view(&avail, &info, view);
         let slow = slow_make(&avail, &info, view);
         assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
+        assert_eq!(fast.fallback, slow.fallback, "fallback diverged");
         assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
         assert_eq!((fast.pitch, fast.ale), (slow.pitch, slow.ale));
         for &slot in &CHOOSE {
@@ -1508,26 +1554,17 @@ fn technique_labels_on_a_seeded_world() {
         w.step();
     }
     let mut got: Vec<String> = Vec::new();
-    let (mut n_bar, mut n_iron, mut n_steel) = (0u32, 0u32, 0u32);
     for (id, r) in w.reg.recipes.iter().enumerate() {
         let tech = w.reg.tech(id as u32);
         assert_eq!(tech, technique(r), "registry label drifted: {}", r.describe());
         if tech == Tech::Other {
             got.push(format!("{} -> {}", r.describe(), item_name(r.output)));
         }
+        // These three are not guaranteed by year 300 once maker waste changes the
+        // invention lottery. The synthetic cases above are what locks their labels.
         match item_name(r.output).as_str() {
-            "steel bar" => {
-                assert_eq!(tech, Tech::SteelMaking, "{}", r.describe());
-                n_bar += 1;
-            }
-            "iron knife" => {
-                assert_eq!(tech, Tech::HotForging, "{}", r.describe());
-                n_iron += 1;
-            }
-            "steel knife" => {
-                assert_eq!(tech, Tech::HotForging, "{}", r.describe());
-                n_steel += 1;
-            }
+            "steel bar" => assert_eq!(tech, Tech::SteelMaking, "{}", r.describe()),
+            "iron knife" | "steel knife" => assert_eq!(tech, Tech::HotForging, "{}", r.describe()),
             _ => {}
         }
     }
@@ -1535,9 +1572,6 @@ fn technique_labels_on_a_seeded_world() {
     let expect: Vec<&str> = OTHER_RECIPES_SEED1.to_vec();
     let got_ref: Vec<&str> = got.iter().map(|s| s.as_str()).collect();
     assert_eq!(got_ref, expect, "Other recipes in seed 1, 128x80, 300y");
-    assert!(n_bar > 0, "no steel bar in seed 1, 128x80, 300y");
-    assert!(n_iron > 0, "no iron knife in seed 1, 128x80, 300y");
-    assert!(n_steel > 0, "no steel knife in seed 1, 128x80, 300y");
 }
 
 /// The weighted geometric mean, written out here so a shared mistake in

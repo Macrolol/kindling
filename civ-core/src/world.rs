@@ -7,8 +7,8 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::effects::{
-    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER,
-    USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
+    food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, pitch_in_use, recipe_info, sealed_factor,
+    tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
 use crate::map::*;
@@ -1873,8 +1873,10 @@ impl World {
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
             needed |= mask;
-            // a caulked hull leaks and rots less; a glued haft works loose less often
-            upkeep += tool_upkeep(p.upkeep, it, depth, sealed_factor(it, &kit, pitch));
+            // a caulked hull leaks and rots less; a glued haft works loose less often.
+            // An unskilled maker wastes labour: `* (1 + MAKER_WASTE * (1 - m_item))`.
+            // A missing chain reads as 1, so this is the old upkeep.
+            upkeep += tool_upkeep(p.upkeep, it, depth, sealed_factor(it, &kit, pitch)) * maker_waste(b.d.tk.chain_m(it));
             used.push(it);
         }
         // (diffusion D3) now and then a band tries the better-in-prospect tool beside the one
@@ -1891,10 +1893,44 @@ impl World {
             let (_, mask, depth) = b.d.tk.via(ch).unwrap_or((0, 0, 0));
             needed |= mask;
             // a trial was never caulked or glued: sealed = 1, so this wear stays what it was
-            upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0);
+            upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0) * maker_waste(b.d.tk.chain_m(ch));
             used.push(ch);
         }
-        // one bit per form, trial included. The `used` vec already exists; this adds none.
+        // (skills step 3) a payoff tool can fail for the season. The item stays in `used`
+        // (it is still practised) and its labour was already charged. Food slots rebuild
+        // the multipliers from the runner-up; its upkeep is paid too, glued against the
+        // original kit. A failed hull, bow, shield, outrigger, plank or ship only counts:
+        // fighting and the sea do not feel the miss yet.
+        let mut make_fail = 0u16;
+        let mut make_failures = 0u32;
+        let mut food_failed = false;
+        let mut food_kit = kit;
+        for j in 0..12 {
+            let it = kit.slot_item(j);
+            if it == NONE || !used.contains(&it) {
+                continue;
+            }
+            let pm = maker_p_fail(b.d.tk.chain_m(it));
+            if pm <= 0.0 || maker_fail_roll(self.cfg.seed, b.id, self.tick, j) >= pm {
+                continue;
+            }
+            make_fail |= 1u16 << j;
+            make_failures += 1;
+            if !matches!(j, 0 | 1 | 2 | 3 | 5 | 6) {
+                continue;
+            }
+            food_failed = true;
+            let fb = kit.fallback[j];
+            food_kit.set_slot_item(j, fb);
+            if fb == NONE || used.contains(&fb) {
+                continue;
+            }
+            let (_, mask, depth) = b.d.tk.via(fb).unwrap_or((0, 0, 0));
+            needed |= mask;
+            upkeep += tool_upkeep(p.upkeep, fb, depth, sealed_factor(fb, &kit, pitch)) * maker_waste(b.d.tk.chain_m(fb));
+            used.push(fb);
+        }
+        // one bit per form, trial and fallback included. The `used` vec already exists; this adds none.
         let mut used_forms = 0u32;
         for &it in &used {
             if valid_item(it) {
@@ -1909,8 +1945,10 @@ impl World {
         // per-slot draw. At u_eff = 1 the draw's factor is 1, so these match the kit.
         // A founder is floored at USE_FOUNDER on every form (`band_user`).
         let user = band_user(b);
-        let food_m = food_mults(&kit, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
-            novice_factor(&kit, &user, self.cfg.seed, b.id, self.tick, slot)
+        // No food slot failed: the stored kit, so the multipliers stay what they were.
+        let food_src = if food_failed { &food_kit } else { &kit };
+        let food_m = food_mults(food_src, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
+            novice_factor(food_src, &user, self.cfg.seed, b.id, self.tick, slot)
         });
         let ks = [
             3.0 * food_m[0] * p.forage_eff,
@@ -1999,6 +2037,8 @@ impl World {
             needed,
             used,
             used_forms,
+            make_fail,
+            make_failures,
             food_ratio: 0.0,
             store_after: 0.0,
             spare,
@@ -2072,6 +2112,28 @@ impl World {
                 b.stock[mi] = 0.8;
             }
         }
+        // Lowest chain skill among used items whose mask contains each material. 1 when
+        // none do, so a fully practised maker adds no scrap.
+        let mut scrap_m = [1.0f32; NMAT];
+        {
+            let mut seen = [false; NMAT];
+            for &it in &ec.used {
+                let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
+                if mask == 0 {
+                    continue;
+                }
+                let m = b.d.tk.chain_m(it);
+                for mj in 0..NMAT {
+                    if mask & (1 << mj) == 0 {
+                        continue;
+                    }
+                    if !seen[mj] || m < scrap_m[mj] {
+                        scrap_m[mj] = m;
+                        seen[mj] = true;
+                    }
+                }
+            }
+        }
         for mi in 0..NMAT {
             let mm = ALL_MATS[mi];
             if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic || mm == Mat::Pitch {
@@ -2086,10 +2148,32 @@ impl World {
             // when a needed material is not at hand (+0.02 / +0.06) is that marginal draw.
             // `needed` is the union of the used recipes' masks, so each material is drawn once
             // a season, not once per item. `Effects.mats` lists the same extra per item; the
-            // two agree wherever those masks do not overlap.
+            // two agree wherever those masks do not overlap. An unskilled maker multiplies that
+            // extra by `1 + MAKER_SCRAP * (1 - m)`; only the surplus is `make_scrap`.
             let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
-                use_ += if metal { 0.02 } else { 0.06 };
+                let base = if metal { 0.02 } else { 0.06 };
+                let extra = base * maker_scrap_factor(scrap_m[mi]);
+                use_ += extra;
+                let surplus = extra - base;
+                if surplus > 0.0 {
+                    fx.counters.make_scrap += (surplus * 1000.0).round() as u64;
+                }
+                // A failed tool's marginal draw is spent again and counted in full. Each
+                // failed slot uses its own chain skill; two slots that share an item pay twice.
+                for j in 0..12 {
+                    if ec.make_fail & (1u16 << j) == 0 {
+                        continue;
+                    }
+                    let it = b.d.kit.slot_item(j);
+                    let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
+                    if mask & (1 << mi) == 0 {
+                        continue;
+                    }
+                    let again = base * maker_scrap_factor(b.d.tk.chain_m(it));
+                    use_ += again;
+                    fx.counters.make_scrap += (again * 1000.0).round() as u64;
+                }
             }
             b.stock[mi] = (b.stock[mi] - use_).max(0.0);
             if b.stock[mi] <= 0.0 {
@@ -2097,6 +2181,7 @@ impl World {
             }
             b.d.demand[mi] *= 0.9;
         }
+        fx.counters.make_failures += ec.make_failures as u64;
         // ---------------- demography (births / deaths; splits happen later)
         let fed = ((food_ratio - 0.75) / 0.25).clamp(0.0, 1.0);
         // settled people with soft weaning foods (porridge, milk) space births closer
@@ -2147,7 +2232,7 @@ impl World {
             } else {
                 0.0
             };
-        Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
+        Self::refine(&self.reg, b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
             *c = 1.0 + (*c - 1.0) * 0.998;
@@ -2157,7 +2242,8 @@ impl World {
         self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
         // Chain skill depends on recipe skill. The refresh_toolkit below, after
-        // forgetting, refills it (cache hit included). Nothing reads it yet.
+        // forgetting, refills it (cache hit included). `refine` already read the
+        // pre-practice cache from `band_prep`.
         // (inventions step 8) records: kept while a band counts something with its tally or
         // token; they slow the forgetting of what is not practised
         if b.d.kit.mark != NONE && Self::keeps_count(b) {
@@ -3465,7 +3551,7 @@ impl World {
 
     /// (v9) Play and refinement: `lam` expected attempts this season, each improving one recipe
     /// the band used.
-    fn refine(b: &mut Band, lam: f32, rng: &mut Rng, fx: &mut Fx) {
+    fn refine(reg: &Registry, b: &mut Band, lam: f32, rng: &mut Rng, fx: &mut Fx) {
         let n = rng.poisson(lam).min(4);
         if n == 0 {
             return;
@@ -3475,10 +3561,14 @@ impl World {
             return;
         }
         for _ in 0..n {
-            let k = &mut b.known[used[rng.below(used.len())]];
+            let i = used[rng.below(used.len())];
+            // The recipe's own carried skill, not the item's chain skill. At 1 this is
+            // `REFINE_STEP * room`, bit for bit.
+            let m = maker_skill(reg, &b.known, i);
+            let k = &mut b.known[i];
             let room = k.skill - k.quality;
             if room > 0.01 {
-                k.quality += REFINE_STEP * room;
+                k.quality += REFINE_STEP * room * m;
                 b.d.fin_dirty = true;
                 fx.counters.refinements += 1;
             }
@@ -4656,6 +4746,10 @@ pub struct Econ {
     /// Forms of `used`, one bit per form (`1 << form as u32`). The D3 trial is
     /// included, because it is pushed onto `used`. No extra allocation.
     pub used_forms: u32,
+    /// (skills step 3) payoff slots whose tool failed this season, bit `j` of `Kit::slot_item`.
+    /// Not saved. `make_failures` is the popcount; `band_season` flushes it to the counter.
+    pub make_fail: u16,
+    pub make_failures: u32,
     pub food_ratio: f32,
     pub store_after: f32,
     pub spare: f32,

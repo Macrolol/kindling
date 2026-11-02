@@ -291,6 +291,10 @@ pub struct Kit {
     /// (diffusion D3) per payoff slot (`Kit::slot_item` order): the tool the band is trying
     /// out beside the one it relies on, or NONE
     pub trial: [Item; 12],
+    /// (skills step 3) runner-up of each payoff slot from the last kit fit, same order as
+    /// `slot_item`. Derived, not saved (`Kit` is not serialized). NONE when nothing else
+    /// could fill the slot. A failed food tool falls back to this for the season.
+    pub fallback: [Item; 12],
 }
 impl Default for Kit {
     fn default() -> Self {
@@ -335,6 +339,7 @@ impl Default for Kit {
             protect: 0.0,
             fine: 0.0,
             trial: [NONE; 12],
+            fallback: [NONE; 12],
         }
     }
 }
@@ -356,6 +361,24 @@ impl Kit {
             10 => self.plank,
             11 => self.ship,
             _ => NONE,
+        }
+    }
+    /// Put `it` in payoff slot `j` (`slot_item` order).
+    pub fn set_slot_item(&mut self, j: usize, it: Item) {
+        match j {
+            0 => self.hunt = it,
+            1 => self.cut = it,
+            2 => self.point = it,
+            3 => self.axe = it,
+            4 => self.boat = it,
+            5 => self.net = it,
+            6 => self.trap = it,
+            7 => self.bow = it,
+            8 => self.shield = it,
+            9 => self.outrigger = it,
+            10 => self.plank = it,
+            11 => self.ship = it,
+            _ => {}
         }
     }
     pub fn used_items(&self) -> [Item; 30] {

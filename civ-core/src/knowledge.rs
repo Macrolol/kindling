@@ -370,7 +370,7 @@ pub struct Toolkit {
     via: Vec<(u16, u32, u8)>,
     /// (skills step 3) chain skill of each available item, same order as `via`.
     /// Raw items and a kept flame are 1. Filled by `fill_chain`, never saved.
-    /// Not read by the economy or the decision yet.
+    /// The economy reads `chain_m`. The decision does not yet.
     chain: Vec<f32>,
 }
 impl Toolkit {
