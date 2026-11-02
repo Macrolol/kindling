@@ -4,10 +4,10 @@ use crate::band::{edge_q, Band, Kit, Partner};
 use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
     food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
-    tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_FADE_X,
-    USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
+    tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS, CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX,
+    NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
-use crate::knowledge::{technique, Recipe, Registry, Tech};
+use crate::knowledge::{closure, fill_chain, maker_skill, technique, Known, Recipe, Registry, Tech};
 use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::Rng;
@@ -1538,4 +1538,169 @@ fn technique_labels_on_a_seeded_world() {
     assert!(n_bar > 0, "no steel bar in seed 1, 128x80, 300y");
     assert!(n_iron > 0, "no iron knife in seed 1, 128x80, 300y");
     assert!(n_steel > 0, "no steel knife in seed 1, 128x80, 300y");
+}
+
+/// The weighted geometric mean, written out here so a shared mistake in
+/// `fill_chain` still fails. `steps` is `(maker skill, success chance)`.
+fn geom_mean(steps: &[(f32, f32)]) -> f32 {
+    let mut sw = 0.0f32;
+    let mut swl = 0.0f32;
+    for &(m, p) in steps {
+        let w = (-p.ln()).max(CHAIN_W_MIN);
+        let mc = m.max(CHAIN_EPS);
+        sw += w;
+        swl += w * mc.ln();
+    }
+    (swl / sw).exp()
+}
+
+fn with_p(mut r: Recipe, p: f32) -> Recipe {
+    r.p = p;
+    r
+}
+
+/// Chain skill of `out` for a band that knows `parts` (recipe, skill) and holds `raws`.
+fn chain_of(parts: Vec<(Recipe, f32)>, raws: &[Item], out: Item) -> f32 {
+    let mut reg = Registry::default();
+    let mut known = Vec::new();
+    for (r, skill) in parts {
+        let id = reg.insert(r);
+        known.push(Known { recipe: id, skill, ..Default::default() });
+    }
+    let mut have = ItemSet::default();
+    for &i in raws {
+        have.add(i);
+    }
+    let mut tk = closure(&reg, &known, &have, false);
+    fill_chain(&reg, &known, &mut tk);
+    tk.chain_m(out)
+}
+
+/// Chain skill rises when any step rises, a longer chain of equal skills is not
+/// lower, and one weak step pulls the mean down without becoming the minimum.
+#[test]
+fn chain_skill_tracks_every_step() {
+    let fibre = item(Form::Raw, Mat::Fibre);
+    let wood = item(Form::Raw, Mat::Wood);
+    let cord = item(Form::Cord, Mat::Fibre);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let snare = item(Form::Trap, Mat::Fibre);
+    let cord_r = |p: f32| with_p(shape_recipe(fibre, NONE, cord), p);
+    let shaft_r = |p: f32| with_p(shape_recipe(wood, NONE, shaft), p);
+    let snare_r = |p: f32| with_p(combine_recipe([shaft, cord, NONE], snare), p);
+
+    // One step, from the finished cord and shaft treated as raw.
+    let one = chain_of(vec![(snare_r(0.5), 0.7)], &[cord, shaft], snare);
+    // Three equally skilled steps. A product would be 0.7^3.
+    let three = chain_of(
+        vec![(cord_r(0.5), 0.7), (shaft_r(0.5), 0.7), (snare_r(0.5), 0.7)],
+        &[fibre, wood],
+        snare,
+    );
+    assert!((one - 0.7).abs() < 1e-4, "one step is its own skill, got {one}");
+    assert!((three - one).abs() < 1e-4, "equal skills: longer {three} vs one {one}");
+    assert!(three + 1e-5 >= one, "a longer equal chain must not be lower");
+    assert!(three > 0.7 * 0.7 * 0.7 + 0.05, "not the plain product");
+
+    let at = |c: f32, s: f32, n: f32| {
+        chain_of(vec![(cord_r(0.4), c), (shaft_r(0.3), s), (snare_r(0.2), n)], &[fibre, wood], snare)
+    };
+    let base = at(0.4, 0.5, 0.6);
+    assert!(at(0.7, 0.5, 0.6) > base + 1e-4, "raising the cord step");
+    assert!(at(0.4, 0.8, 0.6) > base + 1e-4, "raising the shaft step");
+    assert!(at(0.4, 0.5, 0.9) > base + 1e-4, "raising the snare step");
+
+    let strong = at(0.8, 0.8, 0.8);
+    let weak = at(0.8, 0.8, 0.1);
+    assert!(weak < strong - 0.05, "weak step {weak} did not pull down {strong}");
+    assert!(weak > 0.15, "weak step collapsed to the minimum: {weak}");
+
+    let steps = [(0.8f32, 0.5f32), (0.4, 0.05), (0.6, 0.2)];
+    let got = chain_of(
+        vec![(cord_r(steps[0].1), steps[0].0), (shaft_r(steps[1].1), steps[1].0), (snare_r(steps[2].1), steps[2].0)],
+        &[fibre, wood],
+        snare,
+    );
+    let want = geom_mean(&steps);
+    assert!((got - want).abs() < 1e-5, "weighted geometric mean {got} vs {want}");
+
+    // Raws and a kept flame are not steps.
+    let mut raws = ItemSet::default();
+    raws.add(wood);
+    let reg = Registry::default();
+    let mut tk = closure(&reg, &[], &raws, true);
+    fill_chain(&reg, &[], &mut tk);
+    assert_eq!(tk.chain_m(wood).to_bits(), 1.0f32.to_bits());
+    assert_eq!(tk.chain_m(item(Form::Fire, Mat::Wood)).to_bits(), 1.0f32.to_bits());
+}
+
+/// Steel-making does not inherit hot-forging. A steel knife does, at TECH_CARRY
+/// of the iron-knife skill. Other recipes carry nothing to each other.
+#[test]
+fn steel_making_does_not_carry_forging_skill() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let iron_knife = item(Form::Edge, Mat::Iron);
+    let steel_knife = item(Form::Edge, Mat::Steel);
+    let mut reg = Registry::default();
+    let id_iron = reg.insert(heat_recipe(iron, hammer, fire, kiln, iron_knife));
+    let id_knife = reg.insert(heat_recipe(steel, hammer, fire, kiln, steel_knife));
+    let id_bar = reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    assert_eq!((reg.tech(id_iron), reg.tech(id_knife), reg.tech(id_bar)), (Tech::HotForging, Tech::HotForging, Tech::SteelMaking));
+    let known = vec![
+        Known { recipe: id_iron, skill: 0.8, ..Default::default() },
+        Known { recipe: id_knife, skill: 0.1, ..Default::default() },
+        Known { recipe: id_bar, skill: 0.12, ..Default::default() },
+    ];
+    assert_eq!(maker_skill(&reg, &known, 0).to_bits(), 0.8f32.to_bits());
+    let carried = TECH_CARRY * 0.8;
+    assert!(carried > 0.1);
+    assert_eq!(maker_skill(&reg, &known, 1).to_bits(), carried.to_bits());
+    assert_eq!(maker_skill(&reg, &known, 2).to_bits(), 0.12f32.to_bits());
+
+    let stone = reg.insert(shape_recipe(item(Form::Raw, Mat::Stone), NONE, hammer));
+    let bone = reg.insert(shape_recipe(item(Form::Raw, Mat::Bone), NONE, item(Form::Hammer, Mat::Bone)));
+    assert_eq!((reg.tech(stone), reg.tech(bone)), (Tech::Other, Tech::Other));
+    let hammers = vec![
+        Known { recipe: stone, skill: 0.9, ..Default::default() },
+        Known { recipe: bone, skill: 0.2, ..Default::default() },
+    ];
+    assert_eq!(maker_skill(&reg, &hammers, 1).to_bits(), 0.2f32.to_bits());
+    assert_eq!(maker_skill(&reg, &hammers, 0).to_bits(), 0.9f32.to_bits());
+}
+
+/// The cache is filled on a live band, and a skill change with no new closure
+/// (the cache-hit path of refresh_toolkit) refills it.
+#[test]
+fn chain_cache_follows_skill_without_a_new_closure() {
+    let mut w = world();
+    for _ in 0..60 {
+        w.step();
+    }
+    let mut saw_low = false;
+    for b in &w.bands {
+        for it in b.d.tk.producible.iter() {
+            let m = b.d.tk.chain_m(it);
+            assert!(m.is_finite() && m > 0.0 && m <= 1.0, "{m}");
+            if m < 0.999 {
+                saw_low = true;
+            }
+        }
+    }
+    assert!(saw_low, "a produced item should still be short of maker skill 1");
+    for b in &mut w.bands {
+        for k in &mut b.known {
+            k.skill = 1.0;
+        }
+    }
+    w.refresh_all_toolkits();
+    for b in &w.bands {
+        for it in b.d.tk.producible.iter() {
+            assert_eq!(b.d.tk.chain_m(it).to_bits(), 1.0f32.to_bits(), "{}", item_name(it));
+        }
+    }
 }

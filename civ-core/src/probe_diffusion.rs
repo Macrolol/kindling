@@ -53,7 +53,7 @@
 //! over which better one).
 use crate::band::{loss_guard, make_kit, refine_kit, weapon_q, Kit, KIT_UPKEEP};
 use crate::effects::{fills_payoff, make_kit_among_view, make_kit_for_view, recipe_info, slot_score, BandView, PAYOFF_SLOTS};
-use crate::knowledge::{closure, Known, Toolkit, FROM_PARENT, FROM_SELF};
+use crate::knowledge::{closure, fill_chain, Known, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::materials::*;
 use crate::{Config, Params, World};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -306,7 +306,9 @@ fn toolkit(w: &World, b: &crate::band::Band) -> Toolkit {
             raws.add(i);
         }
     }
-    closure(&w.reg, &b.known, &raws, false)
+    let mut tk = closure(&w.reg, &b.known, &raws, false);
+    fill_chain(&w.reg, &b.known, &mut tk);
+    tk
 }
 
 fn kit_items(k: &Kit) -> HashSet<Item> {

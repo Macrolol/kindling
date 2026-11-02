@@ -1035,6 +1035,7 @@ impl World {
         for _ in 0..8 {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
+            fill_chain(&self.reg, &b.known, &mut tk);
             kit = self.fit_kit(b, &tk);
             let mut want = [0.0f32; NFORM];
             for &it in kit.used_items().iter() {
@@ -1051,6 +1052,7 @@ impl World {
         if !stable {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
+            fill_chain(&self.reg, &b.known, &mut tk);
             kit = self.fit_kit(b, &tk);
         }
         b.d.tk = tk;
@@ -1677,6 +1679,9 @@ impl World {
             b.d.tk_prev = None;
         }
         if b.d.tk_key == Some(key) {
+            // Skills move every season without a new closure. Chain skill is
+            // derived from them, so refill even when this toolkit is still current.
+            fill_chain(&self.reg, &b.known, &mut b.d.tk);
             // (diffusion D3) the kit follows skill too, which moves every season
             if b.d.fin_dirty || b.d.kit_dirty {
                 let kit = self.fit_kit(b, &b.d.tk);
@@ -1698,6 +1703,7 @@ impl World {
             if prev.0 != key {
                 b.d.tk_prev = Some(prev);
             }
+            fill_chain(&self.reg, &b.known, &mut b.d.tk);
             // (diffusion D3) the cached kit was chosen at older skills
             let kit = self.fit_kit(b, &b.d.tk);
             b.d.kit = kit;
@@ -1705,7 +1711,8 @@ impl World {
             return;
         }
         {
-            let tk = closure(&self.reg, &b.known, &raws, b.flame);
+            let mut tk = closure(&self.reg, &b.known, &raws, b.flame);
+            fill_chain(&self.reg, &b.known, &mut tk);
             let kit = self.fit_kit(b, &tk);
             b.d.fin_dirty = false;
             b.d.kit_dirty = false;
@@ -2149,6 +2156,8 @@ impl World {
         // ---------------- the sea: drift and far shores
         self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
+        // Chain skill depends on recipe skill. The refresh_toolkit below, after
+        // forgetting, refills it (cache hit included). Nothing reads it yet.
         // (inventions step 8) records: kept while a band counts something with its tally or
         // token; they slow the forgetting of what is not practised
         if b.d.kit.mark != NONE && Self::keeps_count(b) {

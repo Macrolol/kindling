@@ -1,5 +1,6 @@
 //! Recipes (discovered action + inputs -> output), per-band knowledge, and the "toolkit": which
 //! items a band can actually produce right now from what it knows and the materials it can reach.
+use crate::effects::{CHAIN_EPS, CHAIN_W_MIN, TECH_CARRY};
 use crate::materials::*;
 use crate::physics::{cold_workable, Action, Inputs};
 use serde::{Deserialize, Serialize};
@@ -367,6 +368,10 @@ pub struct Toolkit {
     /// (bitmask over Mat) its whole production chain needs, and chain length
     /// (one entry per member of `avail`, in item order: dense and hash-free)
     via: Vec<(u16, u32, u8)>,
+    /// (skills step 3) chain skill of each available item, same order as `via`.
+    /// Raw items and a kept flame are 1. Filled by `fill_chain`, never saved.
+    /// Not read by the economy or the decision yet.
+    chain: Vec<f32>,
 }
 impl Toolkit {
     /// Position of `i` among the members of `avail`.
@@ -375,6 +380,15 @@ impl Toolkit {
         let (w, b) = (i as usize >> 6, i as u32 & 63);
         let below: u32 = self.avail.0[..w].iter().map(|x| x.count_ones()).sum();
         (below + (self.avail.0[w] & ((1u64 << b) - 1)).count_ones()) as usize
+    }
+    /// Chain skill of an available item. 1 when `i` is absent or `fill_chain` has not
+    /// run (a fully practised maker), so a caller that does not have a band stays at 1.
+    #[inline]
+    pub fn chain_m(&self, i: Item) -> f32 {
+        if i == NONE || !self.avail.has(i) {
+            return 1.0;
+        }
+        self.chain.get(self.rank(i)).copied().unwrap_or(1.0)
     }
     /// The recipe (known-list index, `u16::MAX` for a raw or kept fire), raw-material mask and
     /// chain length behind an available item.
@@ -472,6 +486,141 @@ pub fn mark_used(reg: &Registry, known: &mut [Known], tk: &Toolkit, it: Item) {
                     sp += 1;
                 }
             }
+        }
+    }
+}
+
+const TECH_N: usize = Tech::Other as usize + 1;
+
+/// Effective maker skill of one known recipe.
+/// `max(own skill, TECH_CARRY * best skill among the band's other known recipes
+/// of the same technique)`. Skill is clamped to 0..1. `Other` is just own skill.
+pub fn maker_skill(reg: &Registry, known: &[Known], idx: usize) -> f32 {
+    maker_skills(reg, known).get(idx).copied().unwrap_or(0.0)
+}
+
+fn maker_skills(reg: &Registry, known: &[Known]) -> Vec<f32> {
+    let mut best = [0.0f32; TECH_N];
+    let mut second = [0.0f32; TECH_N];
+    let mut best_at = [usize::MAX; TECH_N];
+    let mut which = Vec::with_capacity(known.len());
+    let mut skill = Vec::with_capacity(known.len());
+    let other = Tech::Other as usize;
+    for (i, kn) in known.iter().enumerate() {
+        let t = reg.tech(kn.recipe) as usize;
+        let s = kn.skill.clamp(0.0, 1.0);
+        which.push(t);
+        skill.push(s);
+        if t == other || t >= TECH_N {
+            continue;
+        }
+        if s > best[t] {
+            second[t] = best[t];
+            best[t] = s;
+            best_at[t] = i;
+        } else if s > second[t] {
+            second[t] = s;
+        }
+    }
+    let mut out = Vec::with_capacity(known.len());
+    for i in 0..known.len() {
+        let t = which[i];
+        let s = skill[i];
+        if t == other || t >= TECH_N {
+            out.push(s);
+            continue;
+        }
+        let other_best = if best_at[t] == i { second[t] } else { best[t] };
+        out.push(s.max(TECH_CARRY * other_best).clamp(0.0, 1.0));
+    }
+    out
+}
+
+fn chain_weight(p: f32) -> f32 {
+    // Physics success chances sit in (0, 1]. A non-positive p has no finite -ln;
+    // treat it as a sure step so the weight is the floor.
+    let p = if p > 0.0 { p.min(1.0) } else { 1.0 };
+    (-p.ln()).max(CHAIN_W_MIN)
+}
+
+/// Chain skill of every available item, parallel to `via`.
+/// One walk per item, the same stack bound as `mark_used`, each known recipe at
+/// most once. `m_item` is the weighted geometric mean of those steps' maker
+/// skills; raw items and a kept flame are 1. Not read yet.
+pub fn fill_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
+    let n = tk.via.len();
+    tk.chain.clear();
+    tk.chain.resize(n, 1.0);
+    if n == 0 || known.is_empty() {
+        return;
+    }
+    let ms = maker_skills(reg, known);
+    let mut rank_of = [u16::MAX; NITEMS];
+    for (rank, it) in tk.avail.iter().enumerate() {
+        if rank >= n {
+            break;
+        }
+        let iu = it as usize;
+        if iu < NITEMS {
+            rank_of[iu] = rank as u16;
+        }
+    }
+    let mut seen = vec![0u32; known.len()];
+    let mut stamp = 1u32;
+    let mut stack = [NONE; 4 * 64 + 1];
+    for (rank, it) in tk.avail.iter().enumerate() {
+        if rank >= n || tk.via[rank].0 == u16::MAX {
+            continue;
+        }
+        stamp = stamp.wrapping_add(1);
+        if stamp == 0 {
+            seen.fill(0);
+            stamp = 1;
+        }
+        let mut sum_w = 0.0f32;
+        let mut sum_wl = 0.0f32;
+        stack[0] = it;
+        let mut sp = 1usize;
+        let mut guard = 0u32;
+        while sp > 0 {
+            sp -= 1;
+            let i = stack[sp];
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+            let iu = i as usize;
+            if iu >= NITEMS {
+                continue;
+            }
+            let rr = rank_of[iu];
+            if rr == u16::MAX || rr as usize >= n {
+                continue;
+            }
+            let k = tk.via[rr as usize].0;
+            if k == u16::MAX {
+                continue;
+            }
+            let ki = k as usize;
+            if ki >= known.len() || seen[ki] == stamp {
+                continue;
+            }
+            seen[ki] = stamp;
+            let m = ms.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
+            let rec = known[ki].recipe as usize;
+            let Some(recipe) = reg.recipes.get(rec) else { continue };
+            let w = chain_weight(recipe.p);
+            sum_w += w;
+            sum_wl += w * m.ln();
+            for &j in &recipe.inputs {
+                if j != NONE && sp < stack.len() {
+                    stack[sp] = j;
+                    sp += 1;
+                }
+            }
+        }
+        if sum_w > 0.0 {
+            tk.chain[rank] = (sum_wl / sum_w).exp();
         }
     }
 }

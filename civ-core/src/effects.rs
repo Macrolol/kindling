@@ -54,6 +54,24 @@ pub const USE_TEACH_P: f32 = 0.2;
 pub const USE_TEACH_SHARE: f32 = 0.15;
 /// (skills step 2) Half-width of a novice's season-to-season yield factor at `u_eff` 0.
 pub const NOVICE_SD: f32 = 0.3;
+/// (skills step 3) Share of another recipe's skill that carries to a recipe of the
+/// same technique. Steel-making is its own technique, so hot-forging does not carry.
+pub const TECH_CARRY: f32 = 0.5;
+/// (skills step 3) Floor on a chain step's maker skill inside the log, so a zero
+/// does not wipe the geometric mean.
+pub const CHAIN_EPS: f32 = 0.05;
+/// (skills step 3) Floor on a step's weight `max(-ln p, CHAIN_W_MIN)`. A sure step
+/// still counts a little; a hard step (small `p`) counts more.
+pub const CHAIN_W_MIN: f32 = 0.1;
+/// (skills step 3) Extra upkeep of an unskilled maker: labour is multiplied by
+/// `1 + MAKER_WASTE * (1 - m_item)`. Not applied yet.
+pub const MAKER_WASTE: f32 = 0.8;
+/// (skills step 3) Extra marginal material draw of an unskilled maker:
+/// `1 + MAKER_SCRAP * (1 - m)`. Not applied yet.
+pub const MAKER_SCRAP: f32 = 1.0;
+/// (skills step 3) Season failure chance at maker skill 0, times `(1 - m_item)^2`.
+/// Not applied yet.
+pub const MAKER_FAIL: f32 = 0.25;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 /// All-ones effective skill: the nominal view, and a trial's potential.
