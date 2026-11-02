@@ -170,3 +170,31 @@ against step 1:
   - (a) run 41490059983 (seeds 1..10, 500 y, 256x160): crossings 5/10 (limit 6), the same five
     seeds, earliest Y130 (step 1: Y112); war 0.347 %/y (step 1: 0.334 by the same script);
     total population 1.291M (step 1: 1.208M, +6.8%); no collapse.
+  - (b) run 41490072122 (seeds 499246292..301, 750 y, 800x800): crossings 1/10 (limit under 7),
+    Y622 (step 1: Y624); war 0.273 %/y over all 10 seeds, about 0.30 over the 9 live ones (step
+    1: 0.273 and about 0.30); total population 8.42M (step 1: 8.14M, +3.4%); seed 499246298 dies
+    early (Y210) as expected. Sim time 15 991 s against 12 490 s (+28%); the slowest job
+    (seeds 292-293) ran about 107 minutes of the 150 allowed.
+  - No crossing before Y100 in either check. All guard rails pass; population is within 10% in
+    both checks.
+  - v15 saves: loaded locally (above) and by the `fill_use_skill` test.
+
+Probe, (a) run 41490059983 (`probe: true`, 256x160, 500 y). Seeds 6-10 finished (73 min); seeds
+1-5 were still running when this was written. Compared with the step 0 256x160 probe (seeds 1-5,
+1000 y, so a rough comparison):
+  - Of 1.69M adoptions with a choice: worse in true food 15.6% (tie 51.7%), in true value 14.2%
+    (tie 41.3%), by own valuation 8.8% (tie 32.5%); worse_held 3.9% of 47.6M held band-years
+    (food 3.5%). Step 0: 11.2%, 12.6%, 0.0%, 9.9%.
+  - Iron over steel is mostly gone: iron knife or iron-tipped spear held over its steel form is
+    5 764 band-years (0.3% of worse-held, 0.01% of held band-years); step 0 had about 7.2M (about
+    a fifth of worse-held, 2.1% of held band-years). Adoptions of iron over steel: 11 462 (4.8% of
+    worse adoptions; step 0 iron knife over steel knife alone 173 397, 28%).
+  - New top pair: copper axe held over steel axe, 438 316 band-years (24% of worse-held; step 0
+    234k), plus 67 168 worse adoptions; then plant fibre net over flax net (673k held, as in step
+    0) and iron knife over flint blade (66k). Axes are the next thing to look at.
+  - Measure gap: "worse by own valuation" was 0.0% by construction and is now 8.8%. The probe's
+    `own_value` (probe_diffusion.rs) sums `slot_score` on the band's view, but the kit choice now
+    also scores food at the band's own skill (`choose_food` at `view.user`), so the probe no
+    longer measures quite what the band ranks by. Also `true_value` is at full skill, so some
+    "worse in true value" picks are right for a novice band. The probe needs updating (step 4 or
+    sooner); this is not a sim bug.
