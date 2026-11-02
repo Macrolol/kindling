@@ -26,8 +26,8 @@ no population collapse.
 | # | step | status |
 |---|---|---|
 | 0 | Measure first: probe fixes (3.8), new counters and YearStats fields (zero yet) | done |
-| 1 | Layer 1 and blade scoring | done on this branch |
-| 2 | User skill by form, save 16 | not started |
+| 1 | Layer 1 and blade scoring | done |
+| 2 | User skill by form, save 16 | done on this branch |
 | 3 | Maker skill | not started |
 | 4 | Beliefs | not started |
 | 5 | Layer 2: risk and trials | not started |
@@ -138,3 +138,35 @@ Guard rails on branch head c416994 (archive=false), files docs/results-skills-st
     (step 0: 8.10M, +0.6%); seed 499246298 dies early as expected.
   - No crossing before Y100 in either check. All guard rails pass.
   - Probes for step 1 were not run (optional; they need sim_timeout 300).
+
+## Step 2. User skill by form, save 16 (done on branch skills-step2, PR #4)
+
+Code (passes 1-3 by Grok Build, review fix by Build Bot): save format 16 and band layout 3 with a
+per-form `use_skill` table (v15 saves get it filled by `fill_use_skill`); the form-to-form motion
+`transfer` table and `u_eff`; `user_factor` scales a tool's payoff by the band's skill with its
+form, with the novice spread; `choose_food` / `price_of` score at the band's own skill and at full
+skill (`USER_FULL`); `practise_use` (founders start at 0.7 in generation 0, practice starts from
+max(own, u_eff)), fade, `inherit_use` (x0.9) and teaching through kin or a close tie; YearStats
+`use_skill` means. Commits 35017da, 4c45f01, e44bd7e, ed1d286, 1009816.
+
+Local checks on 1009816 (RAYON_NUM_THREADS=4):
+- `cargo test --release --workspace`: 100 passed, 6 ignored. `build-web`: OK.
+- A v15 save (main, seed 1, 128x80, Y200) loads on the branch and runs on to Y250 (pop 30083).
+- Probe seed 1, 128x80, 200 y: worse in true food 2.1% (step 1: 3.6%), worse in true value 1.7%
+  (4.0%), worse_held 0.3% (3.3%; food 0.5%, step 1 2.3%). Population 23118 (step 1: 17972; one
+  seed in its growth phase). No band reached steel by Y200, so iron-over-steel is read from the
+  (a) probe below.
+- Bench, local (seed 5, 128x80, 300 y, 1 thread): about 32-33 s against main 26.5-28 s, about
+  +21%; the review fix 1009816 (sparse transfer list in `u_eff`, reuse of the recipe qualities
+  for the full-skill food) took back 2-3 s and is bit-identical. The rest is the second
+  `choose_food` scoring at full skill and about 15% more `knowledge::closure` calls.
+- Bench, GitHub (run 41490084690, seed 5, 300 y, default 256x160): main 77.1 s (1 thread, pop
+  111 687); branch 69.3 s (pop 140 788), 45.9 s with 2 threads, 39.0 s with 4. Faster with more
+  people at this size, so the 128x80 slowdown does not carry over. The bench gate is at steps 1,
+  4 and 5, so this is noted, not blocking.
+
+Guard rails on branch head 1009816 (archive=false), files docs/results-skills-step2-*.txt,
+against step 1:
+  - (a) run 41490059983 (seeds 1..10, 500 y, 256x160): crossings 5/10 (limit 6), the same five
+    seeds, earliest Y130 (step 1: Y112); war 0.347 %/y (step 1: 0.334 by the same script);
+    total population 1.291M (step 1: 1.208M, +6.8%); no collapse.
