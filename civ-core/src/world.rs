@@ -6,7 +6,9 @@
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
-use crate::effects::{food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView};
+use crate::effects::{
+    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_PRACTICE,
+};
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -1005,13 +1007,53 @@ impl World {
                 craft: culture.iter().map(|c| (c * (0.15 * rng.gauss()).exp()).clamp(0.2, 4.0)).collect(),
                 ..Default::default()
             };
-            b.start_skills();
+            // Decision R1: founders start at USE_FOUNDER on every form of the kit
+            // they are founded with, and practice floors a gen == 0 band at
+            // USE_FOUNDER on a form it uses. A fresh world does not stay at the
+            // novice factor.
+            w.seed_founder_skills(&mut b);
             w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
         }
         w.rng_state = rng.0;
         w.archive.begun = Some(0);
         w
+    }
+
+    /// (skills step 2) Decision R1. `start_skills` zeros `use_skill`; this then
+    /// sets `USE_FOUNDER` on every form of the kit the founder is actually
+    /// founded with, and refits until that kit and those skills agree. Practice
+    /// applies the same floor to a `gen == 0` band on a form it uses later.
+    fn seed_founder_skills(&self, b: &mut Band) {
+        b.start_skills();
+        let mut raws = ItemSet::default();
+        let mut tk = Toolkit::default();
+        let mut kit = Kit::default();
+        let mut stable = false;
+        for _ in 0..8 {
+            raws = self.raws_at(b);
+            tk = closure(&self.reg, &b.known, &raws, b.flame);
+            kit = self.fit_kit(b, &tk);
+            let mut want = [0.0f32; NFORM];
+            for &it in kit.used_items().iter() {
+                if valid_item(it) {
+                    want[form(it) as usize] = USE_FOUNDER;
+                }
+            }
+            if b.use_skill.as_slice() == want.as_slice() {
+                stable = true;
+                break;
+            }
+            b.use_skill = want.to_vec();
+        }
+        if !stable {
+            raws = self.raws_at(b);
+            tk = closure(&self.reg, &b.known, &raws, b.flame);
+            kit = self.fit_kit(b, &tk);
+        }
+        b.d.tk = tk;
+        b.d.kit = kit;
+        b.d.tk_key = Some((raws, b.flame, b.d.known_ver));
     }
 
     pub fn year(&self) -> f32 {
@@ -1843,6 +1885,13 @@ impl World {
             upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0);
             used.push(ch);
         }
+        // one bit per form, trial included. The `used` vec already exists; this adds none.
+        let mut used_forms = 0u32;
+        for &it in &used {
+            if valid_item(it) {
+                used_forms |= 1u32 << (form(it) as u32);
+            }
+        }
         let upkeep_l = upkeep * labour;
         // fields and herds: tending fields and minding animals take labour every season
         let fm = self.farm_terms(b, &cells, t);
@@ -1939,6 +1988,7 @@ impl World {
             upkeep,
             needed,
             used,
+            used_forms,
             food_ratio: 0.0,
             store_after: 0.0,
             spare,
@@ -2121,6 +2171,9 @@ impl World {
                 forgot.push(k.recipe);
             }
         }
+        // user skill: the form of each item used this season (a trial counts),
+        // then the same floss fades every other form that is above 0
+        practise_use(&mut b.use_skill, ec.used_forms, floss, b.gen);
         b.d.kit_dirty = true;
         if !forgot.is_empty() {
             b.known.retain(|k| k.skill >= 0.04);
@@ -4416,6 +4469,33 @@ pub fn practise(k: &mut Known, practice: f32, floss: f32, tick: u32, at_hand: bo
     }
 }
 
+/// One season of user skill. `used` is the economy's form bitmask (each form
+/// once, trial included). `u_eff` is taken from the skills as they stood, so
+/// this season's practice does not transfer onward until next season.
+/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on a
+/// form it uses, before the practice step. An unused form above 0 fades by
+/// `USE_FADE_X * floss` (the recipe forgetting rate) and clamps at 0.
+pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u32) {
+    if use_skill.len() != NFORM {
+        return;
+    }
+    let ue = u_eff(use_skill);
+    let founder = gen == 0;
+    for g in 0..NFORM {
+        let u0 = use_skill[g];
+        if used & (1u32 << g) != 0 {
+            let mut u = if u0 > ue[g] { u0 } else { ue[g] };
+            if founder && u < USE_FOUNDER {
+                u = USE_FOUNDER;
+            }
+            use_skill[g] = u + USE_PRACTICE * (1.0 - u);
+        } else if u0 > 0.0 {
+            let u = u0 - USE_FADE_X * floss;
+            use_skill[g] = if u > 0.0 { u } else { 0.0 };
+        }
+    }
+}
+
 /// (diffusion D4) Extra weight a recipe gets, when one is shown to another band, per share of
 /// its inputs the learner already has at hand.
 pub const TEACH_USABLE: f32 = 3.0;
@@ -4446,6 +4526,9 @@ pub struct Econ {
     pub upkeep: f32,
     pub needed: u32,
     pub used: Vec<Item>,
+    /// Forms of `used`, one bit per form (`1 << form as u32`). The D3 trial is
+    /// included, because it is pushed onto `used`. No extra allocation.
+    pub used_forms: u32,
     pub food_ratio: f32,
     pub store_after: f32,
     pub spare: f32,

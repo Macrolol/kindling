@@ -512,7 +512,8 @@ impl Band {
     }
 
     /// (skills step 2) Starting values of the format-16 fields. `use_skill` is one
-    /// zero per form (not inherited — daughters get the same zeros in this pass).
+    /// zero per form. Founders then set `USE_FOUNDER` on the forms of their kit,
+    /// and both daughter sites overwrite it with `USE_INHERIT` of the parent.
     /// `learn_curve` is `LC_PRIOR`, `last_fight_switch` is never, beliefs are
     /// empty, and fight calibration and the raid tallies are 0.
     pub fn start_skills(&mut self) {

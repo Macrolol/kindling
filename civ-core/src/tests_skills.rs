@@ -4,11 +4,11 @@ use crate::band::{edge_q, Band, Kit};
 use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
     food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
-    tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_TRANSFER,
-    WORK_SHARE,
+    tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_FADE_X,
+    USE_FOUNDER, USE_PRACTICE, USE_TRANSFER, WORK_SHARE,
 };
 use crate::materials::*;
-use crate::world::PITCH_GLUE;
+use crate::world::{practise_use, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -1025,4 +1025,134 @@ fn economy_novice_spread_tracks_skill() {
     w.tick = 1;
     let n1 = w.economy(&w.bands[0], 0).h;
     assert_ne!(n0.map(f32::to_bits), n1.map(f32::to_bits), "a novice's harvest moves with the tick");
+}
+
+fn knife_kit(it: Item, edge_u: f32) -> Kit {
+    let mut avail = ItemSet::default();
+    avail.add(it);
+    let mut user = [1.0f32; NFORM];
+    user[Form::Edge as usize] = edge_u;
+    let view = BandView { user, ..BandView::nominal() };
+    make_kit_with_view(&avail, &|_| (1.0, 0.0, 0), &view)
+}
+
+/// An iron knife and a steel knife are the same form, so the band keeps its edge skill.
+/// The cut yield does not fall from the user factor; a reset skill would cut it.
+#[test]
+fn iron_to_steel_keeps_knife_skill() {
+    let mut sk = vec![0.0; NFORM];
+    sk[Form::Edge as usize] = 0.8;
+    let before = u_eff(&sk);
+    let after = u_eff(&sk);
+    assert_eq!(before[Form::Edge as usize].to_bits(), after[Form::Edge as usize].to_bits());
+    assert_eq!(before[Form::Edge as usize], 0.8);
+    let u = before[Form::Edge as usize];
+    let iron = knife_kit(item(Form::Edge, Mat::Iron), u);
+    let steel = knife_kit(item(Form::Edge, Mat::Steel), u);
+    let dropped = knife_kit(item(Form::Edge, Mat::Steel), 0.0);
+    assert_eq!((iron.cut, steel.cut), (item(Form::Edge, Mat::Iron), item(Form::Edge, Mat::Steel)));
+    assert!(steel.game_m >= iron.game_m, "game {} vs {}", steel.game_m, iron.game_m);
+    assert!(steel.farm_m >= iron.farm_m, "farm {} vs {}", steel.farm_m, iron.farm_m);
+    assert!(steel.game_m > dropped.game_m, "reset skill would cut game: {} vs {}", steel.game_m, dropped.game_m);
+    assert!(steel.farm_m > dropped.farm_m, "reset skill would cut farm: {} vs {}", steel.farm_m, dropped.farm_m);
+    assert_eq!(user_factor(u).to_bits(), user_factor(u_eff(&sk)[Form::Edge as usize]).to_bits());
+}
+
+/// A first bow is not stored skill. It starts at the transfer from forms the band
+/// already has (point shares aim; a spear alone does not, its profile misses the bow).
+#[test]
+fn first_bow_starts_at_its_transfer() {
+    let mut sk = vec![0.0; NFORM];
+    sk[Form::Spear as usize] = 0.9;
+    sk[Form::Point as usize] = 0.8;
+    assert_eq!(sk[Form::Bow as usize], 0.0);
+    let t = transfer_table();
+    let mut m = 0.0f32;
+    for f in 0..NFORM {
+        m = m.max(t[f][Form::Bow as usize] * sk[f]);
+    }
+    assert!(m > 0.0, "throw/aim overlap with the point reaches the bow");
+    assert_eq!(t[Form::Spear as usize][Form::Bow as usize], 0.0);
+    let u = u_eff(&sk);
+    assert_eq!(u[Form::Bow as usize].to_bits(), m.to_bits());
+    let mut practised = sk.clone();
+    practise_use(&mut practised, 1u32 << Form::Bow as u32, 0.0, 3);
+    let expect = m + USE_PRACTICE * (1.0 - m);
+    assert_eq!(practised[Form::Bow as usize].to_bits(), expect.to_bits());
+    assert!(practised[Form::Bow as usize] > USE_PRACTICE, "not a start from zero");
+}
+
+/// Founders are at USE_FOUNDER on whatever forms their starting kit holds, and a
+/// founding band's first season of a new form is floored there before practice.
+#[test]
+fn founders_start_at_use_founder() {
+    let w = world();
+    assert!(!w.bands.is_empty());
+    for b in &w.bands {
+        assert_eq!(b.gen, 0);
+        assert_eq!(b.use_skill.len(), NFORM);
+        for &it in b.d.kit.used_items().iter() {
+            if valid_item(it) {
+                assert_eq!(b.use_skill[form(it) as usize], USE_FOUNDER, "{:?}", form(it));
+            }
+        }
+        for f in 0..NFORM {
+            let in_kit = b.d.kit.used_items().iter().any(|&it| valid_item(it) && form(it) as usize == f);
+            if !in_kit {
+                assert_eq!(b.use_skill[f], 0.0, "form {f} is not in the starting kit");
+            }
+        }
+    }
+    let mut sk = vec![0.0; NFORM];
+    practise_use(&mut sk, 1u32 << Form::Edge as u32, 0.02, 0);
+    let expect = USE_FOUNDER + USE_PRACTICE * (1.0 - USE_FOUNDER);
+    assert_eq!(sk[Form::Edge as usize].to_bits(), expect.to_bits());
+    assert_eq!(sk[Form::Bow as usize], 0.0);
+}
+
+/// A used form climbs toward 1. An unused one fades by USE_FADE_X * floss and stops at 0.
+#[test]
+fn practice_raises_and_fade_lowers() {
+    let mut sk = vec![0.0; NFORM];
+    sk[Form::Edge as usize] = 0.5;
+    sk[Form::Axe as usize] = 0.4;
+    sk[Form::Net as usize] = 0.001;
+    let floss = 0.02;
+    let before = sk.clone();
+    practise_use(&mut sk, 1u32 << Form::Edge as u32, floss, 4);
+    let ue = u_eff(&before);
+    let mut edge = if before[Form::Edge as usize] > ue[Form::Edge as usize] { before[Form::Edge as usize] } else { ue[Form::Edge as usize] };
+    edge += USE_PRACTICE * (1.0 - edge);
+    assert_eq!(sk[Form::Edge as usize].to_bits(), edge.to_bits());
+    assert!(sk[Form::Edge as usize] > 0.5 && sk[Form::Edge as usize] < 1.0);
+    let axe = 0.4 - USE_FADE_X * floss;
+    assert_eq!(sk[Form::Axe as usize].to_bits(), axe.to_bits());
+    assert!(sk[Form::Axe as usize] < 0.4);
+    assert_eq!(sk[Form::Net as usize], 0.0, "fade clamps at 0");
+    // another season of the edge, still climbing, never past 1 from below
+    let mut high = vec![0.0; NFORM];
+    high[Form::Edge as usize] = 1.0;
+    practise_use(&mut high, 1u32 << Form::Edge as u32, floss, 4);
+    assert_eq!(high[Form::Edge as usize], 1.0);
+}
+
+/// The economy's form bitmask is exactly the forms of `used`, trial included.
+#[test]
+fn economy_used_forms_match_used_items() {
+    let w = world();
+    let ec = w.economy(&w.bands[0], 0);
+    let mut bits = 0u32;
+    for &it in &ec.used {
+        assert!(valid_item(it));
+        bits |= 1u32 << (form(it) as u32);
+    }
+    assert_eq!(ec.used_forms, bits);
+    let mut seen = [0u32; NFORM];
+    for &it in &ec.used {
+        seen[form(it) as usize] += 1;
+    }
+    for (f, &n) in seen.iter().enumerate() {
+        let on = ec.used_forms & (1u32 << f) != 0;
+        assert_eq!(on, n > 0, "form {f} counted {n}");
+    }
 }
