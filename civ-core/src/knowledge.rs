@@ -1,7 +1,7 @@
 //! Recipes (discovered action + inputs -> output), per-band knowledge, and the "toolkit": which
 //! items a band can actually produce right now from what it knows and the materials it can reach.
 use crate::materials::*;
-use crate::physics::{Action, Inputs};
+use crate::physics::{cold_workable, Action, Inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -118,6 +118,29 @@ impl Recipe {
     }
 }
 
+/// (skills step 3) How a recipe is made, derived from its action, inputs and output.
+/// Stored on the registry, never in the save. `Other` carries no maker skill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Tech {
+    Knapping = 0,
+    GrindCarve,
+    CordageNetting,
+    Hafting,
+    Sewing,
+    SpinWeave,
+    PottingFiring,
+    FireMaking,
+    Cooking,
+    ColdHammer,
+    Smelting,
+    Casting,
+    HotForging,
+    SteelMaking,
+    BoatBuilding,
+    Other,
+}
+
 /// Global registry of every recipe any band has ever found.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -130,6 +153,9 @@ pub struct Registry {
     /// taught on. Derived on load, never saved
     #[serde(skip)]
     retired: Vec<bool>,
+    /// (skills step 3) technique of each recipe. Derived, never saved
+    #[serde(skip)]
+    tech: Vec<Tech>,
 }
 /// A recipe from an older save that today's physics would not allow: (inventions step 11b) a
 /// gold nugget beaten into a ring with a hammerstone (gold is now cast; see `physics::heat`);
@@ -148,6 +174,128 @@ pub fn is_retired(r: &Recipe) -> bool {
 pub fn is_legacy_gold(r: &Recipe) -> bool {
     r.action == Action::Shape as u8 && r.inputs[0] == item(Form::Raw, Mat::Gold)
 }
+
+/// Technique of `r`, from its action, inputs and output (the physics comments).
+/// Anything that matches no named branch is `Other`.
+pub fn technique(r: &Recipe) -> Tech {
+    match r.action() {
+        Action::Shape => technique_shape(r),
+        Action::Combine => technique_combine(r),
+        Action::Heat => technique_heat(r),
+    }
+}
+
+fn technique_shape(r: &Recipe) -> Tech {
+    let target = r.inputs[0];
+    let tool = r.inputs[1];
+    let (tf, tm) = (form(target), mat(target));
+    match form(r.output) {
+        // A hard cobble picked up as a pounder. Not a named technique.
+        Form::Hammer => Tech::Other,
+        Form::Edge => {
+            if tf == Form::Raw && cold_workable(tm) {
+                Tech::ColdHammer
+            } else {
+                Tech::Knapping
+            }
+        }
+        Form::Cord | Form::Net => Tech::CordageNetting,
+        Form::Vessel => {
+            if tf == Form::Cord {
+                Tech::CordageNetting
+            } else {
+                Tech::PottingFiring
+            }
+        }
+        // Digging stick, carved shaft, sharpened spear, bow, bead, pendant.
+        Form::Shaft | Form::Spear | Form::Bow | Form::Ornament => Tech::GrindCarve,
+        Form::Plank | Form::Boat => Tech::BoatBuilding,
+        Form::Mould => Tech::PottingFiring,
+        // A clay token pressed with a point. A tally is a combine, not a shape.
+        Form::Mark => {
+            if tm.props().plastic >= 6.0 {
+                Tech::PottingFiring
+            } else {
+                Tech::Other
+            }
+        }
+        Form::Point => {
+            if tf == Form::Edge && cold_workable(tm) && form(tool) == Form::Hammer {
+                Tech::ColdHammer
+            } else if tf == Form::Edge && tm.props().fracture >= 5.0 {
+                Tech::Knapping
+            } else {
+                // Carved bone, or a cast blade ground on a stone.
+                Tech::GrindCarve
+            }
+        }
+        _ => Tech::Other,
+    }
+}
+
+fn technique_combine(r: &Recipe) -> Tech {
+    match form(r.output) {
+        Form::Spear | Form::Axe | Form::Trap | Form::Frame | Form::Bellows | Form::Loom => Tech::Hafting,
+        // A shield is the inland hide-on-a-frame lashing (the same inputs make a
+        // skin boat at the water): the work of a bellows, a frame or a loom.
+        Form::Shield => Tech::Hafting,
+        Form::Boat | Form::Outrigger | Form::Sail | Form::Ship | Form::Plank => Tech::BoatBuilding,
+        Form::Cloth => Tech::SpinWeave,
+        Form::Crucible => Tech::Casting,
+        Form::Jar => {
+            if mat(r.output) == Mat::Grain {
+                Tech::Cooking
+            } else {
+                Tech::PottingFiring
+            }
+        }
+        Form::Garment => Tech::Sewing,
+        Form::Mark => Tech::GrindCarve,
+        Form::Fire | Form::Kiln => Tech::FireMaking,
+        _ => Tech::Other,
+    }
+}
+
+fn technique_heat(r: &Recipe) -> Tech {
+    let (out_f, out_m) = (form(r.output), mat(r.output));
+    // The smith's hearth (and the old furnace recipe) whose output is a steel bar.
+    if out_f == Form::Raw && out_m == Mat::Steel {
+        return Tech::SteelMaking;
+    }
+    // Open charcoal hearth: bellows sit in the kiln slot. Blades and points
+    // forged there are hot-forging; the steel bar already returned above.
+    if r.inputs[3] != NONE && form(r.inputs[3]) == Form::Bellows {
+        return if matches!(out_f, Form::Edge | Form::Point) { Tech::HotForging } else { Tech::Other };
+    }
+    let crucible = r.inputs.iter().any(|&i| i != NONE && form(i) == Form::Crucible);
+    match out_f {
+        Form::Cooked => Tech::Cooking,
+        Form::Bloom => Tech::Smelting,
+        Form::Ornament => Tech::Casting,
+        // Fire a moulded pot, a clay token or a mould.
+        Form::Vessel | Form::Mark | Form::Mould => Tech::PottingFiring,
+        Form::Edge | Form::Point => {
+            if crucible {
+                Tech::Casting
+            } else {
+                Tech::HotForging
+            }
+        }
+        Form::Raw => match out_m {
+            Mat::Salt | Mat::Pitch => Tech::Cooking,
+            Mat::Charcoal => Tech::FireMaking,
+            // Tin stirred into molten copper. Ores fired together are smelting.
+            Mat::Bronze if crucible => Tech::Casting,
+            Mat::Bronze => Tech::Smelting,
+            // Bloom hammered to a wrought bar.
+            Mat::Iron => Tech::HotForging,
+            Mat::Copper | Mat::Tin | Mat::Gold => Tech::Smelting,
+            _ => Tech::Other,
+        },
+        _ => Tech::Other,
+    }
+}
+
 impl Registry {
     pub fn rebuild_index(&mut self) {
         self.index = self
@@ -157,10 +305,15 @@ impl Registry {
             .map(|(i, r)| ((r.action, r.inputs), i as u32))
             .collect();
         self.retired = self.recipes.iter().map(is_retired).collect();
+        self.tech = self.recipes.iter().map(technique).collect();
     }
     /// (inventions step 11b) see `retired`
     pub fn retired(&self, id: u32) -> bool {
         self.retired.get(id as usize).copied().unwrap_or(false)
+    }
+    /// Technique label of recipe `id`. `Other` when the id is unknown.
+    pub fn tech(&self, id: u32) -> Tech {
+        self.tech.get(id as usize).copied().unwrap_or(Tech::Other)
     }
     pub fn find(&self, action: Action, inputs: &Inputs) -> Option<u32> {
         self.index.get(&(action as u8, *inputs)).copied()
@@ -170,6 +323,8 @@ impl Registry {
         self.index.insert((r.action, r.inputs), id);
         self.retired.resize(id as usize, false);
         self.retired.push(is_retired(&r));
+        self.tech.resize(id as usize, Tech::Other);
+        self.tech.push(technique(&r));
         self.recipes.push(r);
         id
     }

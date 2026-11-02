@@ -7,7 +7,9 @@ use crate::effects::{
     tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_FADE_X,
     USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
+use crate::knowledge::{technique, Recipe, Registry, Tech};
 use crate::materials::*;
+use crate::physics::{canonical, Action};
 use crate::rng::Rng;
 use crate::world::fx::{Fx, Pair};
 use crate::world::{inherit_use, practise_use, CLOSE_TIE, PITCH_GLUE};
@@ -1346,4 +1348,194 @@ fn yearstats_use_skill_matches_kit_means() {
     assert_eq!(h.use_skill_bow.to_bits(), mean(Form::Bow).to_bits());
     assert_eq!(h.use_skill_net.to_bits(), mean(Form::Net).to_bits());
     assert_eq!(h.use_skill_boat.to_bits(), mean(Form::Boat).to_bits());
+}
+
+fn shape_recipe(target: Item, tool: Item, output: Item) -> Recipe {
+    Recipe { action: Action::Shape as u8, inputs: [target, tool, NONE, NONE], output, p: 0.5, ..Default::default() }
+}
+
+fn combine_recipe(items: [Item; 3], output: Item) -> Recipe {
+    Recipe { action: Action::Combine as u8, inputs: canonical(Action::Combine, [items[0], items[1], items[2], NONE]), output, p: 0.5, ..Default::default() }
+}
+
+fn heat_recipe(a: Item, b: Item, fire: Item, kiln: Item, output: Item) -> Recipe {
+    Recipe { action: Action::Heat as u8, inputs: canonical(Action::Heat, [a, b, fire, kiln]), output, p: 0.5, ..Default::default() }
+}
+
+/// Seed 1, 128×80, 300y. The only discovered recipe with no named technique
+/// is picking up a stone cobble as a hammerstone (physics: "a hard, tough
+/// cobble picked and used as a pounder"). `Other` carries nothing.
+const OTHER_RECIPES_SEED1: &[&str] = &["shape stone with bare hands -> stone hammerstone"];
+
+/// Every recipe a seeded world actually reaches has a named technique, except
+/// the hammerstone line above. Steel bar is steel-making; both knives are
+/// hot-forging. The table below locks the same labels on one recipe per branch
+/// before the world is run.
+#[test]
+fn technique_labels_on_a_seeded_world() {
+    let stone = item(Form::Raw, Mat::Stone);
+    let flint = item(Form::Raw, Mat::Flint);
+    let fibre = item(Form::Raw, Mat::Fibre);
+    let hide = item(Form::Raw, Mat::Hide);
+    let clay = item(Form::Raw, Mat::Clay);
+    let wood = item(Form::Raw, Mat::Wood);
+    let bone = item(Form::Raw, Mat::Bone);
+    let copper = item(Form::Raw, Mat::Copper);
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let tin = item(Form::Raw, Mat::Tin);
+    let cu_ore = item(Form::Raw, Mat::CopperOre);
+    let tin_ore = item(Form::Raw, Mat::TinOre);
+    let iron_ore = item(Form::Raw, Mat::IronOre);
+    let brine = item(Form::Raw, Mat::Brine);
+    let resin = item(Form::Raw, Mat::ResinWood);
+    let meat = item(Form::Raw, Mat::Meat);
+    let grain = item(Form::Raw, Mat::Grain);
+    let pitch = item(Form::Raw, Mat::Pitch);
+    let charcoal = item(Form::Raw, Mat::Charcoal);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let flint_edge = item(Form::Edge, Mat::Flint);
+    let cu_edge = item(Form::Edge, Mat::Copper);
+    let bronze_edge = item(Form::Edge, Mat::Bronze);
+    let iron_edge = item(Form::Edge, Mat::Iron);
+    let obsidian_point = item(Form::Point, Mat::Obsidian);
+    let bone_point = item(Form::Point, Mat::Bone);
+    let cu_point = item(Form::Point, Mat::Copper);
+    let iron_point = item(Form::Point, Mat::Iron);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let fibre_cord = item(Form::Cord, Mat::Fibre);
+    let flax_cord = item(Form::Cord, Mat::Flax);
+    let hide_cord = item(Form::Cord, Mat::Hide);
+    let clay_pot = item(Form::Vessel, Mat::Clay);
+    let fibre_basket = item(Form::Vessel, Mat::Fibre);
+    let hide_bag = item(Form::Vessel, Mat::Hide);
+    let ceramic = item(Form::Vessel, Mat::Ceramic);
+    let clay_mould = item(Form::Mould, Mat::Clay);
+    let fired_mould = item(Form::Mould, Mat::Ceramic);
+    let crucible = item(Form::Crucible, Mat::Copper);
+    let gold_pot = item(Form::Crucible, Mat::Gold);
+    let bloom = item(Form::Bloom, Mat::Iron);
+    let axe = item(Form::Axe, Mat::Copper);
+    let plank = item(Form::Plank, Mat::Wood);
+    let loom = item(Form::Loom, Mat::Wood);
+    let cloth = item(Form::Cloth, Mat::Flax);
+    let fire = item(Form::Fire, Mat::Wood);
+    let char_fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let jar = item(Form::Jar, Mat::Ceramic);
+
+    let cases = [
+        (shape_recipe(stone, NONE, hammer), Tech::Other),
+        (shape_recipe(flint, hammer, flint_edge), Tech::Knapping),
+        (shape_recipe(flint_edge, bone_point, item(Form::Point, Mat::Flint)), Tech::Knapping),
+        (shape_recipe(fibre, NONE, fibre_cord), Tech::CordageNetting),
+        (shape_recipe(hide, flint_edge, hide_cord), Tech::CordageNetting),
+        (shape_recipe(fibre_cord, shaft, item(Form::Net, Mat::Fibre)), Tech::CordageNetting),
+        (shape_recipe(fibre_cord, NONE, fibre_basket), Tech::CordageNetting),
+        (shape_recipe(wood, NONE, shaft), Tech::GrindCarve),
+        (shape_recipe(wood, flint_edge, shaft), Tech::GrindCarve),
+        (shape_recipe(bone, flint_edge, bone_point), Tech::GrindCarve),
+        (shape_recipe(shaft, flint_edge, item(Form::Spear, Mat::Wood)), Tech::GrindCarve),
+        (shape_recipe(shaft, fibre_cord, item(Form::Bow, Mat::Fibre)), Tech::GrindCarve),
+        (shape_recipe(cu_point, hammer, item(Form::Ornament, Mat::Copper)), Tech::GrindCarve),
+        (shape_recipe(obsidian_point, stone, item(Form::Ornament, Mat::Obsidian)), Tech::GrindCarve),
+        (shape_recipe(shaft, flint_edge, item(Form::Mark, Mat::Wood)), Tech::Other), // tally is a combine; this shape is not a recipe
+        (combine_recipe([shaft, flint_edge, NONE], item(Form::Mark, Mat::Wood)), Tech::GrindCarve),
+        (shape_recipe(bronze_edge, stone, item(Form::Point, Mat::Bronze)), Tech::GrindCarve),
+        (shape_recipe(copper, hammer, cu_edge), Tech::ColdHammer),
+        (shape_recipe(cu_edge, hammer, cu_point), Tech::ColdHammer),
+        (shape_recipe(clay, NONE, clay_pot), Tech::PottingFiring),
+        (shape_recipe(clay, flint_edge, clay_mould), Tech::PottingFiring),
+        (shape_recipe(clay, bone_point, item(Form::Mark, Mat::Clay)), Tech::PottingFiring),
+        (shape_recipe(wood, axe, plank), Tech::BoatBuilding),
+        (shape_recipe(wood, axe, item(Form::Boat, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([shaft, fibre_cord, bone_point], item(Form::Spear, Mat::Bone)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, flint_edge], item(Form::Axe, Mat::Flint)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, NONE], item(Form::Trap, Mat::Fibre)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, fibre_basket], item(Form::Frame, Mat::Fibre)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, hide_bag], bellows), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, stone], loom), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, hide], item(Form::Shield, Mat::Hide)), Tech::Hafting),
+        (combine_recipe([loom, flax_cord, NONE], cloth), Tech::SpinWeave),
+        (combine_recipe([hide, fibre_cord, bone_point], item(Form::Garment, Mat::Hide)), Tech::Sewing),
+        (combine_recipe([cloth, flax_cord, bone_point], item(Form::Garment, Mat::Flax)), Tech::Sewing),
+        (combine_recipe([shaft, fibre_cord, hide], item(Form::Boat, Mat::Hide)), Tech::BoatBuilding),
+        (combine_recipe([fibre, fibre_cord, NONE], item(Form::Boat, Mat::Fibre)), Tech::BoatBuilding),
+        (combine_recipe([item(Form::Boat, Mat::Wood), shaft, fibre_cord], item(Form::Outrigger, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([plank, shaft, cloth], item(Form::Sail, Mat::Flax)), Tech::BoatBuilding),
+        (combine_recipe([plank, pitch, iron_point], item(Form::Ship, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([copper, ceramic, NONE], crucible), Tech::Casting),
+        (combine_recipe([pitch, ceramic, NONE], jar), Tech::PottingFiring),
+        (combine_recipe([grain, jar, NONE], item(Form::Jar, Mat::Grain)), Tech::Cooking),
+        (combine_recipe([shaft, wood, NONE], fire), Tech::FireMaking),
+        (combine_recipe([fire, charcoal, NONE], char_fire), Tech::FireMaking),
+        (combine_recipe([fire, stone, NONE], kiln), Tech::FireMaking),
+        (heat_recipe(meat, NONE, fire, NONE, item(Form::Cooked, Mat::Meat)), Tech::Cooking),
+        (heat_recipe(brine, ceramic, fire, NONE, item(Form::Raw, Mat::Salt)), Tech::Cooking),
+        (heat_recipe(resin, ceramic, fire, NONE, pitch), Tech::Cooking),
+        (heat_recipe(wood, NONE, fire, kiln, charcoal), Tech::FireMaking),
+        (heat_recipe(clay_pot, NONE, fire, kiln, ceramic), Tech::PottingFiring),
+        (heat_recipe(clay_mould, NONE, fire, kiln, fired_mould), Tech::PottingFiring),
+        (heat_recipe(cu_ore, NONE, char_fire, kiln, copper), Tech::Smelting),
+        (heat_recipe(iron_ore, bellows, char_fire, kiln, bloom), Tech::Smelting),
+        (heat_recipe(cu_ore, tin_ore, char_fire, kiln, item(Form::Raw, Mat::Bronze)), Tech::Smelting),
+        (heat_recipe(crucible, tin, char_fire, kiln, item(Form::Raw, Mat::Bronze)), Tech::Casting),
+        (heat_recipe(crucible, fired_mould, char_fire, kiln, bronze_edge), Tech::Casting),
+        (heat_recipe(gold_pot, fired_mould, char_fire, kiln, item(Form::Ornament, Mat::Gold)), Tech::Casting),
+        (heat_recipe(bloom, hammer, char_fire, kiln, iron), Tech::HotForging),
+        (heat_recipe(iron, hammer, char_fire, kiln, iron_edge), Tech::HotForging),
+        (heat_recipe(iron_edge, hammer, char_fire, kiln, iron_point), Tech::HotForging),
+        (heat_recipe(steel, hammer, char_fire, kiln, item(Form::Edge, Mat::Steel)), Tech::HotForging),
+        (heat_recipe(iron, hammer, char_fire, bellows, steel), Tech::SteelMaking),
+        (heat_recipe(steel, hammer, char_fire, bellows, item(Form::Edge, Mat::Steel)), Tech::HotForging),
+    ];
+    // A shape that merely outputs a mark is not carving: the tally is a combine.
+    for (r, want) in &cases {
+        assert_eq!(technique(r), *want, "{} -> {}", r.describe(), item_name(r.output));
+    }
+    let mut reg = Registry::default();
+    let iron_knife = heat_recipe(iron, hammer, char_fire, kiln, iron_edge);
+    let id = reg.insert(iron_knife);
+    assert_eq!(reg.tech(id), Tech::HotForging);
+    assert_eq!(reg.tech(id), technique(&reg.recipes[id as usize]));
+    reg.rebuild_index();
+    assert_eq!(reg.tech(id), Tech::HotForging);
+    assert_eq!(reg.tech(u32::MAX), Tech::Other);
+
+    let mut w = World::new(Config { seed: 1, map_w: 128, map_h: 80, ..Default::default() }, Params::default());
+    for _ in 0..300 * 4 {
+        w.step();
+    }
+    let mut got: Vec<String> = Vec::new();
+    let (mut n_bar, mut n_iron, mut n_steel) = (0u32, 0u32, 0u32);
+    for (id, r) in w.reg.recipes.iter().enumerate() {
+        let tech = w.reg.tech(id as u32);
+        assert_eq!(tech, technique(r), "registry label drifted: {}", r.describe());
+        if tech == Tech::Other {
+            got.push(format!("{} -> {}", r.describe(), item_name(r.output)));
+        }
+        match item_name(r.output).as_str() {
+            "steel bar" => {
+                assert_eq!(tech, Tech::SteelMaking, "{}", r.describe());
+                n_bar += 1;
+            }
+            "iron knife" => {
+                assert_eq!(tech, Tech::HotForging, "{}", r.describe());
+                n_iron += 1;
+            }
+            "steel knife" => {
+                assert_eq!(tech, Tech::HotForging, "{}", r.describe());
+                n_steel += 1;
+            }
+            _ => {}
+        }
+    }
+    got.sort();
+    let expect: Vec<&str> = OTHER_RECIPES_SEED1.to_vec();
+    let got_ref: Vec<&str> = got.iter().map(|s| s.as_str()).collect();
+    assert_eq!(got_ref, expect, "Other recipes in seed 1, 128x80, 300y");
+    assert!(n_bar > 0, "no steel bar in seed 1, 128x80, 300y");
+    assert!(n_iron > 0, "no iron knife in seed 1, 128x80, 300y");
+    assert!(n_steel > 0, "no steel knife in seed 1, 128x80, 300y");
 }
