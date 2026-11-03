@@ -1731,7 +1731,8 @@ impl World {
         }
         {
             let mut tk = closure(&self.reg, &b.known, &raws, b.flame);
-            fill_chain(&self.reg, &b.known, &mut tk);
+            // Copy the previous walk only when every item still available is made the same way.
+            fill_chain_adopting(&self.reg, &b.known, &mut tk, Some(&b.d.tk));
             tk.set_chain_ver(b.d.skill_ver);
             let kit = self.fit_kit(b, &tk);
             b.d.fin_dirty = false;
@@ -3584,13 +3585,21 @@ impl World {
             return;
         }
         // One walk for every pick. Quality updates below do not change maker skill.
-        let ms = maker_skills_copy(reg, &b.known);
-        for _ in 0..n {
-            let i = used[rng.below(used.len())];
+        // The draws come first: nothing else here touches the rng, so the sequence matches
+        // drawing inside the loop.
+        let mut picks = [0usize; 4];
+        let nu = n as usize;
+        for i in 0..nu {
+            picks[i] = used[rng.below(used.len())];
+        }
+        let mut ms = [0.0f32; 4];
+        maker_skills_at(reg, &b.known, &picks[..nu], &mut ms[..nu]);
+        for i in 0..nu {
+            let idx = picks[i];
             // The recipe's own carried skill, not the item's chain skill. At 1 this is
             // `REFINE_STEP * room`, bit for bit.
-            let m = ms.get(i).copied().unwrap_or(0.0);
-            let k = &mut b.known[i];
+            let m = ms[i];
+            let k = &mut b.known[idx];
             let room = k.skill - k.quality;
             if room > 0.01 {
                 k.quality += REFINE_STEP * room * m;

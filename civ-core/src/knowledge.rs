@@ -369,6 +369,14 @@ struct ChainReplay {
     start: Vec<u32>,
     nstep: Vec<u32>,
     ready: bool,
+    /// Raw `Known::skill` bits the floats were computed from. Same length as `known`.
+    raw_bits: Vec<u32>,
+    /// Effective maker-skill bits, parallel to `raw_bits`.
+    eff_bits: Vec<u32>,
+    /// CSR over known-list indexes: ranks whose recorded walk includes that recipe.
+    /// `inv_start.len() == known + 1` when it matches the recording.
+    inv_start: Vec<u32>,
+    inv_rank: Vec<u16>,
 }
 
 /// What a band can produce right now.
@@ -553,13 +561,15 @@ pub fn maker_skill(reg: &Registry, known: &[Known], idx: usize) -> f32 {
     })
 }
 
-/// One copy of every known recipe's effective maker skill, for a caller that
-/// indexes it more than once (`refine`). The scratch buffer is reused.
-pub(crate) fn maker_skills_copy(reg: &Registry, known: &[Known]) -> Vec<f32> {
+/// Effective maker skill of `idx[i]`, written to `out[i]`. One walk, no allocation.
+/// A missing index reads as 0, same as `maker_skill` on an empty slot.
+pub(crate) fn maker_skills_at(reg: &Registry, known: &[Known], idx: &[usize], out: &mut [f32]) {
     CHAIN_SCRATCH.with(|cell| {
         let mut sc = cell.borrow_mut();
         maker_skills_into(reg, known, &mut sc.skills);
-        sc.skills.clone()
+        for (o, &i) in out.iter_mut().zip(idx.iter()) {
+            *o = sc.skills.get(i).copied().unwrap_or(0.0);
+        }
     })
 }
 
@@ -648,18 +658,267 @@ fn chain_weight(p: f32) -> f32 {
 /// season and meetings fill chains in parallel.
 struct ChainScratch {
     skills: Vec<f32>,
+    /// `ln(max(skill, CHAIN_EPS))` for each known recipe, filled with `skills`.
+    ln: Vec<f32>,
+    /// `chain_weight` of each known recipe for the fill currently recording. 0 means unset
+    /// (a real weight is at least `CHAIN_W_MIN`).
+    w: Vec<f32>,
     seen: Vec<u32>,
     rank_of: Vec<u16>,
     touched: Vec<u16>,
+    /// Ranks to recompute, or a count buffer while the inverted index is built.
+    count: Vec<u32>,
+    dirty: Vec<u8>,
 }
 
 thread_local! {
     static CHAIN_SCRATCH: RefCell<ChainScratch> = RefCell::new(ChainScratch {
         skills: Vec::new(),
+        ln: Vec::new(),
+        w: Vec::new(),
         seen: Vec::new(),
         rank_of: Vec::new(),
         touched: Vec::new(),
+        count: Vec::new(),
+        dirty: Vec::new(),
     });
+}
+
+/// Whether the season reads `chain_m` for this item. Payoff tools and the other
+/// kit slots (including raw pitch) do. A bellows, bloom, mould, crucible, cloth,
+/// loom, or any other raw does not: the value stays 1, and its steps are still
+/// walked once inside the tool that consumes it. A new reader has to opt in.
+fn chain_is_read(it: Item) -> bool {
+    match form(it) {
+        Form::Bellows | Form::Bloom | Form::Mould | Form::Crucible | Form::Cloth | Form::Loom => false,
+        Form::Raw => mat(it) == Mat::Pitch,
+        _ => true,
+    }
+}
+
+fn store_ln(skills: &[f32], ln: &mut Vec<f32>) {
+    ln.clear();
+    ln.reserve(skills.len());
+    for &s in skills {
+        ln.push(s.max(CHAIN_EPS).ln());
+    }
+}
+
+fn raw_bits_match(known: &[Known], bits: &[u32]) -> bool {
+    bits.len() == known.len() && known.iter().zip(bits.iter()).all(|(k, &b)| k.skill.to_bits() == b)
+}
+
+fn remember_bits(replay: &mut ChainReplay, known: &[Known], skills: &[f32]) {
+    replay.raw_bits.clear();
+    replay.raw_bits.extend(known.iter().map(|k| k.skill.to_bits()));
+    replay.eff_bits.clear();
+    replay.eff_bits.extend(skills.iter().map(|s| s.to_bits()));
+}
+
+fn clear_steps(replay: &mut ChainReplay) {
+    replay.ki.clear();
+    replay.w.clear();
+    replay.start.clear();
+    replay.nstep.clear();
+    replay.raw_bits.clear();
+    replay.eff_bits.clear();
+    replay.inv_start.clear();
+    replay.inv_rank.clear();
+    replay.ready = false;
+}
+
+/// `inv_rank` lists every recorded rank that used each known recipe, so a later
+/// refill can recompute only those ranks. A chain counts each recipe once.
+fn build_inv(replay: &mut ChainReplay, nknown: usize, count: &mut Vec<u32>) {
+    replay.inv_start.clear();
+    replay.inv_rank.clear();
+    if nknown == 0 {
+        return;
+    }
+    count.clear();
+    count.resize(nknown, 0);
+    for &ki in &replay.ki {
+        let k = ki as usize;
+        if k < nknown {
+            count[k] += 1;
+        }
+    }
+    replay.inv_start.resize(nknown + 1, 0);
+    for i in 0..nknown {
+        replay.inv_start[i + 1] = replay.inv_start[i] + count[i];
+    }
+    let nwrite = replay.inv_start[nknown] as usize;
+    replay.inv_rank.resize(nwrite, 0);
+    count.clear();
+    count.extend_from_slice(&replay.inv_start[..nknown]);
+    for rank in 0..replay.nstep.len() {
+        let s = replay.start[rank] as usize;
+        let ns = replay.nstep[rank] as usize;
+        let end = (s + ns).min(replay.ki.len());
+        for i in s..end {
+            let k = replay.ki[i] as usize;
+            if k >= nknown {
+                continue;
+            }
+            let p = count[k] as usize;
+            if p < replay.inv_rank.len() {
+                replay.inv_rank[p] = rank as u16;
+            }
+            count[k] += 1;
+        }
+    }
+}
+
+fn apply_stored(chain: &mut [f32], replay: &ChainReplay, rank: usize, ln: &[f32]) {
+    let nstep = replay.nstep[rank] as usize;
+    if nstep == 0 || rank >= chain.len() {
+        return;
+    }
+    let s = replay.start[rank] as usize;
+    let end = (s + nstep).min(replay.ki.len()).min(replay.w.len());
+    let mut sum_w = 0.0f32;
+    let mut sum_wl = 0.0f32;
+    for i in s..end {
+        let ki = replay.ki[i] as usize;
+        let w = replay.w[i];
+        sum_w += w;
+        // `ln` was stored once per recipe. The multiply is the old `w * m.ln()`.
+        sum_wl += w * ln[ki];
+    }
+    if sum_w > 0.0 {
+        chain[rank] = (sum_wl / sum_w).exp();
+    }
+}
+
+fn prep_scratch(sc: &mut ChainScratch, tk: &Toolkit, known: &[Known]) {
+    if sc.rank_of.len() != NITEMS {
+        sc.rank_of.clear();
+        sc.rank_of.resize(NITEMS, u16::MAX);
+        sc.touched.clear();
+    }
+    let ntouch = sc.touched.len();
+    for ti in 0..ntouch {
+        let iu = sc.touched[ti] as usize;
+        if iu < sc.rank_of.len() {
+            sc.rank_of[iu] = u16::MAX;
+        }
+    }
+    sc.touched.clear();
+    let n = tk.via.len();
+    for (rank, it) in tk.avail.iter().enumerate() {
+        if rank >= n {
+            break;
+        }
+        let iu = it as usize;
+        if iu < NITEMS {
+            sc.rank_of[iu] = rank as u16;
+            sc.touched.push(iu as u16);
+        }
+    }
+    if sc.seen.len() != known.len() {
+        sc.seen.resize(known.len(), 0);
+    }
+    sc.seen.fill(0);
+    sc.w.clear();
+    sc.w.resize(known.len(), 0.0);
+}
+
+/// Same stack walk as `mark_used`. Pushes `(ki, w)` in visit order and returns the
+/// two sums a fresh fill used to `exp`. `w` is `chain_weight` of that recipe, computed
+/// once per known index and reused.
+fn walk_item(
+    reg: &Registry,
+    known: &[Known],
+    via: &[(u16, u32, u8)],
+    rank_of: &[u16],
+    ln: &[f32],
+    wcache: &mut [f32],
+    seen: &mut [u32],
+    stamp: u32,
+    it: Item,
+    stack: &mut [Item],
+    ki_out: &mut Vec<u16>,
+    w_out: &mut Vec<f32>,
+) -> (f32, f32) {
+    let n = via.len();
+    let mut sum_w = 0.0f32;
+    let mut sum_wl = 0.0f32;
+    stack[0] = it;
+    let mut sp = 1usize;
+    let mut guard = 0u32;
+    while sp > 0 {
+        sp -= 1;
+        let i = stack[sp];
+        guard += 1;
+        if guard > 64 {
+            break;
+        }
+        let iu = i as usize;
+        if iu >= NITEMS || iu >= rank_of.len() {
+            continue;
+        }
+        let rr = rank_of[iu];
+        if rr == u16::MAX || rr as usize >= n {
+            continue;
+        }
+        let k = via[rr as usize].0;
+        if k == u16::MAX {
+            continue;
+        }
+        let ki = k as usize;
+        if ki >= known.len() || ki >= seen.len() || seen[ki] == stamp {
+            continue;
+        }
+        seen[ki] = stamp;
+        let rec = known[ki].recipe as usize;
+        let Some(recipe) = reg.recipes.get(rec) else { continue };
+        let w = if wcache.get(ki).copied().unwrap_or(0.0) == 0.0 {
+            let w = chain_weight(recipe.p);
+            if ki < wcache.len() {
+                wcache[ki] = w;
+            }
+            w
+        } else {
+            wcache[ki]
+        };
+        sum_w += w;
+        sum_wl += w * ln[ki];
+        ki_out.push(ki as u16);
+        w_out.push(w);
+        for &j in &recipe.inputs {
+            if j != NONE && sp < stack.len() {
+                stack[sp] = j;
+                sp += 1;
+            }
+        }
+    }
+    (sum_w, sum_wl)
+}
+
+fn push_walk(chain: &mut [f32], replay: &mut ChainReplay, rank: usize, sum_w: f32, sum_wl: f32, step0: u32) {
+    if sum_w > 0.0 && rank < chain.len() {
+        chain[rank] = (sum_wl / sum_w).exp();
+    }
+    let nstep = replay.ki.len() as u32 - step0;
+    replay.start.push(step0);
+    replay.nstep.push(nstep);
+}
+
+/// The recorded walk matches a fresh one when every item still available is made
+/// the same way. Closure keeps the first recipe, so an appended recipe does not
+/// rewrite `via`. A forget shifts known-list indexes, `via` differs, and the
+/// caller walks again. One changed item rejects the whole copy: an input whose
+/// `via` moved would otherwise be missing from a stored walk.
+fn via_stable(prev: &Toolkit, tk: &Toolkit) -> bool {
+    if !prev.replay.ready || prev.replay.nstep.len() != prev.via.len() || prev.replay.start.len() != prev.via.len() {
+        return false;
+    }
+    for it in prev.avail.iter() {
+        if tk.avail.has(it) && prev.via(it) != tk.via(it) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Chain skill of every available item, parallel to `via`.
@@ -668,151 +927,151 @@ thread_local! {
 /// skills; raw items and a kept flame are 1. The economy and the live kit
 /// choice read it. Nominal callers force 1.
 pub fn fill_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
+    fill_chain_adopting(reg, known, tk, None);
+}
+
+/// `fill_chain`, copying the recorded walk from `prev` when every shared `via` matches.
+pub(crate) fn fill_chain_adopting(reg: &Registry, known: &[Known], tk: &mut Toolkit, prev: Option<&Toolkit>) {
     let n = tk.via.len();
-    tk.chain.clear();
-    tk.chain.resize(n, 1.0);
-    if n == 0 || known.is_empty() {
-        tk.replay.ready = false;
-        return;
-    }
     // Same closure as the fill that recorded the steps: only maker skills moved.
-    if tk.replay.ready && tk.replay.start.len() == n && tk.replay.nstep.len() == n {
+    // Do not wipe `chain` first. An unchanged raw skill keeps the floats; a partial
+    // replay overwrites only the ranks whose effective skill moved.
+    if n > 0 && !known.is_empty() && tk.replay.ready && tk.replay.start.len() == n && tk.replay.nstep.len() == n && tk.chain.len() == n {
         replay_chain(reg, known, tk);
         return;
     }
-    tk.replay.ki.clear();
-    tk.replay.w.clear();
-    tk.replay.start.clear();
-    tk.replay.nstep.clear();
-    tk.replay.ready = false;
+    tk.chain.clear();
+    tk.chain.resize(n, 1.0);
+    clear_steps(&mut tk.replay);
+    if n == 0 || known.is_empty() {
+        return;
+    }
+    let adopt = prev.is_some_and(|p| via_stable(p, tk));
     CHAIN_SCRATCH.with(|cell| {
-        let mut sc = cell.borrow_mut();
+        // Reborrow so `sc` is `&mut ChainScratch`. Field splits do not work through `RefMut`.
+        let mut sc_ref = cell.borrow_mut();
+        let sc = &mut *sc_ref;
         maker_skills_into(reg, known, &mut sc.skills);
-        if sc.rank_of.len() != NITEMS {
-            sc.rank_of.clear();
-            sc.rank_of.resize(NITEMS, u16::MAX);
-            sc.touched.clear();
-        }
-        let ntouch = sc.touched.len();
-        for ti in 0..ntouch {
-            let iu = sc.touched[ti] as usize;
-            if iu < sc.rank_of.len() {
-                sc.rank_of[iu] = u16::MAX;
-            }
-        }
-        sc.touched.clear();
-        for (rank, it) in tk.avail.iter().enumerate() {
-            if rank >= n {
-                break;
-            }
-            let iu = it as usize;
-            if iu < NITEMS {
-                sc.rank_of[iu] = rank as u16;
-                sc.touched.push(iu as u16);
-            }
-        }
-        if sc.seen.len() != known.len() {
-            sc.seen.resize(known.len(), 0);
-        }
-        sc.seen.fill(0);
-        // Same starting stamp as a fresh `seen`: the first item uses 2.
+        // One ln per known recipe. The step loop multiplies that same f32, in
+        // the same order as `w * m.ln()` used to, so the exp is bit-identical.
+        store_ln(&sc.skills, &mut sc.ln);
+        prep_scratch(sc, tk, known);
         let mut stamp = 1u32;
         let mut stack = [NONE; 4 * 64 + 1];
         for (rank, it) in tk.avail.iter().enumerate() {
             if rank >= n {
                 break;
             }
-            if tk.via[rank].0 == u16::MAX {
+            // Unread forms stay at the resize fill of 1. Replay records no steps
+            // for them, so the next skill-only refill skips them too.
+            if tk.via[rank].0 == u16::MAX || !chain_is_read(it) {
                 tk.replay.start.push(0);
                 tk.replay.nstep.push(0);
                 continue;
+            }
+            if adopt {
+                if let Some(prev) = prev {
+                    if prev.avail.has(it) {
+                        let old = prev.rank(it);
+                        if old < prev.replay.nstep.len() {
+                            let nstep = prev.replay.nstep[old];
+                            let from = prev.replay.start[old] as usize;
+                            let end = from + nstep as usize;
+                            if end <= prev.replay.ki.len() && end <= prev.replay.w.len() {
+                                let step0 = tk.replay.ki.len() as u32;
+                                tk.replay.ki.extend_from_slice(&prev.replay.ki[from..end]);
+                                tk.replay.w.extend_from_slice(&prev.replay.w[from..end]);
+                                tk.replay.start.push(step0);
+                                tk.replay.nstep.push(nstep);
+                                let new_rank = tk.replay.nstep.len() - 1;
+                                apply_stored(&mut tk.chain, &tk.replay, new_rank, &sc.ln);
+                                continue;
+                            }
+                        }
+                    }
+                }
             }
             stamp = stamp.wrapping_add(1);
             if stamp == 0 {
                 sc.seen.fill(0);
                 stamp = 1;
             }
-            let mut sum_w = 0.0f32;
-            let mut sum_wl = 0.0f32;
             let step0 = tk.replay.ki.len() as u32;
-            stack[0] = it;
-            let mut sp = 1usize;
-            let mut guard = 0u32;
-            while sp > 0 {
-                sp -= 1;
-                let i = stack[sp];
-                guard += 1;
-                if guard > 64 {
-                    break;
-                }
-                let iu = i as usize;
-                if iu >= NITEMS {
-                    continue;
-                }
-                let rr = sc.rank_of[iu];
-                if rr == u16::MAX || rr as usize >= n {
-                    continue;
-                }
-                let k = tk.via[rr as usize].0;
-                if k == u16::MAX {
-                    continue;
-                }
-                let ki = k as usize;
-                if ki >= known.len() || sc.seen[ki] == stamp {
-                    continue;
-                }
-                sc.seen[ki] = stamp;
-                let m = sc.skills.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
-                let rec = known[ki].recipe as usize;
-                let Some(recipe) = reg.recipes.get(rec) else { continue };
-                let w = chain_weight(recipe.p);
-                sum_w += w;
-                sum_wl += w * m.ln();
-                tk.replay.ki.push(ki as u16);
-                tk.replay.w.push(w);
-                for &j in &recipe.inputs {
-                    if j != NONE && sp < stack.len() {
-                        stack[sp] = j;
-                        sp += 1;
-                    }
-                }
-            }
-            if sum_w > 0.0 {
-                tk.chain[rank] = (sum_wl / sum_w).exp();
-            }
-            let nstep = tk.replay.ki.len() as u32 - step0;
-            tk.replay.start.push(step0);
-            tk.replay.nstep.push(nstep);
+            let (sum_w, sum_wl) = walk_item(
+                reg,
+                known,
+                &tk.via,
+                &sc.rank_of,
+                &sc.ln,
+                &mut sc.w,
+                &mut sc.seen,
+                stamp,
+                it,
+                &mut stack,
+                &mut tk.replay.ki,
+                &mut tk.replay.w,
+            );
+            push_walk(&mut tk.chain, &mut tk.replay, rank, sum_w, sum_wl, step0);
         }
+        build_inv(&mut tk.replay, known.len(), &mut sc.count);
+        remember_bits(&mut tk.replay, known, &sc.skills);
         tk.replay.ready = tk.replay.start.len() == n && tk.replay.ki.len() == tk.replay.w.len();
     });
 }
 
 /// Same adds as the recording walk, in the same order. `sum_w` is rebuilt from
 /// the stored weights so the division matches the first fill bit for bit.
+/// Ranks whose effective maker skills did not move keep the previous float.
 fn replay_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
+    if raw_bits_match(known, &tk.replay.raw_bits) {
+        return;
+    }
     CHAIN_SCRATCH.with(|cell| {
-        let mut sc = cell.borrow_mut();
+        let mut sc_ref = cell.borrow_mut();
+        let sc = &mut *sc_ref;
         maker_skills_into(reg, known, &mut sc.skills);
+        store_ln(&sc.skills, &mut sc.ln);
         let n = tk.chain.len();
-        for rank in 0..n {
-            let nstep = tk.replay.nstep[rank] as usize;
-            if nstep == 0 {
-                continue;
-            }
-            let s = tk.replay.start[rank] as usize;
-            let mut sum_w = 0.0f32;
-            let mut sum_wl = 0.0f32;
-            for i in s..s + nstep {
-                let ki = tk.replay.ki[i] as usize;
-                let w = tk.replay.w[i];
-                let m = sc.skills.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
-                sum_w += w;
-                sum_wl += w * m.ln();
-            }
-            if sum_w > 0.0 {
-                tk.chain[rank] = (sum_wl / sum_w).exp();
+        let nknown = sc.skills.len();
+        let indexed = tk.replay.eff_bits.len() == nknown && tk.replay.inv_start.len() == nknown + 1;
+        sc.count.clear();
+        let mut full = !indexed;
+        if indexed {
+            for i in 0..nknown {
+                if tk.replay.eff_bits[i] != sc.skills[i].to_bits() {
+                    sc.count.push(i as u32);
+                    // Most skills moved: one pass over the ranks is cheaper than the inverted lists.
+                    if sc.count.len() * 4 >= nknown.max(1) {
+                        full = true;
+                        break;
+                    }
+                }
             }
         }
+        if full {
+            for rank in 0..n.min(tk.replay.nstep.len()) {
+                apply_stored(&mut tk.chain, &tk.replay, rank, &sc.ln);
+            }
+        } else {
+            sc.dirty.clear();
+            sc.dirty.resize(n, 0);
+            for &i in &sc.count {
+                let i = i as usize;
+                let a = tk.replay.inv_start[i] as usize;
+                let b = tk.replay.inv_start[i + 1] as usize;
+                for &rank in &tk.replay.inv_rank[a..b.min(tk.replay.inv_rank.len())] {
+                    let r = rank as usize;
+                    if r < n {
+                        sc.dirty[r] = 1;
+                    }
+                }
+            }
+            for rank in 0..n {
+                if sc.dirty[rank] != 0 {
+                    apply_stored(&mut tk.chain, &tk.replay, rank, &sc.ln);
+                }
+            }
+        }
+        remember_bits(&mut tk.replay, known, &sc.skills);
     });
 }
