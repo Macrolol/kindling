@@ -7,8 +7,8 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::effects::{
-    food_mults, make_kit_for_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER,
-    USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
+    food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, pitch_in_use, recipe_info, sealed_factor,
+    tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
 use crate::map::*;
@@ -258,6 +258,10 @@ pub enum EventKind {
     /// (other = most bands that knew it at once). Not the same as `LostWorldwide`, which is
     /// about being able to make it: an item can be known everywhere and made nowhere.
     ForgottenEverywhere,
+    /// (skills step 3) the first band whose best steel-making maker skill reaches 0.6.
+    /// Once per world. Not major. "Already happened" is this event in the log, so a
+    /// load does not need a saved flag.
+    FirstSteelSmith,
 }
 impl EventKind {
     pub fn from_u8(x: u8) -> EventKind {
@@ -267,11 +271,11 @@ impl EventKind {
             FirstFire, Landfall, LostLocal, FirstTraded, LostAtSea, Drifted, Fight, FirstFight, BloodiestFight, Fled, Tribute,
             Absorbed, FirstSeaRefuge, FirstCultivation, FarmingOrigin, TookUpFarming, AbandonedFarming, FirstDomestic,
             FirstHerding, FirstEpidemic, Epidemic, FirstPlough, FirstRiding, Married, LongestCrossing, FirstShip, FirstRecords,
-            FirstChart, FirstFeast, Feast, ForgottenEverywhere,
+            FirstChart, FirstFeast, Feast, ForgottenEverywhere, FirstSteelSmith,
         ][(x as usize).min(Self::COUNT - 1)]
     }
     /// number of kinds (the last one is `COUNT - 1`)
-    pub const COUNT: usize = 42;
+    pub const COUNT: usize = 43;
     pub fn major(self) -> bool {
         matches!(
             self,
@@ -466,7 +470,9 @@ pub struct YearStats {
     pub use_skill_bow: f32,
     pub use_skill_net: f32,
     pub use_skill_boat: f32,
-    /// (step 3) mean maker skill among bands practising hot forging, steel, casting, smelting
+    /// (step 3) mean, over bands that know the technique, of each band's best carried
+    /// maker skill. Hot-forging, steel-making, casting, smelting. 0 if nobody knows it.
+    /// Raw, not floored.
     pub maker_hot_forge: f32,
     pub maker_steel: f32,
     pub maker_cast: f32,
@@ -1009,9 +1015,9 @@ impl World {
                 ..Default::default()
             };
             // Decision R1: founders start at USE_FOUNDER on every form of the kit
-            // they are founded with, and practice floors a gen == 0 band at
-            // USE_FOUNDER on a form it uses. A fresh world does not stay at the
-            // novice factor.
+            // they are founded with. `band_user` floors every form while gen == 0,
+            // so a tool taken up later is not used as a novice that first season.
+            // Practice then stores the same floor.
             w.seed_founder_skills(&mut b);
             w.push_event(EventKind::Founded, id, chosen as u32, pos as u32, NONE, u32::MAX);
             w.bands.push(b);
@@ -1023,8 +1029,9 @@ impl World {
 
     /// (skills step 2) Decision R1. `start_skills` zeros `use_skill`; this then
     /// sets `USE_FOUNDER` on every form of the kit the founder is actually
-    /// founded with, and refits until that kit and those skills agree. Practice
-    /// applies the same floor to a `gen == 0` band on a form it uses later.
+    /// founded with, and refits until that kit and those skills agree. The
+    /// founding kit is raw materials, so the stamp often changes nothing.
+    /// `band_user` floors every form while `gen == 0`, and practice stores it.
     fn seed_founder_skills(&self, b: &mut Band) {
         b.start_skills();
         let mut raws = ItemSet::default();
@@ -1034,6 +1041,8 @@ impl World {
         for _ in 0..8 {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
+            fill_chain(&self.reg, &b.known, &mut tk);
+            tk.set_chain_ver(b.d.skill_ver);
             kit = self.fit_kit(b, &tk);
             let mut want = [0.0f32; NFORM];
             for &it in kit.used_items().iter() {
@@ -1050,6 +1059,8 @@ impl World {
         if !stable {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
+            fill_chain(&self.reg, &b.known, &mut tk);
+            tk.set_chain_ver(b.d.skill_ver);
             kit = self.fit_kit(b, &tk);
         }
         b.d.tk = tk;
@@ -1656,8 +1667,19 @@ impl World {
             upkeep_rate: self.params.upkeep,
             wet: self.near_water(ci),
             at_hand: 0,
-            user: u_eff(&b.use_skill),
+            user: band_user(b),
         }
+    }
+
+    /// Refill chain skill when recipe skill has moved since this toolkit was filled.
+    /// A brand-new closure does not use this: its `chain_ver` starts at 0, which is
+    /// also a new band's `skill_ver`, so the caller fills and stamps it directly.
+    fn ensure_chain(&self, b: &mut Band) {
+        if b.d.tk.chain_ver() == b.d.skill_ver {
+            return;
+        }
+        fill_chain(&self.reg, &b.known, &mut b.d.tk);
+        b.d.tk.set_chain_ver(b.d.skill_ver);
     }
 
     /// Rank the kit for this band's view, then apply recipe quality once.
@@ -1676,6 +1698,9 @@ impl World {
             b.d.tk_prev = None;
         }
         if b.d.tk_key == Some(key) {
+            // Chain skill changes only when recipe skill does (`skill_ver`) or the
+            // closure is new. A cache hit with the same version keeps the chain.
+            self.ensure_chain(b);
             // (diffusion D3) the kit follows skill too, which moves every season
             if b.d.fin_dirty || b.d.kit_dirty {
                 let kit = self.fit_kit(b, &b.d.tk);
@@ -1697,6 +1722,7 @@ impl World {
             if prev.0 != key {
                 b.d.tk_prev = Some(prev);
             }
+            self.ensure_chain(b);
             // (diffusion D3) the cached kit was chosen at older skills
             let kit = self.fit_kit(b, &b.d.tk);
             b.d.kit = kit;
@@ -1704,7 +1730,10 @@ impl World {
             return;
         }
         {
-            let tk = closure(&self.reg, &b.known, &raws, b.flame);
+            let mut tk = closure(&self.reg, &b.known, &raws, b.flame);
+            // Copy the previous walk only when every item still available is made the same way.
+            fill_chain_adopting(&self.reg, &b.known, &mut tk, Some(&b.d.tk));
+            tk.set_chain_ver(b.d.skill_ver);
             let kit = self.fit_kit(b, &tk);
             b.d.fin_dirty = false;
             b.d.kit_dirty = false;
@@ -1865,8 +1894,10 @@ impl World {
             }
             let (_, mask, depth) = b.d.tk.via(it).unwrap_or((0, 0, 0));
             needed |= mask;
-            // a caulked hull leaks and rots less; a glued haft works loose less often
-            upkeep += tool_upkeep(p.upkeep, it, depth, sealed_factor(it, &kit, pitch));
+            // a caulked hull leaks and rots less; a glued haft works loose less often.
+            // An unskilled maker wastes labour: `* (1 + MAKER_WASTE * (1 - m_item))`.
+            // A missing chain reads as 1, so this is the old upkeep.
+            upkeep += tool_upkeep(p.upkeep, it, depth, sealed_factor(it, &kit, pitch)) * maker_waste(b.d.tk.chain_m(it));
             used.push(it);
         }
         // (diffusion D3) now and then a band tries the better-in-prospect tool beside the one
@@ -1883,10 +1914,44 @@ impl World {
             let (_, mask, depth) = b.d.tk.via(ch).unwrap_or((0, 0, 0));
             needed |= mask;
             // a trial was never caulked or glued: sealed = 1, so this wear stays what it was
-            upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0);
+            upkeep += tool_upkeep(p.upkeep, ch, depth, 1.0) * maker_waste(b.d.tk.chain_m(ch));
             used.push(ch);
         }
-        // one bit per form, trial included. The `used` vec already exists; this adds none.
+        // (skills step 3) a payoff tool can fail for the season. The item stays in `used`
+        // (it is still practised) and its labour was already charged. Food slots rebuild
+        // the multipliers from the runner-up; its upkeep is paid too, glued against the
+        // original kit. A failed hull, bow, shield, outrigger, plank or ship only counts:
+        // fighting and the sea do not feel the miss yet.
+        let mut make_fail = 0u16;
+        let mut make_failures = 0u32;
+        let mut food_failed = false;
+        let mut food_kit = kit;
+        for j in 0..12 {
+            let it = kit.slot_item(j);
+            if it == NONE || !used.contains(&it) {
+                continue;
+            }
+            let pm = maker_p_fail(b.d.tk.chain_m(it));
+            if pm <= 0.0 || maker_fail_roll(self.cfg.seed, b.id, self.tick, j) >= pm {
+                continue;
+            }
+            make_fail |= 1u16 << j;
+            make_failures += 1;
+            if !matches!(j, 0 | 1 | 2 | 3 | 5 | 6) {
+                continue;
+            }
+            food_failed = true;
+            let fb = kit.fallback[j];
+            food_kit.set_slot_item(j, fb);
+            if fb == NONE || used.contains(&fb) {
+                continue;
+            }
+            let (_, mask, depth) = b.d.tk.via(fb).unwrap_or((0, 0, 0));
+            needed |= mask;
+            upkeep += tool_upkeep(p.upkeep, fb, depth, sealed_factor(fb, &kit, pitch)) * maker_waste(b.d.tk.chain_m(fb));
+            used.push(fb);
+        }
+        // one bit per form, trial and fallback included. The `used` vec already exists; this adds none.
         let mut used_forms = 0u32;
         for &it in &used {
             if valid_item(it) {
@@ -1899,9 +1964,12 @@ impl World {
         let upkeep_l = upkeep_l + fm.labour * labour;
         // Novice spread: rebuild the five food multipliers from the tool terms with a
         // per-slot draw. At u_eff = 1 the draw's factor is 1, so these match the kit.
-        let user = u_eff(&b.use_skill);
-        let food_m = food_mults(&kit, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
-            novice_factor(&kit, &user, self.cfg.seed, b.id, self.tick, slot)
+        // A founder is floored at USE_FOUNDER on every form (`band_user`).
+        let user = band_user(b);
+        // No food slot failed: the stored kit, so the multipliers stay what they were.
+        let food_src = if food_failed { &food_kit } else { &kit };
+        let food_m = food_mults(food_src, &user, |it| recipe_info(&b.d.tk, &b.known, it).1, |slot| {
+            novice_factor(food_src, &user, self.cfg.seed, b.id, self.tick, slot)
         });
         let ks = [
             3.0 * food_m[0] * p.forage_eff,
@@ -1990,6 +2058,8 @@ impl World {
             needed,
             used,
             used_forms,
+            make_fail,
+            make_failures,
             food_ratio: 0.0,
             store_after: 0.0,
             spare,
@@ -2063,6 +2133,28 @@ impl World {
                 b.stock[mi] = 0.8;
             }
         }
+        // Lowest chain skill among used items whose mask contains each material. 1 when
+        // none do, so a fully practised maker adds no scrap.
+        let mut scrap_m = [1.0f32; NMAT];
+        {
+            let mut seen = [false; NMAT];
+            for &it in &ec.used {
+                let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
+                if mask == 0 {
+                    continue;
+                }
+                let m = b.d.tk.chain_m(it);
+                for mj in 0..NMAT {
+                    if mask & (1 << mj) == 0 {
+                        continue;
+                    }
+                    if !seen[mj] || m < scrap_m[mj] {
+                        scrap_m[mj] = m;
+                        seen[mj] = true;
+                    }
+                }
+            }
+        }
         for mi in 0..NMAT {
             let mm = ALL_MATS[mi];
             if mm.is_food() || mm == Mat::Charcoal || mm == Mat::Ceramic || mm == Mat::Pitch {
@@ -2077,10 +2169,32 @@ impl World {
             // when a needed material is not at hand (+0.02 / +0.06) is that marginal draw.
             // `needed` is the union of the used recipes' masks, so each material is drawn once
             // a season, not once per item. `Effects.mats` lists the same extra per item; the
-            // two agree wherever those masks do not overlap.
+            // two agree wherever those masks do not overlap. An unskilled maker multiplies that
+            // extra by `1 + MAKER_SCRAP * (1 - m)`; only the surplus is `make_scrap`.
             let mut use_ = if metal { 0.006 } else { 0.02 };
             if needed & (1 << mi) != 0 && !present {
-                use_ += if metal { 0.02 } else { 0.06 };
+                let base = if metal { 0.02 } else { 0.06 };
+                let extra = base * maker_scrap_factor(scrap_m[mi]);
+                use_ += extra;
+                let surplus = extra - base;
+                if surplus > 0.0 {
+                    fx.counters.make_scrap += (surplus * 1000.0).round() as u64;
+                }
+                // A failed tool's marginal draw is spent again and counted in full. Each
+                // failed slot uses its own chain skill; two slots that share an item pay twice.
+                for j in 0..12 {
+                    if ec.make_fail & (1u16 << j) == 0 {
+                        continue;
+                    }
+                    let it = b.d.kit.slot_item(j);
+                    let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
+                    if mask & (1 << mi) == 0 {
+                        continue;
+                    }
+                    let again = base * maker_scrap_factor(b.d.tk.chain_m(it));
+                    use_ += again;
+                    fx.counters.make_scrap += (again * 1000.0).round() as u64;
+                }
             }
             b.stock[mi] = (b.stock[mi] - use_).max(0.0);
             if b.stock[mi] <= 0.0 {
@@ -2088,6 +2202,7 @@ impl World {
             }
             b.d.demand[mi] *= 0.9;
         }
+        fx.counters.make_failures += ec.make_failures as u64;
         // ---------------- demography (births / deaths; splits happen later)
         let fed = ((food_ratio - 0.75) / 0.25).clamp(0.0, 1.0);
         // settled people with soft weaning foods (porridge, milk) space births closer
@@ -2138,7 +2253,7 @@ impl World {
             } else {
                 0.0
             };
-        Self::refine(b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
+        Self::refine(&self.reg, b, REFINE_RATE * b.curiosity * (0.1 + spare) * (pop / 25.0).sqrt(), rng, fx);
         // craft habits fade back toward no leaning when not renewed (half-life ~85 years)
         for c in &mut b.craft {
             *c = 1.0 + (*c - 1.0) * 0.998;
@@ -2147,6 +2262,9 @@ impl World {
         // ---------------- the sea: drift and far shores
         self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
+        // Chain skill depends on recipe skill. `skill_ver` moves after this pass
+        // (not saved). The refresh below refills a toolkit filled at the old
+        // version. `refine` already used the pre-practice skills.
         // (inventions step 8) records: kept while a band counts something with its tally or
         // token; they slow the forgetting of what is not practised
         if b.d.kit.mark != NONE && Self::keeps_count(b) {
@@ -2187,6 +2305,9 @@ impl World {
                 fx.push_event(EventKind::Forgot, b.id, 0, ci as u32, it, r);
             }
         }
+        // Practice or forgetting moved recipe skill. A closure rebuilt above
+        // (known_ver) was stamped at the old version, so this still refills it.
+        b.d.skill_ver = b.d.skill_ver.wrapping_add(1);
         fx.lap(&mut tk, 9);
         // ---------------- movement
         self.refresh_toolkit(b);
@@ -3454,7 +3575,7 @@ impl World {
 
     /// (v9) Play and refinement: `lam` expected attempts this season, each improving one recipe
     /// the band used.
-    fn refine(b: &mut Band, lam: f32, rng: &mut Rng, fx: &mut Fx) {
+    fn refine(reg: &Registry, b: &mut Band, lam: f32, rng: &mut Rng, fx: &mut Fx) {
         let n = rng.poisson(lam).min(4);
         if n == 0 {
             return;
@@ -3463,11 +3584,25 @@ impl World {
         if used.is_empty() {
             return;
         }
-        for _ in 0..n {
-            let k = &mut b.known[used[rng.below(used.len())]];
+        // One walk for every pick. Quality updates below do not change maker skill.
+        // The draws come first: nothing else here touches the rng, so the sequence matches
+        // drawing inside the loop.
+        let mut picks = [0usize; 4];
+        let nu = n as usize;
+        for i in 0..nu {
+            picks[i] = used[rng.below(used.len())];
+        }
+        let mut ms = [0.0f32; 4];
+        maker_skills_at(reg, &b.known, &picks[..nu], &mut ms[..nu]);
+        for i in 0..nu {
+            let idx = picks[i];
+            // The recipe's own carried skill, not the item's chain skill. At 1 this is
+            // `REFINE_STEP * room`, bit for bit.
+            let m = ms[i];
+            let k = &mut b.known[idx];
             let room = k.skill - k.quality;
             if room > 0.01 {
-                k.quality += REFINE_STEP * room;
+                k.quality += REFINE_STEP * room * m;
                 b.d.fin_dirty = true;
                 fx.counters.refinements += 1;
             }
@@ -4311,6 +4446,38 @@ impl World {
             let m = |i: usize| if sk_n[i] == 0 { 0.0 } else { (sk_sum[i] / sk_n[i] as f64) as f32 };
             [m(0), m(1), m(2), m(3), m(4)]
         };
+        // (skills step 3) one maker-skill walk per band. The steel-smith is the first
+        // band in `self.bands` order whose best steel-making skill reaches 0.6.
+        let (maker_means, steel_smith) = {
+            const STEEL_MASTER: f32 = 0.6;
+            let mut sum = [0.0f64; 4];
+            let mut n = [0u32; 4];
+            let mut smith: Option<(u32, u32)> = None;
+            for b in &self.bands {
+                let best = maker_tech_best(&self.reg, &b.known);
+                for i in 0..4 {
+                    if let Some(m) = best[i] {
+                        sum[i] += m as f64;
+                        n[i] += 1;
+                    }
+                }
+                if smith.is_none() {
+                    if let Some(m) = best[1] {
+                        if m >= STEEL_MASTER {
+                            smith = Some((b.id, b.cell(w) as u32));
+                        }
+                    }
+                }
+            }
+            let mean = |i: usize| if n[i] == 0 { 0.0 } else { (sum[i] / n[i] as f64) as f32 };
+            ([mean(0), mean(1), mean(2), mean(3)], smith)
+        };
+        if let Some((id, cell)) = steel_smith {
+            let happened = self.events.iter().any(|e| e.kind == EventKind::FirstSteelSmith as u8);
+            if !happened {
+                self.push_event(EventKind::FirstSteelSmith, id, 0, cell, NONE, u32::MAX);
+            }
+        }
         let mut acc = std::mem::take(&mut self.year_acc);
         self.sea_year_stats(&mut acc);
         self.feast_year_stats(&mut acc);
@@ -4358,6 +4525,10 @@ impl World {
             use_skill_bow: use_means[2],
             use_skill_net: use_means[3],
             use_skill_boat: use_means[4],
+            maker_hot_forge: maker_means[0],
+            maker_steel: maker_means[1],
+            maker_cast: maker_means[2],
+            maker_smelt: maker_means[3],
             ..acc
         });
         self.archive_year();
@@ -4461,6 +4632,7 @@ impl World {
                 format!("Y{yr}: band {} lands at ({cx},{cy}), the first people on {kind} #{} ({sz} cells){how}", e.band, e.other)
             }
             EventKind::ForgottenEverywhere => format!("Y{yr}: nobody in the world knows how to make {it} any more"),
+            EventKind::FirstSteelSmith => format!("Y{yr}: band {} at ({cx},{cy}) is the first to master steel-making", e.band),
             EventKind::LostLocal => format!("Y{yr}: {it} is no longer made anywhere (it never spread far)"),
             EventKind::FirstTraded => format!("Y{yr}: band {} trades {it} to band {}, the first such exchange", e.band, e.other),
             EventKind::LostAtSea => format!("Y{yr}: {} of band {} lost at sea near ({cx},{cy})", e.other, e.band),
@@ -4552,26 +4724,49 @@ pub fn practise(k: &mut Known, practice: f32, floss: f32, tick: u32, at_hand: bo
 /// One season of user skill. `used` is the economy's form bitmask (each form
 /// once, trial included). `u_eff` is taken from the skills as they stood, so
 /// this season's practice does not transfer onward until next season.
-/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on a
-/// form it uses, before the practice step. An unused form above 0 fades by
-/// `USE_FADE_X * floss` (the recipe forgetting rate) and clamps at 0.
+/// Decision R1: a founding band (`gen == 0`) is floored at `USE_FOUNDER` on
+/// every form of that effective skill, before the practice step, the same floor
+/// `band_user` applies when the season's decision and economy are read. An
+/// unused form above 0 fades by `USE_FADE_X * floss` (the recipe forgetting
+/// rate) and clamps at 0. The raw `use_skill` is what teaching and inheritance
+/// copy.
 pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u32) {
     if use_skill.len() != NFORM {
         return;
     }
-    let ue = u_eff(use_skill);
-    let founder = gen == 0;
+    let mut ue = u_eff(use_skill);
+    floor_founder(&mut ue, gen);
     for g in 0..NFORM {
         let u0 = use_skill[g];
         if used & (1u32 << g) != 0 {
-            let mut u = if u0 > ue[g] { u0 } else { ue[g] };
-            if founder && u < USE_FOUNDER {
-                u = USE_FOUNDER;
-            }
+            let u = if u0 > ue[g] { u0 } else { ue[g] };
             use_skill[g] = u + USE_PRACTICE * (1.0 - u);
         } else if u0 > 0.0 {
             let u = u0 - USE_FADE_X * floss;
             use_skill[g] = if u > 0.0 { u } else { 0.0 };
+        }
+    }
+}
+
+/// (skills step 3 fix 3) Effective user skill the decision and the economy read
+/// for this band. `u_eff` of the stored skills, then every entry floored at
+/// `USE_FOUNDER` while `gen == 0`, including a form whose stored skill is still
+/// 0. Not written back. YearStats, teaching and inheritance keep the raw vector.
+pub(crate) fn band_user(b: &Band) -> [f32; NFORM] {
+    let mut u = u_eff(&b.use_skill);
+    floor_founder(&mut u, b.gen);
+    u
+}
+
+/// Floor every entry at `USE_FOUNDER` for a founding band. Other generations
+/// are left as `u_eff` computed them.
+fn floor_founder(u: &mut [f32; NFORM], gen: u32) {
+    if gen != 0 {
+        return;
+    }
+    for x in u {
+        if *x < USE_FOUNDER {
+            *x = USE_FOUNDER;
         }
     }
 }
@@ -4622,6 +4817,10 @@ pub struct Econ {
     /// Forms of `used`, one bit per form (`1 << form as u32`). The D3 trial is
     /// included, because it is pushed onto `used`. No extra allocation.
     pub used_forms: u32,
+    /// (skills step 3) payoff slots whose tool failed this season, bit `j` of `Kit::slot_item`.
+    /// Not saved. `make_failures` is the popcount; `band_season` flushes it to the counter.
+    pub make_fail: u16,
+    pub make_failures: u32,
     pub food_ratio: f32,
     pub store_after: f32,
     pub spare: f32,

@@ -33,6 +33,13 @@ docs/REPORT-diffusion.md.
   idle_slot / displaced / unneeded. It tracks (band, recipe) lifetimes and writes
   items/series/forgets CSVs. Env: PROBE_SEEDS, PROBE_YEARS, PROBE_W, PROBE_H,
   PROBE_EVERY, PROBE_OUT.
+- (skills step 3 fix 1) "worse by own valuation" scores the changed slot only. The chosen
+  item and the item it replaced are both scored in the band's chosen kit, with only that
+  slot swapped, by `slot_score(...).0` (what `make_kit_with_view` ranks the slot by). Worse
+  is about 0 by construction; a later greedy pass can still move it. The old whole-kit sum
+  of those scores is not additive, so it stays as `adopt_worse_own_kit` /
+  `adopt_tie_own_kit` at the end of `skills-*.csv` and as "own (whole kit)" in the summary.
+  The sim is not touched.
 - It is compiled only under `cfg(test)`. Check (seed 3, 128x80, 200 y, `--out` +
   `--save`): before and after the change, the `.civsave` (sha256 803d68d9…) and
   frames/chronicle are byte-identical; the manifest differs only in git_sha/timing/paths.
