@@ -218,3 +218,37 @@ multiplier, counted in full while these bands' farm weight is 0.012. `KIT_UPKEEP
 only +0.017 for the deeper chain, and fight adds +0.004, which the decision does not read.
 Recipe skill is lower on the steel axe (0.46 vs 0.97) and does not enter the axe term. The held
 pair is the probe's yardstick, not the band's ranking.
+
+## Step 3 pass 5. Where maker failures land (no retune)
+
+Seed 5, default map, 300 years, one thread. Same world as the pre-pass-5 branch (pop 104860,
+6050 bands, food from farming 14% peak 16%, 437 farming bands; main is 26% and 1601). Year 300,
+that year's counters and the four technique means:
+
+- `make_failures` 118 (run sum 11417). By century: 110, 1689, 9618.
+- `make_scrap` 103956 thousandths (run sum 9928762). By century: 19615, 1023883, 8885264.
+- `maker_hot_forge` 0.9937, `maker_steel` 0.9758, `maker_cast` 0.0, `maker_smelt` 0.9007.
+
+Failures are counted only on a payoff slot the band used that season. There is no per-slot
+counter. Food slots — hunt, cut, point, axe, net, trap — rebuild that season's food from the
+slot's fallback. A boat, bow, shield, outrigger, plank or ship is counted and spends labour and
+material, and does not change fight or the sea. Waste is the labour factor
+`1 + 0.8 * (1 - m)` on every used tool's chain skill, not a separate axe term. Scrap is the
+surplus on a missing material's marginal draw (lowest chain skill among used items that need
+it) plus a failed slot's marginal draw again. Two failed slots that share an item may count
+one item twice. `maker_cast` is 0 because no band contributes a casting skill.
+
+That does not explain farming food of 14% against 26% on main. At year 300 hot-forging and
+steel-making are about 0.98, so a failure on those steps is rare (118 in a year of 6050 bands)
+and the labour factor is about 2%. Smelting is 0.90. The gap is already there before any of
+those techniques exist: at year 200 the four means are still 0, two bands farm, and farm food
+is 3%. The year-300 worlds differ in who farms.
+
+The seed-1 probe's rise in "worse in true value" (0.8% to 5.1%) is the probe's true value
+ignoring maker waste and failure while the band prices both. `true_value` now scales food by
+the worst food-slot keep `1 - p_fail` at that tool's chain skill (not the product of every
+food slot) and scales each payoff tool's `KIT_UPKEEP` by `maker_waste`. At chain skill 1 both
+factors are 1, so the old value is unchanged. Probe only: `food()` is still the raw
+multipliers, so "worse in true food" still ignores failure, and no `MAKER_*` constant,
+`KIT_UPKEEP`, axe term or labour price moved. A re-run of `diag_copper_over_steel_axe` is not
+comparable to the +0.031 above, which used the old yardstick.

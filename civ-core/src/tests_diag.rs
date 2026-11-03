@@ -8,7 +8,8 @@
 
 use crate::band::{loss_guard, weapon_q, Kit, KIT_UPKEEP};
 use crate::effects::{
-    harvest_for, kit_yields, make_kit_among_view, recipe_info, slot_score, tool_effects, BandView, LABOUR_SHARE, WORK_SHARE,
+    harvest_for, kit_yields, make_kit_among_view, maker_p_fail, maker_waste, recipe_info, slot_score, tool_effects, BandView, LABOUR_SHARE,
+    WORK_SHARE,
 };
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
@@ -176,8 +177,11 @@ fn pct(k: u64, n: u64) -> f64 {
     if n == 0 { 0.0 } else { 100.0 * k as f64 / n as f64 }
 }
 
-/// Pieces of `probe_diffusion::true_value`. `food` is the unweighted sum
-/// (five multipliers plus digest). `other` is boat soundness plus fine work.
+/// Pieces of `probe_diffusion::true_value`. `plants` and `farm` stay the raw
+/// multipliers. `food` is the unweighted sum (five multipliers plus digest)
+/// times the worst food-slot keep `1 - p_fail`. `upkeep` is `KIT_UPKEEP` times
+/// `maker_waste` at each distinct payoff tool's chain skill. At chain skill 1
+/// both factors are 1. `other` is boat soundness plus fine work.
 struct Tv {
     food: f32,
     plants: f32,
@@ -197,19 +201,31 @@ impl Tv {
 fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     let mut up = 0.0;
     let mut seen: [Item; 12] = [NONE; 12];
+    let mut keep = 1.0;
     for j in 0..12 {
         let it = k.slot_item(j);
-        if it == NONE || seen[..j].contains(&it) {
+        if it == NONE {
+            continue;
+        }
+        // Same food slots as `probe_diffusion::true_value`: hunt, cut, point, axe, net, trap.
+        if matches!(j, 0 | 1 | 2 | 3 | 5 | 6) {
+            let one = 1.0 - maker_p_fail(tk.chain_m(it));
+            if one < keep {
+                keep = one;
+            }
+        }
+        if seen[..j].contains(&it) {
             continue;
         }
         seen[j] = it;
         let d = recipe_info(tk, known, it).2;
-        up += KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32);
+        let base = KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32);
+        up += base * maker_waste(tk.chain_m(it));
     }
     let mults = k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m;
     let digest: f32 = k.digest.iter().sum();
     Tv {
-        food: mults + digest,
+        food: (mults + digest) * keep,
         plants: k.plants_m,
         farm: k.farm_m,
         protect: k.protect,
@@ -330,8 +346,9 @@ fn print_agg(name: &str, a: &Agg) {
 /// Own score is `slot_score` cur of each axe in the fitted kit with only that
 /// slot swapped (the same context `choose_food` uses). Positive `cur cu-st`
 /// means the band ranks the copper axe above the steel one. The probe parts
-/// are `true_value`'s: unweighted multipliers, `KIT_UPKEEP` chain upkeep, and
-/// `PROBE_FIGHT_W` times fight. `value` is steel minus copper.
+/// are `true_value`'s: food times the worst food-slot keep, `KIT_UPKEEP` times
+/// `maker_waste` at the chain skill, and `PROBE_FIGHT_W` times fight. Plants
+/// and farm in the print stay the raw multipliers. `value` is steel minus copper.
 #[test]
 #[ignore]
 fn diag_copper_over_steel_axe() {

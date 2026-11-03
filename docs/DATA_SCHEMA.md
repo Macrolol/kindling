@@ -432,7 +432,8 @@ Additive, `serde(default)`; older saves read a missing field as 0.
     hull, bow, shield, outrigger, plank or ship is later work.
   - (step 3) `make_scrap` (thousandths of extra marginal stock drawn because maker
     skill is below 1, plus a failed tool's marginal draw spent again. At maker skill
-    1 the surplus is 0);
+    1 the surplus is 0). A failed slot spends that item's marginal draw again, so
+    two failed slots that share an item may count one item twice;
   - (step 4) `beliefs_formed`, `tools_written_off`, `tools_retried`, `beliefs_told`,
     `beliefs_inherited`, `belief_err` (summed absolute belief error x 1000; mean =
     `belief_err / beliefs_formed`), `beliefs_evicted` (dropped from a full belief table);
