@@ -4,6 +4,7 @@ use crate::effects::{CHAIN_EPS, CHAIN_W_MIN, TECH_CARRY};
 use crate::materials::*;
 use crate::physics::{cold_workable, Action, Inputs};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -358,6 +359,18 @@ pub struct Known {
 pub const FROM_SELF: u32 = u32::MAX;
 pub const FROM_PARENT: u32 = u32::MAX - 1;
 
+/// Steps `fill_chain` adds for one closure, in walk order. Not saved.
+/// A later refill with the same graph replays them; only the maker skills change.
+#[derive(Clone, Debug, Default)]
+struct ChainReplay {
+    ki: Vec<u16>,
+    w: Vec<f32>,
+    /// one entry per `via` rank; `nstep == 0` is a raw item or a chain that added nothing
+    start: Vec<u32>,
+    nstep: Vec<u32>,
+    ready: bool,
+}
+
 /// What a band can produce right now.
 #[derive(Clone, Debug, Default)]
 pub struct Toolkit {
@@ -372,14 +385,41 @@ pub struct Toolkit {
     /// Raw items and a kept flame are 1. Filled by `fill_chain`, never saved.
     /// The economy reads `chain_m`. The live kit choice does too; nominal callers force 1.
     chain: Vec<f32>,
+    /// `Derived::skill_ver` when `chain` was filled. The toolkit is not saved.
+    chain_ver: u32,
+    /// Item id -> rank in `avail`, or `u16::MAX` when absent. Empty while `closure`
+    /// is still inserting. Not saved.
+    rank_of: Vec<u16>,
+    replay: ChainReplay,
 }
 impl Toolkit {
     /// Position of `i` among the members of `avail`.
     #[inline]
     fn rank(&self, i: Item) -> usize {
+        let iu = i as usize;
+        if iu < self.rank_of.len() {
+            let r = self.rank_of[iu] as usize;
+            if r != u16::MAX as usize || !self.avail.has(i) {
+                return r;
+            }
+        }
+        self.rank_slow(i)
+    }
+    #[inline]
+    fn rank_slow(&self, i: Item) -> usize {
         let (w, b) = (i as usize >> 6, i as u32 & 63);
         let below: u32 = self.avail.0[..w].iter().map(|x| x.count_ones()).sum();
         (below + (self.avail.0[w] & ((1u64 << b) - 1)).count_ones()) as usize
+    }
+    fn rebuild_rank(&mut self) {
+        self.rank_of.clear();
+        self.rank_of.resize(NITEMS, u16::MAX);
+        for (rank, it) in self.avail.iter().enumerate() {
+            let iu = it as usize;
+            if iu < NITEMS {
+                self.rank_of[iu] = rank as u16;
+            }
+        }
     }
     /// Chain skill of an available item. 1 when `i` is absent or `fill_chain` has not
     /// run (a fully practised maker), so a caller that does not have a band stays at 1.
@@ -389,6 +429,12 @@ impl Toolkit {
             return 1.0;
         }
         self.chain.get(self.rank(i)).copied().unwrap_or(1.0)
+    }
+    pub(crate) fn chain_ver(&self) -> u32 {
+        self.chain_ver
+    }
+    pub(crate) fn set_chain_ver(&mut self, v: u32) {
+        self.chain_ver = v;
     }
     /// The recipe (known-list index, `u16::MAX` for a raw or kept fire), raw-material mask and
     /// chain length behind an available item.
@@ -401,6 +447,9 @@ impl Toolkit {
     }
     /// Make `i` available through `v` (replacing how it was available before).
     fn set_via(&mut self, i: Item, v: (u16, u32, u8)) {
+        // The rank index and the recorded walk describe the graph before this edit.
+        self.rank_of.clear();
+        self.replay.ready = false;
         if self.avail.has(i) {
             let r = self.rank(i);
             self.via[r] = v;
@@ -453,6 +502,7 @@ pub fn closure(reg: &Registry, known: &[Known], raws: &ItemSet, flame: bool) -> 
             changed = true;
         }
     }
+    tk.rebuild_rank();
     tk
 }
 
@@ -496,16 +546,36 @@ const TECH_N: usize = Tech::Other as usize + 1;
 /// `max(own skill, TECH_CARRY * best skill among the band's other known recipes
 /// of the same technique)`. Skill is clamped to 0..1. `Other` is just own skill.
 pub fn maker_skill(reg: &Registry, known: &[Known], idx: usize) -> f32 {
-    maker_skills(reg, known).get(idx).copied().unwrap_or(0.0)
+    CHAIN_SCRATCH.with(|cell| {
+        let mut sc = cell.borrow_mut();
+        maker_skills_into(reg, known, &mut sc.skills);
+        sc.skills.get(idx).copied().unwrap_or(0.0)
+    })
+}
+
+/// One copy of every known recipe's effective maker skill, for a caller that
+/// indexes it more than once (`refine`). The scratch buffer is reused.
+pub(crate) fn maker_skills_copy(reg: &Registry, known: &[Known]) -> Vec<f32> {
+    CHAIN_SCRATCH.with(|cell| {
+        let mut sc = cell.borrow_mut();
+        maker_skills_into(reg, known, &mut sc.skills);
+        sc.skills.clone()
+    })
 }
 
 /// Best effective maker skill of hot-forging, steel-making, casting and smelting,
 /// in that order. `None` when the band knows no recipe of that technique.
-/// One `maker_skills` walk. The values are raw, not floored.
+/// One pass, no allocation. The values are raw, not floored.
+///
+/// The best carried skill of a technique is `max(best, TECH_CARRY * second)` on
+/// the strongest recipe and `max(second, TECH_CARRY * best)` on the next. With
+/// `TECH_CARRY` ≤ 1 that is the best own skill; both are taken so a larger carry
+/// still matches `maker_skill`.
 pub fn maker_tech_best(reg: &Registry, known: &[Known]) -> [Option<f32>; 4] {
-    let ms = maker_skills(reg, known);
-    let mut best = [None; 4];
-    for (i, kn) in known.iter().enumerate() {
+    let mut best_s = [0.0f32; 4];
+    let mut second_s = [0.0f32; 4];
+    let mut n = [0u32; 4];
+    for kn in known {
         let slot = match reg.tech(kn.recipe) {
             Tech::HotForging => 0,
             Tech::SteelMaking => 1,
@@ -513,27 +583,38 @@ pub fn maker_tech_best(reg: &Registry, known: &[Known]) -> [Option<f32>; 4] {
             Tech::Smelting => 3,
             _ => continue,
         };
-        let m = ms.get(i).copied().unwrap_or(0.0);
-        best[slot] = Some(best[slot].map_or(m, |b: f32| b.max(m)));
+        let s = kn.skill.clamp(0.0, 1.0);
+        n[slot] += 1;
+        if s > best_s[slot] {
+            second_s[slot] = best_s[slot];
+            best_s[slot] = s;
+        } else if s > second_s[slot] {
+            second_s[slot] = s;
+        }
+    }
+    let mut best = [None; 4];
+    for slot in 0..4 {
+        if n[slot] == 0 {
+            continue;
+        }
+        let top = best_s[slot].max(TECH_CARRY * second_s[slot]).clamp(0.0, 1.0);
+        let other = if n[slot] >= 2 { second_s[slot].max(TECH_CARRY * best_s[slot]).clamp(0.0, 1.0) } else { 0.0 };
+        best[slot] = Some(top.max(other));
     }
     best
 }
 
-fn maker_skills(reg: &Registry, known: &[Known]) -> Vec<f32> {
+fn maker_skills_into(reg: &Registry, known: &[Known], out: &mut Vec<f32>) {
     let mut best = [0.0f32; TECH_N];
     let mut second = [0.0f32; TECH_N];
     let mut best_at = [usize::MAX; TECH_N];
-    let mut which = Vec::with_capacity(known.len());
-    let mut skill = Vec::with_capacity(known.len());
     let other = Tech::Other as usize;
     for (i, kn) in known.iter().enumerate() {
         let t = reg.tech(kn.recipe) as usize;
-        let s = kn.skill.clamp(0.0, 1.0);
-        which.push(t);
-        skill.push(s);
         if t == other || t >= TECH_N {
             continue;
         }
+        let s = kn.skill.clamp(0.0, 1.0);
         if s > best[t] {
             second[t] = best[t];
             best[t] = s;
@@ -542,10 +623,11 @@ fn maker_skills(reg: &Registry, known: &[Known]) -> Vec<f32> {
             second[t] = s;
         }
     }
-    let mut out = Vec::with_capacity(known.len());
-    for i in 0..known.len() {
-        let t = which[i];
-        let s = skill[i];
+    out.clear();
+    out.reserve(known.len());
+    for (i, kn) in known.iter().enumerate() {
+        let t = reg.tech(kn.recipe) as usize;
+        let s = kn.skill.clamp(0.0, 1.0);
         if t == other || t >= TECH_N {
             out.push(s);
             continue;
@@ -553,7 +635,6 @@ fn maker_skills(reg: &Registry, known: &[Known]) -> Vec<f32> {
         let other_best = if best_at[t] == i { second[t] } else { best[t] };
         out.push(s.max(TECH_CARRY * other_best).clamp(0.0, 1.0));
     }
-    out
 }
 
 fn chain_weight(p: f32) -> f32 {
@@ -561,6 +642,24 @@ fn chain_weight(p: f32) -> f32 {
     // treat it as a sure step so the weight is the floor.
     let p = if p > 0.0 { p.min(1.0) } else { 1.0 };
     (-p.ln()).max(CHAIN_W_MIN)
+}
+
+/// Reused by `fill_chain` and `maker_skill`. Not saved. One per thread: the
+/// season and meetings fill chains in parallel.
+struct ChainScratch {
+    skills: Vec<f32>,
+    seen: Vec<u32>,
+    rank_of: Vec<u16>,
+    touched: Vec<u16>,
+}
+
+thread_local! {
+    static CHAIN_SCRATCH: RefCell<ChainScratch> = RefCell::new(ChainScratch {
+        skills: Vec::new(),
+        seen: Vec::new(),
+        rank_of: Vec::new(),
+        touched: Vec::new(),
+    });
 }
 
 /// Chain skill of every available item, parallel to `via`.
@@ -573,75 +672,147 @@ pub fn fill_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
     tk.chain.clear();
     tk.chain.resize(n, 1.0);
     if n == 0 || known.is_empty() {
+        tk.replay.ready = false;
         return;
     }
-    let ms = maker_skills(reg, known);
-    let mut rank_of = [u16::MAX; NITEMS];
-    for (rank, it) in tk.avail.iter().enumerate() {
-        if rank >= n {
-            break;
-        }
-        let iu = it as usize;
-        if iu < NITEMS {
-            rank_of[iu] = rank as u16;
-        }
+    // Same closure as the fill that recorded the steps: only maker skills moved.
+    if tk.replay.ready && tk.replay.start.len() == n && tk.replay.nstep.len() == n {
+        replay_chain(reg, known, tk);
+        return;
     }
-    let mut seen = vec![0u32; known.len()];
-    let mut stamp = 1u32;
-    let mut stack = [NONE; 4 * 64 + 1];
-    for (rank, it) in tk.avail.iter().enumerate() {
-        if rank >= n || tk.via[rank].0 == u16::MAX {
-            continue;
+    tk.replay.ki.clear();
+    tk.replay.w.clear();
+    tk.replay.start.clear();
+    tk.replay.nstep.clear();
+    tk.replay.ready = false;
+    CHAIN_SCRATCH.with(|cell| {
+        let mut sc = cell.borrow_mut();
+        maker_skills_into(reg, known, &mut sc.skills);
+        if sc.rank_of.len() != NITEMS {
+            sc.rank_of.clear();
+            sc.rank_of.resize(NITEMS, u16::MAX);
+            sc.touched.clear();
         }
-        stamp = stamp.wrapping_add(1);
-        if stamp == 0 {
-            seen.fill(0);
-            stamp = 1;
+        let ntouch = sc.touched.len();
+        for ti in 0..ntouch {
+            let iu = sc.touched[ti] as usize;
+            if iu < sc.rank_of.len() {
+                sc.rank_of[iu] = u16::MAX;
+            }
         }
-        let mut sum_w = 0.0f32;
-        let mut sum_wl = 0.0f32;
-        stack[0] = it;
-        let mut sp = 1usize;
-        let mut guard = 0u32;
-        while sp > 0 {
-            sp -= 1;
-            let i = stack[sp];
-            guard += 1;
-            if guard > 64 {
+        sc.touched.clear();
+        for (rank, it) in tk.avail.iter().enumerate() {
+            if rank >= n {
                 break;
             }
-            let iu = i as usize;
-            if iu >= NITEMS {
+            let iu = it as usize;
+            if iu < NITEMS {
+                sc.rank_of[iu] = rank as u16;
+                sc.touched.push(iu as u16);
+            }
+        }
+        if sc.seen.len() != known.len() {
+            sc.seen.resize(known.len(), 0);
+        }
+        sc.seen.fill(0);
+        // Same starting stamp as a fresh `seen`: the first item uses 2.
+        let mut stamp = 1u32;
+        let mut stack = [NONE; 4 * 64 + 1];
+        for (rank, it) in tk.avail.iter().enumerate() {
+            if rank >= n {
+                break;
+            }
+            if tk.via[rank].0 == u16::MAX {
+                tk.replay.start.push(0);
+                tk.replay.nstep.push(0);
                 continue;
             }
-            let rr = rank_of[iu];
-            if rr == u16::MAX || rr as usize >= n {
-                continue;
+            stamp = stamp.wrapping_add(1);
+            if stamp == 0 {
+                sc.seen.fill(0);
+                stamp = 1;
             }
-            let k = tk.via[rr as usize].0;
-            if k == u16::MAX {
-                continue;
-            }
-            let ki = k as usize;
-            if ki >= known.len() || seen[ki] == stamp {
-                continue;
-            }
-            seen[ki] = stamp;
-            let m = ms.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
-            let rec = known[ki].recipe as usize;
-            let Some(recipe) = reg.recipes.get(rec) else { continue };
-            let w = chain_weight(recipe.p);
-            sum_w += w;
-            sum_wl += w * m.ln();
-            for &j in &recipe.inputs {
-                if j != NONE && sp < stack.len() {
-                    stack[sp] = j;
-                    sp += 1;
+            let mut sum_w = 0.0f32;
+            let mut sum_wl = 0.0f32;
+            let step0 = tk.replay.ki.len() as u32;
+            stack[0] = it;
+            let mut sp = 1usize;
+            let mut guard = 0u32;
+            while sp > 0 {
+                sp -= 1;
+                let i = stack[sp];
+                guard += 1;
+                if guard > 64 {
+                    break;
+                }
+                let iu = i as usize;
+                if iu >= NITEMS {
+                    continue;
+                }
+                let rr = sc.rank_of[iu];
+                if rr == u16::MAX || rr as usize >= n {
+                    continue;
+                }
+                let k = tk.via[rr as usize].0;
+                if k == u16::MAX {
+                    continue;
+                }
+                let ki = k as usize;
+                if ki >= known.len() || sc.seen[ki] == stamp {
+                    continue;
+                }
+                sc.seen[ki] = stamp;
+                let m = sc.skills.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
+                let rec = known[ki].recipe as usize;
+                let Some(recipe) = reg.recipes.get(rec) else { continue };
+                let w = chain_weight(recipe.p);
+                sum_w += w;
+                sum_wl += w * m.ln();
+                tk.replay.ki.push(ki as u16);
+                tk.replay.w.push(w);
+                for &j in &recipe.inputs {
+                    if j != NONE && sp < stack.len() {
+                        stack[sp] = j;
+                        sp += 1;
+                    }
                 }
             }
+            if sum_w > 0.0 {
+                tk.chain[rank] = (sum_wl / sum_w).exp();
+            }
+            let nstep = tk.replay.ki.len() as u32 - step0;
+            tk.replay.start.push(step0);
+            tk.replay.nstep.push(nstep);
         }
-        if sum_w > 0.0 {
-            tk.chain[rank] = (sum_wl / sum_w).exp();
+        tk.replay.ready = tk.replay.start.len() == n && tk.replay.ki.len() == tk.replay.w.len();
+    });
+}
+
+/// Same adds as the recording walk, in the same order. `sum_w` is rebuilt from
+/// the stored weights so the division matches the first fill bit for bit.
+fn replay_chain(reg: &Registry, known: &[Known], tk: &mut Toolkit) {
+    CHAIN_SCRATCH.with(|cell| {
+        let mut sc = cell.borrow_mut();
+        maker_skills_into(reg, known, &mut sc.skills);
+        let n = tk.chain.len();
+        for rank in 0..n {
+            let nstep = tk.replay.nstep[rank] as usize;
+            if nstep == 0 {
+                continue;
+            }
+            let s = tk.replay.start[rank] as usize;
+            let mut sum_w = 0.0f32;
+            let mut sum_wl = 0.0f32;
+            for i in s..s + nstep {
+                let ki = tk.replay.ki[i] as usize;
+                let w = tk.replay.w[i];
+                let m = sc.skills.get(ki).copied().unwrap_or(1.0).max(CHAIN_EPS);
+                sum_w += w;
+                sum_wl += w * m.ln();
+            }
+            if sum_w > 0.0 {
+                tk.chain[rank] = (sum_wl / sum_w).exp();
+            }
         }
-    }
+    });
 }

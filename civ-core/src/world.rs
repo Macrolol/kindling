@@ -1042,6 +1042,7 @@ impl World {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
             fill_chain(&self.reg, &b.known, &mut tk);
+            tk.set_chain_ver(b.d.skill_ver);
             kit = self.fit_kit(b, &tk);
             let mut want = [0.0f32; NFORM];
             for &it in kit.used_items().iter() {
@@ -1059,6 +1060,7 @@ impl World {
             raws = self.raws_at(b);
             tk = closure(&self.reg, &b.known, &raws, b.flame);
             fill_chain(&self.reg, &b.known, &mut tk);
+            tk.set_chain_ver(b.d.skill_ver);
             kit = self.fit_kit(b, &tk);
         }
         b.d.tk = tk;
@@ -1669,6 +1671,17 @@ impl World {
         }
     }
 
+    /// Refill chain skill when recipe skill has moved since this toolkit was filled.
+    /// A brand-new closure does not use this: its `chain_ver` starts at 0, which is
+    /// also a new band's `skill_ver`, so the caller fills and stamps it directly.
+    fn ensure_chain(&self, b: &mut Band) {
+        if b.d.tk.chain_ver() == b.d.skill_ver {
+            return;
+        }
+        fill_chain(&self.reg, &b.known, &mut b.d.tk);
+        b.d.tk.set_chain_ver(b.d.skill_ver);
+    }
+
     /// Rank the kit for this band's view, then apply recipe quality once.
     fn fit_kit(&self, b: &Band, tk: &Toolkit) -> Kit {
         let view = self.decision_view(b);
@@ -1685,9 +1698,9 @@ impl World {
             b.d.tk_prev = None;
         }
         if b.d.tk_key == Some(key) {
-            // Skills move every season without a new closure. Chain skill is
-            // derived from them, so refill even when this toolkit is still current.
-            fill_chain(&self.reg, &b.known, &mut b.d.tk);
+            // Chain skill changes only when recipe skill does (`skill_ver`) or the
+            // closure is new. A cache hit with the same version keeps the chain.
+            self.ensure_chain(b);
             // (diffusion D3) the kit follows skill too, which moves every season
             if b.d.fin_dirty || b.d.kit_dirty {
                 let kit = self.fit_kit(b, &b.d.tk);
@@ -1709,7 +1722,7 @@ impl World {
             if prev.0 != key {
                 b.d.tk_prev = Some(prev);
             }
-            fill_chain(&self.reg, &b.known, &mut b.d.tk);
+            self.ensure_chain(b);
             // (diffusion D3) the cached kit was chosen at older skills
             let kit = self.fit_kit(b, &b.d.tk);
             b.d.kit = kit;
@@ -1719,6 +1732,7 @@ impl World {
         {
             let mut tk = closure(&self.reg, &b.known, &raws, b.flame);
             fill_chain(&self.reg, &b.known, &mut tk);
+            tk.set_chain_ver(b.d.skill_ver);
             let kit = self.fit_kit(b, &tk);
             b.d.fin_dirty = false;
             b.d.kit_dirty = false;
@@ -2247,9 +2261,9 @@ impl World {
         // ---------------- the sea: drift and far shores
         self.sea_season(b, rng, fx);
         // ---------------- practice / forgetting
-        // Chain skill depends on recipe skill. The refresh_toolkit below, after
-        // forgetting, refills it (cache hit included). `refine` already read the
-        // pre-practice cache from `band_prep`.
+        // Chain skill depends on recipe skill. `skill_ver` moves after this pass
+        // (not saved). The refresh below refills a toolkit filled at the old
+        // version. `refine` already used the pre-practice skills.
         // (inventions step 8) records: kept while a band counts something with its tally or
         // token; they slow the forgetting of what is not practised
         if b.d.kit.mark != NONE && Self::keeps_count(b) {
@@ -2290,6 +2304,9 @@ impl World {
                 fx.push_event(EventKind::Forgot, b.id, 0, ci as u32, it, r);
             }
         }
+        // Practice or forgetting moved recipe skill. A closure rebuilt above
+        // (known_ver) was stamped at the old version, so this still refills it.
+        b.d.skill_ver = b.d.skill_ver.wrapping_add(1);
         fx.lap(&mut tk, 9);
         // ---------------- movement
         self.refresh_toolkit(b);
@@ -3566,11 +3583,13 @@ impl World {
         if used.is_empty() {
             return;
         }
+        // One walk for every pick. Quality updates below do not change maker skill.
+        let ms = maker_skills_copy(reg, &b.known);
         for _ in 0..n {
             let i = used[rng.below(used.len())];
             // The recipe's own carried skill, not the item's chain skill. At 1 this is
             // `REFINE_STEP * room`, bit for bit.
-            let m = maker_skill(reg, &b.known, i);
+            let m = ms.get(i).copied().unwrap_or(0.0);
             let k = &mut b.known[i];
             let room = k.skill - k.quality;
             if room > 0.01 {

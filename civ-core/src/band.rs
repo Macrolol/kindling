@@ -475,6 +475,10 @@ pub struct Derived {
     pub fin_dirty: bool,
     /// (diffusion D3) skills moved this season: re-choose the kit (not the toolkit)
     pub kit_dirty: bool,
+    /// (skills step 3) bumped when recipe skill moves (practice or forgetting).
+    /// Not saved (`Carry` omits it). A toolkit's `chain_ver` is the version its
+    /// chain was filled at, so a cache hit refills only when this moved.
+    pub skill_ver: u32,
     /// the band's place in this season's harvest order (valid while `World::seen` uses it)
     pub hk: u32,
     pub kit: Kit,

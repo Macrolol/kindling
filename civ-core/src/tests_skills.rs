@@ -1719,6 +1719,11 @@ fn steel_making_does_not_carry_forging_skill() {
     ];
     assert_eq!(maker_skill(&reg, &hammers, 1).to_bits(), 0.2f32.to_bits());
     assert_eq!(maker_skill(&reg, &hammers, 0).to_bits(), 0.9f32.to_bits());
+
+    let best = maker_tech_best(&reg, &known);
+    assert_eq!(best[0].unwrap().to_bits(), 0.8f32.to_bits(), "hot-forging best is the stronger own skill");
+    assert_eq!(best[1].unwrap().to_bits(), 0.12f32.to_bits(), "steel-making stands alone");
+    assert!(best[2].is_none() && best[3].is_none());
 }
 
 /// The cache is filled on a live band, and a skill change with no new closure
@@ -1744,6 +1749,8 @@ fn chain_cache_follows_skill_without_a_new_closure() {
         for k in &mut b.known {
             k.skill = 1.0;
         }
+        // The cache-hit path refills only when recipe skill's version moves.
+        b.d.skill_ver = b.d.skill_ver.wrapping_add(1);
     }
     w.refresh_all_toolkits();
     for b in &w.bands {
