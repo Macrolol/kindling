@@ -54,12 +54,54 @@ pub const USE_TEACH_P: f32 = 0.2;
 pub const USE_TEACH_SHARE: f32 = 0.15;
 /// (skills step 2) Half-width of a novice's season-to-season yield factor at `u_eff` 0.
 pub const NOVICE_SD: f32 = 0.3;
+/// (skills step 3) Share of another recipe's skill that carries to a recipe of the
+/// same technique. Steel-making is its own technique, so hot-forging does not carry.
+pub const TECH_CARRY: f32 = 0.5;
+/// (skills step 3) Floor on a chain step's maker skill inside the log, so a zero
+/// does not wipe the geometric mean.
+pub const CHAIN_EPS: f32 = 0.05;
+/// (skills step 3) Floor on a step's weight `max(-ln p, CHAIN_W_MIN)`. A sure step
+/// still counts a little; a hard step (small `p`) counts more.
+pub const CHAIN_W_MIN: f32 = 0.1;
+/// (skills step 3) Extra upkeep of an unskilled maker: labour is multiplied by
+/// `1 + MAKER_WASTE * (1 - m_item)`.
+pub const MAKER_WASTE: f32 = 0.8;
+/// (skills step 3) Extra marginal material draw of an unskilled maker:
+/// `1 + MAKER_SCRAP * (1 - m)`.
+pub const MAKER_SCRAP: f32 = 1.0;
+/// (skills step 3) Season failure chance at maker skill 0, times `(1 - m_item)^2`.
+pub const MAKER_FAIL: f32 = 0.25;
+/// Hash salt for the maker-failure roll. Not `NOVICE_SALT` and not the D3 trial salt.
+const MAKER_FAIL_SALT: u64 = 0x4D61_6B65_4661_696C;
 const NOMINAL_POP: f32 = 25.0;
 const FOOD_EPS: f32 = 1e-6;
 /// All-ones effective skill: the nominal view, and a trial's potential.
 const USER_FULL: [f32; NFORM] = [1.0; NFORM];
-/// Hash salt for the novice yield draw. Not the kit-trial salt.
+/// Hash salt for the novice yield draw. Not the kit-trial salt and not `MAKER_FAIL_SALT`.
 const NOVICE_SALT: u64 = 0x4E6F_7669_6365_5A01;
+
+/// Labour factor of maker skill `m`. At `m = 1` this is bit-identical to `1.0`.
+pub fn maker_waste(m: f32) -> f32 {
+    1.0 + MAKER_WASTE * (1.0 - m)
+}
+
+/// Marginal-draw factor of maker skill `m`. At `m = 1` this is bit-identical to `1.0`.
+pub fn maker_scrap_factor(m: f32) -> f32 {
+    1.0 + MAKER_SCRAP * (1.0 - m)
+}
+
+/// Chance a payoff tool made at skill `m` fails this season. `0` at `m = 1`.
+pub fn maker_p_fail(m: f32) -> f32 {
+    let g = 1.0 - m;
+    MAKER_FAIL * g * g
+}
+
+/// Uniform draw in `[0, 1)` for the maker-failure roll. Same mapping as the D3 trial
+/// (`hash3` high bits), with `MAKER_FAIL_SALT`. Slot is the payoff index (`Kit::slot_item`).
+pub fn maker_fail_roll(seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
+    let roll = hash3(seed ^ MAKER_FAIL_SALT, band as i64, (tick as i64) * 16 + slot as i64);
+    (roll >> 40) as f32 / (1u64 << 24) as f32
+}
 /// Motion axes, proposal order: cut, chop, thrust, throw, aim, fend, knot, dig, paddle, sail, pound.
 const MOTION_N: usize = 11;
 
@@ -232,7 +274,8 @@ pub(crate) const PAYOFF_SLOTS: [usize; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 1
 const CHOOSE_ORDER: [usize; 12] = [0, 1, 10, 4, 12, 13, 11, 14, 15, 16, 18, 22];
 
 /// What putting `it` in a slot does, beyond the kit with that slot empty.
-/// `food_sd` is the novice spread on a food-slot tool (`p_fail` stays 0 until a later step).
+/// `food_sd` is the novice spread on a food-slot tool, plus the maker-failure spread
+/// when `p_fail` is not 0. At maker skill 1, `p_fail` is 0 and `food_sd` is the novice term.
 /// `fight` is informational: the decision does not read it. `labour` is the economy's fraction
 /// of the labour pool (the economy multiplies by `LABOUR_SHARE * pop`). `mats` is the marginal
 /// stock draw, up to four materials, index order, unused entries `(0, 0)`.
@@ -612,9 +655,11 @@ struct Cand {
     term: f32,
     dur_term: f32,
     depth_f: f32,
+    /// Chain maker skill of this item. 1 on every nominal path.
+    m: f32,
 }
 
-fn cand_new(it: Item, sk: f32, ql: f32, d: u8) -> Cand {
+fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
     let m = mat(it);
     let dur = durability(m);
     let cq = cut_q(m);
@@ -628,7 +673,7 @@ fn cand_new(it: Item, sk: f32, ql: f32, d: u8) -> Cand {
         Form::Bow | Form::Shield => (0.0, m.props().tough + 1.0),
         _ => (0.0, 0.0),
     };
-    Cand { it, d, sk, ql, hunt_q, term, dur_term: 1.15 - dur, depth_f: 1.0 + 0.3 * d as f32 }
+    Cand { it, d, sk, ql, hunt_q, term, dur_term: 1.15 - dur, depth_f: 1.0 + 0.3 * d as f32, m: maker }
 }
 
 #[inline(always)]
@@ -879,12 +924,21 @@ pub fn refine_kit(k: &mut Kit, tk: &Toolkit, known: &[Known]) {
 /// except where the two numberings meet (hunt, cut). `kit` is the kit with the other slots
 /// already chosen; this slot is overwritten. `mask` is `tk.via(it).1` (0 if unknown).
 pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, mask: u32) -> Effects {
+    tool_effects_m(view, kit, slot, it, info, mask, 1.0)
+}
+
+/// `tool_effects` at maker skill `m_item`. `m_item == 1` is the old account, bit for bit:
+/// no waste, no scrap, `p_fail` 0, food undiscounted. Otherwise labour includes waste,
+/// each marginal draw includes scrap, food is `(1 - p_fail) * food`, and `food_sd` adds
+/// the failure spread in root-sum-square with the novice term (the novice term stays on
+/// the pre-discount food).
+pub fn tool_effects_m<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, mask: u32, m_item: f32) -> Effects {
     let (food, labour) = if it == NONE {
         (0.0, 0.0)
     } else if is_food_slot(slot) {
         // Same multipliers as `kit_yields` of the empty slot and of the slot filled, but only
         // the five food numbers. A bow or a hull still goes through the full kit below.
-        let c = cand_new(it, 0.0, info(it).1, info(it).2);
+        let c = cand_new(it, 0.0, info(it).1, info(it).2, 1.0);
         let w = weights(view, &digest_of(kit));
         let base = yargs_of(kit, slot, info, &view.user, &quiet);
         let m0 = yields(&base);
@@ -908,22 +962,36 @@ pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, s
     let mut with = *kit;
     set_slot(&mut with, slot, it);
     // Novice spread is `1 + NOVICE_SD*(1-u)*z` on the tool term, z uniform on [-1, 1]
-    // (sd 1/sqrt(3)). Counted here as that relative width times |food|, and added onto
-    // `food_sd`. Later steps add their own contributions the same way (a sum, not a
-    // root-sum-square). Only the food-slot tools carry it; `p_fail` stays 0.
+    // (sd 1/sqrt(3)). Counted here as that relative width times |food| before the failure
+    // discount. Only the food-slot tools carry it. A failure spread is added below, and
+    // only when `p_fail` is not 0, so a mastered maker stays bit-identical.
     let food_sd = if it != NONE && is_food_slot(slot) {
         let u = view.user[form(it) as usize];
         NOVICE_SD * (1.0 - u) / 3.0f32.sqrt() * food.abs()
     } else {
         0.0
     };
+    let mats = marginal_mats(if it == NONE { 0 } else { mask }, view.at_hand);
+    let fight = fight_of(slot, it, &with);
+    if m_item == 1.0 || it == NONE {
+        return Effects { food, food_sd, labour, mats, p_fail: 0.0, fight };
+    }
+    let p_fail = maker_p_fail(m_item);
+    let scrap = maker_scrap_factor(m_item);
+    let mut scaled = mats;
+    for e in &mut scaled {
+        if e.1 != 0.0 {
+            e.1 *= scrap;
+        }
+    }
+    let spread = (p_fail * (1.0 - p_fail)).sqrt() * food.abs();
     Effects {
-        food,
-        food_sd,
-        labour,
-        mats: marginal_mats(if it == NONE { 0 } else { mask }, view.at_hand),
-        p_fail: 0.0,
-        fight: fight_of(slot, it, &with),
+        food: food * (1.0 - p_fail),
+        food_sd: food_sd.hypot(spread),
+        labour: labour * maker_waste(m_item),
+        mats: scaled,
+        p_fail,
+        fight,
     }
 }
 
@@ -933,10 +1001,18 @@ pub fn tool_effects<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, s
 /// not scale them. The other payoff slots keep `KIT_UPKEEP`, with `uf` in place of the old
 /// recipe-skill discount. A hull is still ranked by soundness.
 pub fn slot_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F) -> (f32, f32) {
+    slot_score_m(view, kit, slot, it, info, 1.0)
+}
+
+/// `slot_score` at maker skill `m_item`. Food: `cur` discounts food by `(1 - p_fail)` and
+/// wastes labour; `full` is the mastered yields at user 1 (trial potential), unscaled.
+/// `m_item == 1` matches `slot_score` bit for bit. Non-food slots ignore `m_item`: they
+/// keep `KIT_UPKEEP`, not the economy's upkeep.
+pub fn slot_score_m<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, m_item: f32) -> (f32, f32) {
     let (_sk, ql, d) = info(it);
     let u = if it == NONE { 1.0 } else { view.user[form(it) as usize] };
     if is_food_slot(slot) {
-        let c = cand_new(it, u, ql, d);
+        let c = cand_new(it, u, ql, d, 1.0);
         let w = weights(view, &digest_of(kit));
         let pitch = pitch_in_use(kit, view.wet);
         let labour = tool_upkeep(view.upkeep_rate, it, d, food_sealed(slot, it, kit, pitch));
@@ -946,7 +1022,13 @@ pub fn slot_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slo
             let m1 = yields_with(slot, &base, &c, kit.bow != NONE, user, &quiet);
             food_acc(&w, &m0, &m1)
         };
-        (price_of(food_at(&view.user), labour, view), price_of(food_at(&USER_FULL), labour, view))
+        let cur_food = food_at(&view.user);
+        let full_food = food_at(&USER_FULL);
+        if m_item == 1.0 {
+            return (price_of(cur_food, labour, view), price_of(full_food, labour, view));
+        }
+        let pm = maker_p_fail(m_item);
+        (price_of(cur_food * (1.0 - pm), labour * maker_waste(m_item), view), price_of(full_food, labour, view))
     } else {
         nonfood_scores(slot, it, u, ql, d)
     }
@@ -999,11 +1081,17 @@ pub fn fills_payoff(it: Item, j: usize) -> bool {
     )
 }
 
-fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Item, pot: &mut [(f32, Item); 2]) {
-    // strict: a tie keeps the earlier item, and candidates arrive in item-id order
+fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Item, second_cur: &mut f32, second_it: &mut Item, pot: &mut [(f32, Item); 2]) {
+    // strict: a tie keeps the earlier item, and candidates arrive in item-id order.
+    // The displaced best becomes the runner-up (the season's fallback if this tool fails).
     if cur > *best_cur {
+        *second_cur = *best_cur;
+        *second_it = *best_it;
         *best_cur = cur;
         *best_it = it;
+    } else if it != *best_it && cur > *second_cur {
+        *second_cur = cur;
+        *second_it = it;
     }
     if full > pot[0].0 {
         pot[1] = pot[0];
@@ -1013,9 +1101,12 @@ fn consider(cur: f32, full: f32, it: Item, best_cur: &mut f32, best_it: &mut Ite
     }
 }
 
-fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f32, Item); 2], record_trial: bool) {
+fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f32, Item); 2], second_it: Item, record_trial: bool) {
     // a negative score still fills the slot when anything can
     set_slot(k, slot, best_it);
+    // NONE when the slot is empty or only one item can fill it. Every scoring writes this;
+    // a later pass overwrites. A slot that is not re-scored keeps the earlier pass.
+    k.fallback[trial_j(slot)] = if best_it != NONE { second_it } else { NONE };
     if record_trial {
         let ch = if pot[0].1 != best_it { pot[0] } else { pot[1] };
         k.trial[trial_j(slot)] = if best_it != NONE && ch.1 != NONE && ch.0 > best_cur { ch.1 } else { NONE };
@@ -1025,12 +1116,14 @@ fn write_choice(k: &mut Kit, slot: usize, best_it: Item, best_cur: f32, pot: [(f
 fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
+    let mut second_cur = f32::NEG_INFINITY;
+    let mut second_it = NONE;
     let mut pot = [(f32::NEG_INFINITY, NONE); 2];
     for c in list {
         let (cur, full) = nonfood_from(c.term, c.sk, c.ql, c.dur_term, c.depth_f);
-        consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut pot);
+        consider(cur, full, c.it, &mut best_cur, &mut best_it, &mut second_cur, &mut second_it, &mut pot);
     }
-    write_choice(k, slot, best_it, best_cur, pot, record_trial);
+    write_choice(k, slot, best_it, best_cur, pot, second_it, record_trial);
 }
 
 /// Food-slot choice. `lists` are the candidate forms in item-id order (an edge before a point
@@ -1039,10 +1132,12 @@ fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
 fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
+    let mut second_cur = f32::NEG_INFINITY;
+    let mut second_it = NONE;
     let mut pot = [(f32::NEG_INFINITY, NONE); 2];
     let n: usize = lists.iter().map(|l| l.len()).sum();
     if n == 0 {
-        write_choice(k, slot, NONE, best_cur, pot, record_trial);
+        write_choice(k, slot, NONE, best_cur, pot, second_it, record_trial);
         return;
     }
     let base = yargs_of(k, slot, info, &view.user, &quiet);
@@ -1075,10 +1170,18 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
                 )
             };
             let labour = tool_upkeep(view.upkeep_rate, c.it, c.d, food_sealed(slot, c.it, k, pitch));
-            consider(price_of(food, labour, view), price_of(food_f, labour, view), c.it, &mut best_cur, &mut best_it, &mut pot);
+            // Mastered maker: the old price, same labour on both sides. A weak maker discounts
+            // the food it is credited with and wastes labour; the full side stays unscaled.
+            let (cur_food, cur_labour) = if c.m == 1.0 {
+                (food, labour)
+            } else {
+                let pm = maker_p_fail(c.m);
+                (food * (1.0 - pm), labour * maker_waste(c.m))
+            };
+            consider(price_of(cur_food, cur_labour, view), price_of(food_f, labour, view), c.it, &mut best_cur, &mut best_it, &mut second_cur, &mut second_it, &mut pot);
         }
     }
-    write_choice(k, slot, best_it, best_cur, pot, record_trial);
+    write_choice(k, slot, best_it, best_cur, pot, second_it, record_trial);
 }
 
 struct Bucket {
@@ -1090,7 +1193,7 @@ impl Bucket {
     fn new() -> Self {
         Self {
             n: 0,
-            v: [Cand { it: NONE, d: 0, sk: 0.0, ql: 0.0, hunt_q: 0.0, term: 0.0, dur_term: 0.0, depth_f: 0.0 }; NMAT],
+            v: [Cand { it: NONE, d: 0, sk: 0.0, ql: 0.0, hunt_q: 0.0, term: 0.0, dur_term: 0.0, depth_f: 0.0, m: 1.0 }; NMAT],
         }
     }
     fn push(&mut self, c: Cand) {
@@ -1110,6 +1213,16 @@ impl Bucket {
 /// has changed (a hull, bow or shield does not read the kit, so it is scored once). Trials are
 /// marked on the last scoring of each slot. Quality is not baked in (`refine_kit` does that).
 pub fn make_kit_with_view<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &BandView) -> Kit {
+    make_kit_scored(avail, info, view, &|_| 1.0)
+}
+
+/// `make_kit_with_view` with a per-item maker skill. Nominal callers pass `|_| 1.0`.
+/// The full side of each food score, and every non-food score, stay at maker skill 1.
+pub fn make_kit_scored<F, M>(avail: &ItemSet, info: &F, view: &BandView, m_of: &M) -> Kit
+where
+    F: Fn(Item) -> (f32, f32, u8),
+    M: Fn(Item) -> f32,
+{
     let mut k = Kit::default();
     let mut best = [0f32; 24];
     // one bucket per payoff form, filled in item-id order. A form has at most one item per material.
@@ -1121,7 +1234,7 @@ pub fn make_kit_with_view<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: 
         let (f, m) = (form(it), mat(it));
         if let Some(bi) = bucket_of(f) {
             let (_sk, ql, d) = info(it);
-            buckets[bi].push(cand_new(it, view.user[f as usize], ql, d));
+            buckets[bi].push(cand_new(it, view.user[f as usize], ql, d, m_of(it)));
             continue;
         }
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -1241,16 +1354,18 @@ pub fn make_kit_for_view(view: &BandView, tk: &Toolkit, known: &[Known]) -> Kit 
 }
 
 /// `make_kit_for_view` choosing only among `avail` (a subset of `tk.avail`; for probes).
+/// The current side of each food slot uses `tk.chain_m`. The full side stays at 1.
 pub fn make_kit_among_view(view: &BandView, avail: &ItemSet, tk: &Toolkit, known: &[Known]) -> Kit {
-    make_kit_with_view(avail, &|it| recipe_info(tk, known, it), view)
+    make_kit_scored(avail, &|it| recipe_info(tk, known, it), view, &|it| tk.chain_m(it))
 }
 
-/// Nominal-view `make_kit_for_view`. Tests and the probe's displaced check use this.
+/// Nominal-view kit. Maker skill is forced to 1 even when `tk.chain` is filled, so this
+/// stays the fully-practised ranking.
 pub fn make_kit_for(tk: &Toolkit, known: &[Known]) -> Kit {
-    make_kit_for_view(&BandView::nominal(), tk, known)
+    make_kit_with_view(&tk.avail, &|it| recipe_info(tk, known, it), &BandView::nominal())
 }
 
-/// Nominal-view `make_kit_among_view`.
+/// Nominal-view `make_kit_among`. Maker skill is forced to 1, same as `make_kit_for`.
 pub fn make_kit_among(avail: &ItemSet, tk: &Toolkit, known: &[Known]) -> Kit {
-    make_kit_among_view(&BandView::nominal(), avail, tk, known)
+    make_kit_with_view(avail, &|it| recipe_info(tk, known, it), &BandView::nominal())
 }

@@ -1,16 +1,19 @@
 //! (skills step 1) The economy pays what `tool_effects` says, and a food slot is the item
 //! that maximises food minus the food its upkeep labour would have grown.
 use crate::band::{edge_q, Band, Kit, Partner};
-use crate::band::{KIT_UPKEEP, QUALITY_YIELD};
+use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_with_view, novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, tool_effects,
-    tool_upkeep, transfer_table, u_eff, user_factor, BandView, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, USE_FADE_X,
-    USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE, USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
+    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste,
+    novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
+    CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
+    USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
+use crate::knowledge::{closure, fill_chain, maker_skill, maker_tech_best, technique, Known, Recipe, Registry, Tech};
 use crate::materials::*;
-use crate::rng::Rng;
+use crate::physics::{canonical, Action};
+use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{inherit_use, practise_use, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -167,23 +170,57 @@ fn payout_invariant() {
     let charged = charged_kit_items(b, ec.ys[2], view.wet, pitch);
     let mut sum_fx = 0.0;
     let mut sum_wear = 0.0;
-    let mut rest = ec.used.clone();
+    let mut used = Vec::new();
     for &it in &charged {
         let depth = b.d.tk.via(it).map(|v| v.2).unwrap_or(0);
         let mask = b.d.tk.via(it).map(|v| v.1).unwrap_or(0);
         let sealed = sealed_factor(it, kit, pitch);
-        sum_fx += tool_effects(&view, kit, slot_holding(kit, it), it, &info, mask).labour;
-        sum_wear += wear(w.params.upkeep, it, depth, sealed);
-        if let Some(i) = rest.iter().position(|&x| x == it) {
-            rest.remove(i);
+        let waste = maker_waste(b.d.tk.chain_m(it));
+        sum_fx += tool_effects(&view, kit, slot_holding(kit, it), it, &info, mask).labour * waste;
+        sum_wear += wear(w.params.upkeep, it, depth, sealed) * waste;
+        used.push(it);
+    }
+    // D3 trials wear at sealed = 1. A failed food slot then wears its fallback, glued
+    // against the original kit, and only if that item is not already in `used`.
+    for j in 0..kit.trial.len() {
+        let (inc, ch) = (kit.slot_item(j), kit.trial[j]);
+        if ch == NONE || !used.contains(&inc) || used.contains(&ch) {
+            continue;
         }
-    }
-    // what is left was tried out beside the kit. Trials are not glued or caulked.
-    for &ch in &rest {
+        let roll = hash3(w.cfg.seed ^ 0x7121_A15E_D3D3_0001, b.id as i64, (w.tick as i64) * 16 + j as i64);
+        if (roll >> 40) as f32 / (1u64 << 24) as f32 >= KIT_TRIAL_P {
+            continue;
+        }
         let depth = b.d.tk.via(ch).map(|v| v.2).unwrap_or(0);
-        sum_fx += tool_upkeep(w.params.upkeep, ch, depth, 1.0);
-        sum_wear += wear(w.params.upkeep, ch, depth, 1.0);
+        let waste = maker_waste(b.d.tk.chain_m(ch));
+        sum_fx += tool_upkeep(w.params.upkeep, ch, depth, 1.0) * waste;
+        sum_wear += wear(w.params.upkeep, ch, depth, 1.0) * waste;
+        used.push(ch);
     }
+    for j in 0..12 {
+        let it = kit.slot_item(j);
+        if it == NONE || !used.contains(&it) {
+            continue;
+        }
+        let pm = maker_p_fail(b.d.tk.chain_m(it));
+        if pm <= 0.0 || maker_fail_roll(w.cfg.seed, b.id, w.tick, j) >= pm {
+            continue;
+        }
+        if !matches!(j, 0 | 1 | 2 | 3 | 5 | 6) {
+            continue;
+        }
+        let fb = kit.fallback[j];
+        if fb == NONE || used.contains(&fb) {
+            continue;
+        }
+        let depth = b.d.tk.via(fb).map(|v| v.2).unwrap_or(0);
+        let sealed = sealed_factor(fb, kit, pitch);
+        let waste = maker_waste(b.d.tk.chain_m(fb));
+        sum_fx += tool_upkeep(w.params.upkeep, fb, depth, sealed) * waste;
+        sum_wear += wear(w.params.upkeep, fb, depth, sealed) * waste;
+        used.push(fb);
+    }
+    assert_eq!(used, ec.used, "practised list");
     assert!((sum_fx - ec.upkeep).abs() < 1e-6, "effects {sum_fx} economy {}", ec.upkeep);
     assert!((sum_wear - ec.upkeep).abs() < 1e-6, "wear {sum_wear} economy {}", ec.upkeep);
 
@@ -420,7 +457,7 @@ fn accepts(slot: usize, it: Item) -> bool {
 
 /// The score `slot_score` used to compute by rebuilding the kit. Kept here so a cheaper
 /// evaluation has to match it bit for bit, including the upkeep association.
-fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F) -> (f32, f32) {
+fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, m_item: f32) -> (f32, f32) {
     let (_sk, ql, d) = info(it);
     if matches!(slot, 0 | 1 | 10 | 4 | 12 | 13) {
         let food_of = |user: &[f32; NFORM]| {
@@ -444,10 +481,20 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         let food_full = food_of(&[1.0; NFORM]);
         let labour = tool_upkeep(view.upkeep_rate, it, d, sealed_factor(it, &with_slot(kit, slot, it), pitch_in_use(&with_slot(kit, slot, it), view.wet)));
         let pop = view.pop.max(1.0);
-        let units = labour * LABOUR_SHARE * pop;
         let price = view.food.max(1e-6) / (WORK_SHARE * LABOUR_SHARE * pop);
-        let cost = price * units;
-        (food - cost, food_full - cost)
+        // Same association as `price_of`: scale labour to person-seasons first, then by price.
+        // Multiplying price by labour first is one ulp off on some slots.
+        let cost = |lab: f32| {
+            let units = lab * LABOUR_SHARE * pop;
+            price * units
+        };
+        if m_item == 1.0 {
+            let c = cost(labour);
+            (food - c, food_full - c)
+        } else {
+            let pm = maker_p_fail(m_item);
+            (food * (1.0 - pm) - cost(labour * maker_waste(m_item)), food_full - cost(labour))
+        }
     } else {
         let m = mat(it);
         let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
@@ -489,7 +536,11 @@ fn trial_j(slot: usize) -> usize {
 }
 
 /// The two-pass choice as it was when every candidate rebuilt a kit, trials on pass 2 only.
-fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &BandView) -> Kit {
+fn slow_make<F, M>(avail: &ItemSet, info: &F, view: &BandView, m_of: &M) -> Kit
+where
+    F: Fn(Item) -> (f32, f32, u8),
+    M: Fn(Item) -> f32,
+{
     let mut k = Kit::default();
     let mut best = [0f32; 24];
     for it in avail.iter() {
@@ -529,15 +580,22 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
         for &slot in &CHOOSE {
             let mut best_cur = f32::NEG_INFINITY;
             let mut best_it = NONE;
+            let mut second_cur = f32::NEG_INFINITY;
+            let mut second_it = NONE;
             let mut pot = [(f32::NEG_INFINITY, NONE); 2];
             for it in avail.iter() {
                 if !accepts(slot, it) {
                     continue;
                 }
-                let (cur, full) = slow_score(view, &k, slot, it, info);
+                let (cur, full) = slow_score(view, &k, slot, it, info, m_of(it));
                 if cur > best_cur {
+                    second_cur = best_cur;
+                    second_it = best_it;
                     best_cur = cur;
                     best_it = it;
+                } else if it != best_it && cur > second_cur {
+                    second_cur = cur;
+                    second_it = it;
                 }
                 if full > pot[0].0 {
                     pot[1] = pot[0];
@@ -547,9 +605,12 @@ fn slow_make<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: &F, view: &Ba
                 }
             }
             set_pay(&mut k, slot, best_it);
+            // The second pass is the final context. Slots the fast path does not re-score
+            // kept their first-pass runner-up, which matches this one when the inputs did not move.
             if pass == 1 {
                 let ch = if pot[0].1 != best_it { pot[0] } else { pot[1] };
                 k.trial[trial_j(slot)] = if best_it != NONE && ch.1 != NONE && ch.0 > best_cur { ch.1 } else { NONE };
+                k.fallback[trial_j(slot)] = if best_it != NONE { second_it } else { NONE };
             }
         }
     }
@@ -643,8 +704,9 @@ fn fast_choice_matches_full_yields_bits() {
     ];
     for view in &views {
         let fast = make_kit_with_view(&avail, &info, view);
-        let slow = slow_make(&avail, &info, view);
+        let slow = slow_make(&avail, &info, view, &|_| 1.0);
         assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
+        assert_eq!(fast.fallback, slow.fallback, "fallback diverged");
         assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
         assert_eq!((fast.pitch, fast.ale), (slow.pitch, slow.ale));
         for &slot in &CHOOSE {
@@ -653,7 +715,7 @@ fn fast_choice_matches_full_yields_bits() {
                     continue;
                 }
                 let (a, b) = slot_score(view, &slow, slot, it, &info);
-                let (c, d) = slow_score(view, &slow, slot, it, &info);
+                let (c, d) = slow_score(view, &slow, slot, it, &info, 1.0);
                 assert_eq!(a.to_bits(), c.to_bits(), "slot {slot} discounted");
                 assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
             }
@@ -676,7 +738,7 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
     let info = |_: Item| (1.0f32, 0.0, 0u8);
     let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] };
     let fast = make_kit_with_view(&avail, &info, &view);
-    let slow = slow_make(&avail, &info, &view);
+    let slow = slow_make(&avail, &info, &view, &|_| 1.0);
     assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
     assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
     assert_eq!((fast.pitch, fast.ale), (slow.pitch, slow.ale));
@@ -689,7 +751,7 @@ fn cut_slot_glues_a_blade_shared_with_hunt() {
                 continue;
             }
             let (a, b) = slot_score(&view, &slow, slot, it, &info);
-            let (c, d) = slow_score(&view, &slow, slot, it, &info);
+            let (c, d) = slow_score(&view, &slow, slot, it, &info, 1.0);
             assert_eq!(a.to_bits(), c.to_bits(), "slot {slot}");
             assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
         }
@@ -1112,6 +1174,47 @@ fn founders_start_at_use_founder() {
     assert_eq!(sk[Form::Bow as usize], 0.0);
 }
 
+/// A founder that has just gained an edge still has stored skill 0. The decision
+/// and the economy both read that form at USE_FOUNDER in the same season. A
+/// gen-1 band with the same stored skill does not.
+#[test]
+fn founder_reads_use_founder_the_season_an_edge_is_gained() {
+    let mut w = world();
+    let flint = item(Form::Edge, Mat::Flint);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    let kit = crate::band::make_kit(&avail);
+    assert!(kit.hunt == flint || kit.cut == flint, "the new edge has to fill a food slot");
+    let mw = w.map.w;
+    let ci = w.bands[0].cell(mw);
+    w.game[ci] = 20.0;
+    w.plants[ci] = 20.0;
+    w.tick = 3;
+    let arm = |b: &mut Band, gen: u32, skill: f32| {
+        b.gen = gen;
+        b.use_skill = vec![skill; NFORM];
+        b.d.kit = kit;
+    };
+    arm(&mut w.bands[0], 0, 0.0);
+    let view = w.band_view(&w.bands[0]);
+    assert_eq!(view.user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    assert!(view.user.iter().all(|u| u.to_bits() == USE_FOUNDER.to_bits()));
+    assert_eq!(w.bands[0].use_skill[Form::Edge as usize], 0.0, "the floor is not written back before practice");
+    let h_founder = w.economy(&w.bands[0], 0).h;
+    // Stored skill already at the floor, and not a founder: the same user array,
+    // so the economy's harvest matches. A gen-1 band still at 0 does not.
+    arm(&mut w.bands[0], 1, USE_FOUNDER);
+    assert_eq!(w.band_view(&w.bands[0]).user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    let h_at_floor = w.economy(&w.bands[0], 0).h;
+    assert_eq!(h_founder.map(f32::to_bits), h_at_floor.map(f32::to_bits), "economy did not read the founder floor");
+    arm(&mut w.bands[0], 1, 0.0);
+    let view1 = w.band_view(&w.bands[0]);
+    assert_eq!(view1.user[Form::Edge as usize], 0.0);
+    assert_ne!(view1.user[Form::Edge as usize].to_bits(), USE_FOUNDER.to_bits());
+    let h_novice = w.economy(&w.bands[0], 0).h;
+    assert_ne!(h_novice.map(f32::to_bits), h_founder.map(f32::to_bits), "a gen-1 novice must not get the founder floor");
+}
+
 /// A used form climbs toward 1. An unused one fades by USE_FADE_X * floss and stops at 0.
 #[test]
 fn practice_raises_and_fade_lowers() {
@@ -1305,4 +1408,538 @@ fn yearstats_use_skill_matches_kit_means() {
     assert_eq!(h.use_skill_bow.to_bits(), mean(Form::Bow).to_bits());
     assert_eq!(h.use_skill_net.to_bits(), mean(Form::Net).to_bits());
     assert_eq!(h.use_skill_boat.to_bits(), mean(Form::Boat).to_bits());
+}
+
+fn shape_recipe(target: Item, tool: Item, output: Item) -> Recipe {
+    Recipe { action: Action::Shape as u8, inputs: [target, tool, NONE, NONE], output, p: 0.5, ..Default::default() }
+}
+
+fn combine_recipe(items: [Item; 3], output: Item) -> Recipe {
+    Recipe { action: Action::Combine as u8, inputs: canonical(Action::Combine, [items[0], items[1], items[2], NONE]), output, p: 0.5, ..Default::default() }
+}
+
+fn heat_recipe(a: Item, b: Item, fire: Item, kiln: Item, output: Item) -> Recipe {
+    Recipe { action: Action::Heat as u8, inputs: canonical(Action::Heat, [a, b, fire, kiln]), output, p: 0.5, ..Default::default() }
+}
+
+/// Seed 1, 128×80, 300y. The only discovered recipe with no named technique
+/// is picking up a stone cobble as a hammerstone (physics: "a hard, tough
+/// cobble picked and used as a pounder"). `Other` carries nothing.
+const OTHER_RECIPES_SEED1: &[&str] = &["shape stone with bare hands -> stone hammerstone"];
+
+/// Every recipe a seeded world actually reaches has a named technique, except
+/// the hammerstone line above. Steel bar is steel-making; both knives are
+/// hot-forging. The table below locks the same labels on one recipe per branch
+/// before the world is run.
+#[test]
+fn technique_labels_on_a_seeded_world() {
+    let stone = item(Form::Raw, Mat::Stone);
+    let flint = item(Form::Raw, Mat::Flint);
+    let fibre = item(Form::Raw, Mat::Fibre);
+    let hide = item(Form::Raw, Mat::Hide);
+    let clay = item(Form::Raw, Mat::Clay);
+    let wood = item(Form::Raw, Mat::Wood);
+    let bone = item(Form::Raw, Mat::Bone);
+    let copper = item(Form::Raw, Mat::Copper);
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let tin = item(Form::Raw, Mat::Tin);
+    let cu_ore = item(Form::Raw, Mat::CopperOre);
+    let tin_ore = item(Form::Raw, Mat::TinOre);
+    let iron_ore = item(Form::Raw, Mat::IronOre);
+    let brine = item(Form::Raw, Mat::Brine);
+    let resin = item(Form::Raw, Mat::ResinWood);
+    let meat = item(Form::Raw, Mat::Meat);
+    let grain = item(Form::Raw, Mat::Grain);
+    let pitch = item(Form::Raw, Mat::Pitch);
+    let charcoal = item(Form::Raw, Mat::Charcoal);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let flint_edge = item(Form::Edge, Mat::Flint);
+    let cu_edge = item(Form::Edge, Mat::Copper);
+    let bronze_edge = item(Form::Edge, Mat::Bronze);
+    let iron_edge = item(Form::Edge, Mat::Iron);
+    let obsidian_point = item(Form::Point, Mat::Obsidian);
+    let bone_point = item(Form::Point, Mat::Bone);
+    let cu_point = item(Form::Point, Mat::Copper);
+    let iron_point = item(Form::Point, Mat::Iron);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let fibre_cord = item(Form::Cord, Mat::Fibre);
+    let flax_cord = item(Form::Cord, Mat::Flax);
+    let hide_cord = item(Form::Cord, Mat::Hide);
+    let clay_pot = item(Form::Vessel, Mat::Clay);
+    let fibre_basket = item(Form::Vessel, Mat::Fibre);
+    let hide_bag = item(Form::Vessel, Mat::Hide);
+    let ceramic = item(Form::Vessel, Mat::Ceramic);
+    let clay_mould = item(Form::Mould, Mat::Clay);
+    let fired_mould = item(Form::Mould, Mat::Ceramic);
+    let crucible = item(Form::Crucible, Mat::Copper);
+    let gold_pot = item(Form::Crucible, Mat::Gold);
+    let bloom = item(Form::Bloom, Mat::Iron);
+    let axe = item(Form::Axe, Mat::Copper);
+    let plank = item(Form::Plank, Mat::Wood);
+    let loom = item(Form::Loom, Mat::Wood);
+    let cloth = item(Form::Cloth, Mat::Flax);
+    let fire = item(Form::Fire, Mat::Wood);
+    let char_fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let jar = item(Form::Jar, Mat::Ceramic);
+
+    let cases = [
+        (shape_recipe(stone, NONE, hammer), Tech::Other),
+        (shape_recipe(flint, hammer, flint_edge), Tech::Knapping),
+        (shape_recipe(flint_edge, bone_point, item(Form::Point, Mat::Flint)), Tech::Knapping),
+        (shape_recipe(fibre, NONE, fibre_cord), Tech::CordageNetting),
+        (shape_recipe(hide, flint_edge, hide_cord), Tech::CordageNetting),
+        (shape_recipe(fibre_cord, shaft, item(Form::Net, Mat::Fibre)), Tech::CordageNetting),
+        (shape_recipe(fibre_cord, NONE, fibre_basket), Tech::CordageNetting),
+        (shape_recipe(wood, NONE, shaft), Tech::GrindCarve),
+        (shape_recipe(wood, flint_edge, shaft), Tech::GrindCarve),
+        (shape_recipe(bone, flint_edge, bone_point), Tech::GrindCarve),
+        (shape_recipe(shaft, flint_edge, item(Form::Spear, Mat::Wood)), Tech::GrindCarve),
+        (shape_recipe(shaft, fibre_cord, item(Form::Bow, Mat::Fibre)), Tech::GrindCarve),
+        (shape_recipe(cu_point, hammer, item(Form::Ornament, Mat::Copper)), Tech::GrindCarve),
+        (shape_recipe(obsidian_point, stone, item(Form::Ornament, Mat::Obsidian)), Tech::GrindCarve),
+        (shape_recipe(shaft, flint_edge, item(Form::Mark, Mat::Wood)), Tech::Other), // tally is a combine; this shape is not a recipe
+        (combine_recipe([shaft, flint_edge, NONE], item(Form::Mark, Mat::Wood)), Tech::GrindCarve),
+        (shape_recipe(bronze_edge, stone, item(Form::Point, Mat::Bronze)), Tech::GrindCarve),
+        (shape_recipe(copper, hammer, cu_edge), Tech::ColdHammer),
+        (shape_recipe(cu_edge, hammer, cu_point), Tech::ColdHammer),
+        (shape_recipe(clay, NONE, clay_pot), Tech::PottingFiring),
+        (shape_recipe(clay, flint_edge, clay_mould), Tech::PottingFiring),
+        (shape_recipe(clay, bone_point, item(Form::Mark, Mat::Clay)), Tech::PottingFiring),
+        (shape_recipe(wood, axe, plank), Tech::BoatBuilding),
+        (shape_recipe(wood, axe, item(Form::Boat, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([shaft, fibre_cord, bone_point], item(Form::Spear, Mat::Bone)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, flint_edge], item(Form::Axe, Mat::Flint)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, NONE], item(Form::Trap, Mat::Fibre)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, fibre_basket], item(Form::Frame, Mat::Fibre)), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, hide_bag], bellows), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, stone], loom), Tech::Hafting),
+        (combine_recipe([shaft, fibre_cord, hide], item(Form::Shield, Mat::Hide)), Tech::Hafting),
+        (combine_recipe([loom, flax_cord, NONE], cloth), Tech::SpinWeave),
+        (combine_recipe([hide, fibre_cord, bone_point], item(Form::Garment, Mat::Hide)), Tech::Sewing),
+        (combine_recipe([cloth, flax_cord, bone_point], item(Form::Garment, Mat::Flax)), Tech::Sewing),
+        (combine_recipe([shaft, fibre_cord, hide], item(Form::Boat, Mat::Hide)), Tech::BoatBuilding),
+        (combine_recipe([fibre, fibre_cord, NONE], item(Form::Boat, Mat::Fibre)), Tech::BoatBuilding),
+        (combine_recipe([item(Form::Boat, Mat::Wood), shaft, fibre_cord], item(Form::Outrigger, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([plank, shaft, cloth], item(Form::Sail, Mat::Flax)), Tech::BoatBuilding),
+        (combine_recipe([plank, pitch, iron_point], item(Form::Ship, Mat::Wood)), Tech::BoatBuilding),
+        (combine_recipe([copper, ceramic, NONE], crucible), Tech::Casting),
+        (combine_recipe([pitch, ceramic, NONE], jar), Tech::PottingFiring),
+        (combine_recipe([grain, jar, NONE], item(Form::Jar, Mat::Grain)), Tech::Cooking),
+        (combine_recipe([shaft, wood, NONE], fire), Tech::FireMaking),
+        (combine_recipe([fire, charcoal, NONE], char_fire), Tech::FireMaking),
+        (combine_recipe([fire, stone, NONE], kiln), Tech::FireMaking),
+        (heat_recipe(meat, NONE, fire, NONE, item(Form::Cooked, Mat::Meat)), Tech::Cooking),
+        (heat_recipe(brine, ceramic, fire, NONE, item(Form::Raw, Mat::Salt)), Tech::Cooking),
+        (heat_recipe(resin, ceramic, fire, NONE, pitch), Tech::Cooking),
+        (heat_recipe(wood, NONE, fire, kiln, charcoal), Tech::FireMaking),
+        (heat_recipe(clay_pot, NONE, fire, kiln, ceramic), Tech::PottingFiring),
+        (heat_recipe(clay_mould, NONE, fire, kiln, fired_mould), Tech::PottingFiring),
+        (heat_recipe(cu_ore, NONE, char_fire, kiln, copper), Tech::Smelting),
+        (heat_recipe(iron_ore, bellows, char_fire, kiln, bloom), Tech::Smelting),
+        (heat_recipe(cu_ore, tin_ore, char_fire, kiln, item(Form::Raw, Mat::Bronze)), Tech::Smelting),
+        (heat_recipe(crucible, tin, char_fire, kiln, item(Form::Raw, Mat::Bronze)), Tech::Casting),
+        (heat_recipe(crucible, fired_mould, char_fire, kiln, bronze_edge), Tech::Casting),
+        (heat_recipe(gold_pot, fired_mould, char_fire, kiln, item(Form::Ornament, Mat::Gold)), Tech::Casting),
+        (heat_recipe(bloom, hammer, char_fire, kiln, iron), Tech::HotForging),
+        (heat_recipe(iron, hammer, char_fire, kiln, iron_edge), Tech::HotForging),
+        (heat_recipe(iron_edge, hammer, char_fire, kiln, iron_point), Tech::HotForging),
+        (heat_recipe(steel, hammer, char_fire, kiln, item(Form::Edge, Mat::Steel)), Tech::HotForging),
+        (heat_recipe(iron, hammer, char_fire, bellows, steel), Tech::SteelMaking),
+        (heat_recipe(steel, hammer, char_fire, bellows, item(Form::Edge, Mat::Steel)), Tech::HotForging),
+    ];
+    // A shape that merely outputs a mark is not carving: the tally is a combine.
+    for (r, want) in &cases {
+        assert_eq!(technique(r), *want, "{} -> {}", r.describe(), item_name(r.output));
+    }
+    let mut reg = Registry::default();
+    let iron_knife = heat_recipe(iron, hammer, char_fire, kiln, iron_edge);
+    let id = reg.insert(iron_knife);
+    assert_eq!(reg.tech(id), Tech::HotForging);
+    assert_eq!(reg.tech(id), technique(&reg.recipes[id as usize]));
+    reg.rebuild_index();
+    assert_eq!(reg.tech(id), Tech::HotForging);
+    assert_eq!(reg.tech(u32::MAX), Tech::Other);
+
+    let mut w = World::new(Config { seed: 1, map_w: 128, map_h: 80, ..Default::default() }, Params::default());
+    for _ in 0..300 * 4 {
+        w.step();
+    }
+    let mut got: Vec<String> = Vec::new();
+    for (id, r) in w.reg.recipes.iter().enumerate() {
+        let tech = w.reg.tech(id as u32);
+        assert_eq!(tech, technique(r), "registry label drifted: {}", r.describe());
+        if tech == Tech::Other {
+            got.push(format!("{} -> {}", r.describe(), item_name(r.output)));
+        }
+        // These three are not guaranteed by year 300 once maker waste changes the
+        // invention lottery. The synthetic cases above are what locks their labels.
+        match item_name(r.output).as_str() {
+            "steel bar" => assert_eq!(tech, Tech::SteelMaking, "{}", r.describe()),
+            "iron knife" | "steel knife" => assert_eq!(tech, Tech::HotForging, "{}", r.describe()),
+            _ => {}
+        }
+    }
+    got.sort();
+    let expect: Vec<&str> = OTHER_RECIPES_SEED1.to_vec();
+    let got_ref: Vec<&str> = got.iter().map(|s| s.as_str()).collect();
+    assert_eq!(got_ref, expect, "Other recipes in seed 1, 128x80, 300y");
+}
+
+/// The weighted geometric mean, written out here so a shared mistake in
+/// `fill_chain` still fails. `steps` is `(maker skill, success chance)`.
+fn geom_mean(steps: &[(f32, f32)]) -> f32 {
+    let mut sw = 0.0f32;
+    let mut swl = 0.0f32;
+    for &(m, p) in steps {
+        let w = (-p.ln()).max(CHAIN_W_MIN);
+        let mc = m.max(CHAIN_EPS);
+        sw += w;
+        swl += w * mc.ln();
+    }
+    (swl / sw).exp()
+}
+
+fn with_p(mut r: Recipe, p: f32) -> Recipe {
+    r.p = p;
+    r
+}
+
+/// Chain skill of `out` for a band that knows `parts` (recipe, skill) and holds `raws`.
+fn chain_of(parts: Vec<(Recipe, f32)>, raws: &[Item], out: Item) -> f32 {
+    let mut reg = Registry::default();
+    let mut known = Vec::new();
+    for (r, skill) in parts {
+        let id = reg.insert(r);
+        known.push(Known { recipe: id, skill, ..Default::default() });
+    }
+    let mut have = ItemSet::default();
+    for &i in raws {
+        have.add(i);
+    }
+    let mut tk = closure(&reg, &known, &have, false);
+    fill_chain(&reg, &known, &mut tk);
+    tk.chain_m(out)
+}
+
+/// Chain skill rises when any step rises, a longer chain of equal skills is not
+/// lower, and one weak step pulls the mean down without becoming the minimum.
+#[test]
+fn chain_skill_tracks_every_step() {
+    let fibre = item(Form::Raw, Mat::Fibre);
+    let wood = item(Form::Raw, Mat::Wood);
+    let cord = item(Form::Cord, Mat::Fibre);
+    let shaft = item(Form::Shaft, Mat::Wood);
+    let snare = item(Form::Trap, Mat::Fibre);
+    let cord_r = |p: f32| with_p(shape_recipe(fibre, NONE, cord), p);
+    let shaft_r = |p: f32| with_p(shape_recipe(wood, NONE, shaft), p);
+    let snare_r = |p: f32| with_p(combine_recipe([shaft, cord, NONE], snare), p);
+
+    // One step, from the finished cord and shaft treated as raw.
+    let one = chain_of(vec![(snare_r(0.5), 0.7)], &[cord, shaft], snare);
+    // Three equally skilled steps. A product would be 0.7^3.
+    let three = chain_of(
+        vec![(cord_r(0.5), 0.7), (shaft_r(0.5), 0.7), (snare_r(0.5), 0.7)],
+        &[fibre, wood],
+        snare,
+    );
+    assert!((one - 0.7).abs() < 1e-4, "one step is its own skill, got {one}");
+    assert!((three - one).abs() < 1e-4, "equal skills: longer {three} vs one {one}");
+    assert!(three + 1e-5 >= one, "a longer equal chain must not be lower");
+    assert!(three > 0.7 * 0.7 * 0.7 + 0.05, "not the plain product");
+
+    let at = |c: f32, s: f32, n: f32| {
+        chain_of(vec![(cord_r(0.4), c), (shaft_r(0.3), s), (snare_r(0.2), n)], &[fibre, wood], snare)
+    };
+    let base = at(0.4, 0.5, 0.6);
+    assert!(at(0.7, 0.5, 0.6) > base + 1e-4, "raising the cord step");
+    assert!(at(0.4, 0.8, 0.6) > base + 1e-4, "raising the shaft step");
+    assert!(at(0.4, 0.5, 0.9) > base + 1e-4, "raising the snare step");
+
+    let strong = at(0.8, 0.8, 0.8);
+    let weak = at(0.8, 0.8, 0.1);
+    assert!(weak < strong - 0.05, "weak step {weak} did not pull down {strong}");
+    assert!(weak > 0.15, "weak step collapsed to the minimum: {weak}");
+
+    let steps = [(0.8f32, 0.5f32), (0.4, 0.05), (0.6, 0.2)];
+    let got = chain_of(
+        vec![(cord_r(steps[0].1), steps[0].0), (shaft_r(steps[1].1), steps[1].0), (snare_r(steps[2].1), steps[2].0)],
+        &[fibre, wood],
+        snare,
+    );
+    let want = geom_mean(&steps);
+    assert!((got - want).abs() < 1e-5, "weighted geometric mean {got} vs {want}");
+
+    // Raws and a kept flame are not steps.
+    let mut raws = ItemSet::default();
+    raws.add(wood);
+    let reg = Registry::default();
+    let mut tk = closure(&reg, &[], &raws, true);
+    fill_chain(&reg, &[], &mut tk);
+    assert_eq!(tk.chain_m(wood).to_bits(), 1.0f32.to_bits());
+    assert_eq!(tk.chain_m(item(Form::Fire, Mat::Wood)).to_bits(), 1.0f32.to_bits());
+}
+
+/// Steel-making does not inherit hot-forging. A steel knife does, at TECH_CARRY
+/// of the iron-knife skill. Other recipes carry nothing to each other.
+#[test]
+fn steel_making_does_not_carry_forging_skill() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let iron_knife = item(Form::Edge, Mat::Iron);
+    let steel_knife = item(Form::Edge, Mat::Steel);
+    let mut reg = Registry::default();
+    let id_iron = reg.insert(heat_recipe(iron, hammer, fire, kiln, iron_knife));
+    let id_knife = reg.insert(heat_recipe(steel, hammer, fire, kiln, steel_knife));
+    let id_bar = reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    assert_eq!((reg.tech(id_iron), reg.tech(id_knife), reg.tech(id_bar)), (Tech::HotForging, Tech::HotForging, Tech::SteelMaking));
+    let known = vec![
+        Known { recipe: id_iron, skill: 0.8, ..Default::default() },
+        Known { recipe: id_knife, skill: 0.1, ..Default::default() },
+        Known { recipe: id_bar, skill: 0.12, ..Default::default() },
+    ];
+    assert_eq!(maker_skill(&reg, &known, 0).to_bits(), 0.8f32.to_bits());
+    let carried = TECH_CARRY * 0.8;
+    assert!(carried > 0.1);
+    assert_eq!(maker_skill(&reg, &known, 1).to_bits(), carried.to_bits());
+    assert_eq!(maker_skill(&reg, &known, 2).to_bits(), 0.12f32.to_bits());
+
+    let stone = reg.insert(shape_recipe(item(Form::Raw, Mat::Stone), NONE, hammer));
+    let bone = reg.insert(shape_recipe(item(Form::Raw, Mat::Bone), NONE, item(Form::Hammer, Mat::Bone)));
+    assert_eq!((reg.tech(stone), reg.tech(bone)), (Tech::Other, Tech::Other));
+    let hammers = vec![
+        Known { recipe: stone, skill: 0.9, ..Default::default() },
+        Known { recipe: bone, skill: 0.2, ..Default::default() },
+    ];
+    assert_eq!(maker_skill(&reg, &hammers, 1).to_bits(), 0.2f32.to_bits());
+    assert_eq!(maker_skill(&reg, &hammers, 0).to_bits(), 0.9f32.to_bits());
+
+    let best = maker_tech_best(&reg, &known);
+    assert_eq!(best[0].unwrap().to_bits(), 0.8f32.to_bits(), "hot-forging best is the stronger own skill");
+    assert_eq!(best[1].unwrap().to_bits(), 0.12f32.to_bits(), "steel-making stands alone");
+    assert!(best[2].is_none() && best[3].is_none());
+}
+
+/// The cache is filled on a live band, and a skill change with no new closure
+/// (the cache-hit path of refresh_toolkit) refills it.
+#[test]
+fn chain_cache_follows_skill_without_a_new_closure() {
+    let mut w = world();
+    for _ in 0..60 {
+        w.step();
+    }
+    let mut saw_low = false;
+    for b in &w.bands {
+        for it in b.d.tk.producible.iter() {
+            let m = b.d.tk.chain_m(it);
+            assert!(m.is_finite() && m > 0.0 && m <= 1.0, "{m}");
+            if m < 0.999 {
+                saw_low = true;
+            }
+        }
+    }
+    assert!(saw_low, "a produced item should still be short of maker skill 1");
+    for b in &mut w.bands {
+        for k in &mut b.known {
+            k.skill = 1.0;
+        }
+        // The cache-hit path refills only when recipe skill's version moves.
+        b.d.skill_ver = b.d.skill_ver.wrapping_add(1);
+    }
+    w.refresh_all_toolkits();
+    for b in &w.bands {
+        for it in b.d.tk.producible.iter() {
+            assert_eq!(b.d.tk.chain_m(it).to_bits(), 1.0f32.to_bits(), "{}", item_name(it));
+        }
+    }
+}
+
+/// Nominal kit choice ignores a filled chain. `make_kit_for` matches `make_kit_with`
+/// (maker skill forced to 1) even when every edge was made at 0.2. `slot_score` matches
+/// `slot_score_m(..., 1)`; the live chain skill moves only the current side.
+#[test]
+fn nominal_kit_ignores_a_weak_chain() {
+    let flint_raw = item(Form::Raw, Mat::Flint);
+    let stone_raw = item(Form::Raw, Mat::Stone);
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut reg = Registry::default();
+    let mut known = Vec::new();
+    for (r, skill) in [(shape_recipe(flint_raw, NONE, flint), 0.2f32), (shape_recipe(stone_raw, NONE, stone), 0.2)] {
+        let id = reg.insert(r);
+        known.push(Known { recipe: id, skill, ..Default::default() });
+    }
+    let mut have = ItemSet::default();
+    have.add(flint_raw);
+    have.add(stone_raw);
+    let mut tk = closure(&reg, &known, &have, false);
+    fill_chain(&reg, &known, &mut tk);
+    let mf = tk.chain_m(flint);
+    assert!(mf < 0.5 && mf > 0.1, "flint chain skill {mf}");
+    assert!(tk.chain_m(stone) < 0.5, "stone chain skill");
+
+    let info = |it: Item| recipe_info(&tk, &known, it);
+    let forced = make_kit_for(&tk, &known);
+    let plain = make_kit_with(&tk.avail, &info);
+    assert_eq!(kit_picks(&forced), kit_picks(&plain), "nominal choice saw the chain");
+    assert_eq!(forced.fallback, plain.fallback, "nominal fallback saw the chain");
+    assert_eq!(kit_rest(&forced), kit_rest(&plain), "nominal non-payoff saw the chain");
+
+    let view = BandView::nominal();
+    let (a, b) = slot_score(&view, &plain, 1, flint, &info);
+    let (c, d) = slot_score_m(&view, &plain, 1, flint, &info, 1.0);
+    assert_eq!(a.to_bits(), c.to_bits(), "m = 1 current side");
+    assert_eq!(b.to_bits(), d.to_bits(), "m = 1 full side");
+    let (e, f) = slot_score_m(&view, &plain, 1, flint, &info, mf);
+    assert_ne!(e.to_bits(), a.to_bits(), "a weak maker should change the current food price");
+    assert_eq!(f.to_bits(), b.to_bits(), "the full side stays the mastered price");
+}
+
+/// Fast and slow choice agree, including the runner-up, when maker skill is not all 1.
+#[test]
+fn fast_choice_matches_slow_when_maker_skill_varies() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut avail = ItemSet::default();
+    avail.add(flint);
+    avail.add(stone);
+    let info = |it: Item| if it == flint { (0.4f32, 0.1, 1u8) } else { (0.8, 0.0, 0) };
+    let m_of = |it: Item| if it == flint { 0.2 } else { 1.0 };
+    // Same view as the m = 1 bit-match (user 1). A uniform user of 0.4 leaves a
+    // one-ulp gap in the cut slot that the mastered path already had; this view does not.
+    let view = BandView { harvest: [2.0, 40.0, 1.0, 5.0, 0.0], food: 30.0, pop: 40.0, upkeep_rate: 0.02, wet: true, at_hand: 0, user: [1.0; NFORM] };
+    let fast = make_kit_scored(&avail, &info, &view, &m_of);
+    let slow = slow_make(&avail, &info, &view, &m_of);
+    assert_eq!(kit_picks(&fast), kit_picks(&slow), "payoff choice diverged");
+    assert_eq!(fast.fallback, slow.fallback, "fallback diverged");
+    assert_eq!(kit_rest(&fast), kit_rest(&slow), "non-payoff choice diverged");
+    for &slot in &CHOOSE {
+        for it in [flint, stone] {
+            if !accepts(slot, it) {
+                continue;
+            }
+            let m = m_of(it);
+            let (a, b) = slot_score_m(&view, &slow, slot, it, &info, m);
+            let (c, d) = slow_score(&view, &slow, slot, it, &info, m);
+            assert_eq!(a.to_bits(), c.to_bits(), "slot {slot} m {m}");
+            assert_eq!(b.to_bits(), d.to_bits(), "slot {slot} full");
+        }
+    }
+}
+
+/// The failure roll repeats for the same seed, band, tick and slot. Its chance is
+/// 0 at maker skill 1, and a skill of 0 fails more often than 0.5. Labour and scrap
+/// factors are bit-identical to 1 at maker skill 1.
+#[test]
+fn maker_fail_roll_is_deterministic_and_rate_falls() {
+    let roll = maker_fail_roll(1, 7, 40, 3);
+    assert_eq!(roll.to_bits(), maker_fail_roll(1, 7, 40, 3).to_bits());
+    assert!(roll >= 0.0 && roll < 1.0);
+    assert_eq!(maker_p_fail(1.0).to_bits(), 0.0f32.to_bits());
+    assert!(maker_p_fail(0.0) > maker_p_fail(0.5));
+    assert_eq!(maker_waste(1.0).to_bits(), 1.0f32.to_bits());
+    assert_eq!(maker_scrap_factor(1.0).to_bits(), 1.0f32.to_bits());
+    let p0 = maker_p_fail(0.0);
+    let p5 = maker_p_fail(0.5);
+    let mut n0 = 0u32;
+    let mut n5 = 0u32;
+    for i in 0..4000u32 {
+        let r = maker_fail_roll(9, i, 1, 0);
+        if r < p0 {
+            n0 += 1;
+        }
+        if r < p5 {
+            n5 += 1;
+        }
+    }
+    assert!(n0 > n5, "skill 0 should fail more often than 0.5 ({n0} vs {n5})");
+}
+
+/// A band that knows hot-forging pulls `maker_hot_forge` off zero. The mean is the
+/// best carried skill of that technique, over bands that know at least one such recipe.
+#[test]
+fn maker_hot_forge_mean_follows_known_skill() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let knife = item(Form::Edge, Mat::Iron);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let kiln = item(Form::Kiln, Mat::Stone);
+    let mut w = world();
+    assert!(w.bands.len() >= 2, "need two bands");
+    for b in &mut w.bands {
+        b.known.clear();
+    }
+    let id = w.reg.insert(heat_recipe(iron, hammer, fire, kiln, knife));
+    assert_eq!(w.reg.tech(id), Tech::HotForging);
+    w.bands[0].known.push(Known { recipe: id, skill: 0.4, ..Default::default() });
+    w.bands[1].known.push(Known { recipe: id, skill: 0.8, ..Default::default() });
+    w.year_stats();
+    let h = w.history.last().unwrap();
+    assert!(h.maker_hot_forge > 0.0, "hot-forging skill should show in the mean");
+    let mut sum = 0.0f64;
+    let mut n = 0u32;
+    for b in &w.bands {
+        if let Some(m) = maker_tech_best(&w.reg, &b.known)[0] {
+            sum += m as f64;
+            n += 1;
+        }
+    }
+    assert_eq!(n, 2);
+    let expect = (sum / n as f64) as f32;
+    assert_eq!(h.maker_hot_forge.to_bits(), expect.to_bits());
+    assert_eq!(h.maker_steel.to_bits(), 0.0f32.to_bits());
+    assert_eq!(h.maker_cast.to_bits(), 0.0f32.to_bits());
+    assert_eq!(h.maker_smelt.to_bits(), 0.0f32.to_bits());
+}
+
+/// First steel-smith is the first band in order at maker skill 0.6, logged once.
+/// A second `year_stats`, and a log that already holds the event, do not log it again.
+#[test]
+fn first_steel_smith_is_once_and_comes_from_the_log() {
+    let iron = item(Form::Raw, Mat::Iron);
+    let steel = item(Form::Raw, Mat::Steel);
+    let hammer = item(Form::Hammer, Mat::Stone);
+    let fire = item(Form::Fire, Mat::Charcoal);
+    let bellows = item(Form::Bellows, Mat::Hide);
+    let mut w = world();
+    assert!(w.bands.len() >= 2, "need two bands");
+    for b in &mut w.bands {
+        b.known.clear();
+    }
+    let id = w.reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    assert_eq!(w.reg.tech(id), Tech::SteelMaking);
+    w.bands[0].known.push(Known { recipe: id, skill: 0.4, ..Default::default() });
+    w.bands[1].known.push(Known { recipe: id, skill: 0.6, ..Default::default() });
+    assert!(!EventKind::FirstSteelSmith.major());
+    assert_eq!(EventKind::COUNT, 43);
+    assert_eq!(EventKind::FirstSteelSmith as u8, 42);
+    assert_eq!(EventKind::from_u8(42), EventKind::FirstSteelSmith);
+    let n = |w: &World| w.events.iter().filter(|e| e.kind == EventKind::FirstSteelSmith as u8).count();
+    assert_eq!(n(&w), 0);
+    w.year_stats();
+    assert_eq!(n(&w), 1);
+    let e = w.events.iter().find(|e| e.kind == EventKind::FirstSteelSmith as u8).copied().unwrap();
+    assert_eq!(e.band, w.bands[1].id);
+    let mw = w.map.w.max(1);
+    let (cx, cy) = (e.cell as usize % mw, e.cell as usize / mw);
+    assert_eq!(w.event_text(&e), format!("Y{}: band {} at ({cx},{cy}) is the first to master steel-making", e.tick / 4, e.band));
+    w.year_stats();
+    assert_eq!(n(&w), 1, "a second year_stats must not log it again");
+
+    let mut w2 = world();
+    for b in &mut w2.bands {
+        b.known.clear();
+    }
+    let id2 = w2.reg.insert(heat_recipe(iron, hammer, fire, bellows, steel));
+    w2.bands[0].known.push(Known { recipe: id2, skill: 0.9, ..Default::default() });
+    w2.events.push(Event { tick: 4, kind: EventKind::FirstSteelSmith as u8, band: 999_999, other: 0, cell: 0, item: NONE, recipe: u32::MAX });
+    w2.year_stats();
+    assert_eq!(n(&w2), 1);
+    assert_eq!(w2.events.iter().find(|e| e.kind == EventKind::FirstSteelSmith as u8).unwrap().band, 999_999);
 }

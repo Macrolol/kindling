@@ -198,3 +198,138 @@ Probe, (a) run 41490059983 (`probe: true`, 256x160, 500 y). Seeds 6-10 finished 
     longer measures quite what the band ranks by. Also `true_value` is at full skill, so some
     "worse in true value" picks are right for a novice band. The probe needs updating (step 4 or
     sooner); this is not a sim bug.
+
+## Copper axe over steel axe (step 2 follow-up)
+
+Diagnostic only (`#[ignore] diag_copper_over_steel_axe` in `civ-core/src/tests_diag.rs`). No sim
+change, and `FIXTURE_V10_HASH` is untouched. On the main seed-6 256x160 year-350 save (3354
+bands, pop 67836), 747 fitted kits hold a copper axe while a steel axe is makeable. Every one
+ranks the copper axe higher on `slot_score` cur: mean copper minus steel +0.043 (the 65 farming
+bands +0.024; the 331 with few plants and no fields +0.053). A forced steel axe moves no other
+slot, the held axe is never a stale pick, and `u_eff(Axe)` is 0.996, so both axes share one user
+factor. This is not a missing step-2 user term.
+
+Steel does give more food in the band's own terms, but not enough to pay its chain. Own-terms
+food gain is +0.046 (+0.121 on farms, +0.023 where little is farmed or gathered), against about
+twice the labour (0.0055 vs 0.0109; depth 3.2 vs 8.1). The priced labour gap is about 0.089 in
+the same food units. The probe still prefers steel by +0.031 in every case, which matches the
+step-2 mean true-value gap of +0.032. Unweighted food is +0.044, and +0.029 of that is the farm
+multiplier, counted in full while these bands' farm weight is 0.012. `KIT_UPKEEP` then charges
+only +0.017 for the deeper chain, and fight adds +0.004, which the decision does not read.
+Recipe skill is lower on the steel axe (0.46 vs 0.97) and does not enter the axe term. The held
+pair is the probe's yardstick, not the band's ranking.
+
+## Step 3 pass 5. Where maker failures land (no retune)
+
+Seed 5, default map, 300 years, one thread. Same world as the pre-pass-5 branch (pop 104860,
+6050 bands, food from farming 14% peak 16%, 437 farming bands; main is 26% and 1601). Year 300,
+that year's counters and the four technique means:
+
+- `make_failures` 118 (run sum 11417). By century: 110, 1689, 9618.
+- `make_scrap` 103956 thousandths (run sum 9928762). By century: 19615, 1023883, 8885264.
+- `maker_hot_forge` 0.9937, `maker_steel` 0.9758, `maker_cast` 0.0, `maker_smelt` 0.9007.
+
+Failures are counted only on a payoff slot the band used that season. There is no per-slot
+counter. Food slots — hunt, cut, point, axe, net, trap — rebuild that season's food from the
+slot's fallback. A boat, bow, shield, outrigger, plank or ship is counted and spends labour and
+material, and does not change fight or the sea. Waste is the labour factor
+`1 + 0.8 * (1 - m)` on every used tool's chain skill, not a separate axe term. Scrap is the
+surplus on a missing material's marginal draw (lowest chain skill among used items that need
+it) plus a failed slot's marginal draw again. Two failed slots that share an item may count
+one item twice. `maker_cast` is 0 because no band contributes a casting skill.
+
+That does not explain farming food of 14% against 26% on main. At year 300 hot-forging and
+steel-making are about 0.98, so a failure on those steps is rare (118 in a year of 6050 bands)
+and the labour factor is about 2%. Smelting is 0.90. The gap is already there before any of
+those techniques exist: at year 200 the four means are still 0, two bands farm, and farm food
+is 3%. The year-300 worlds differ in who farms.
+
+The seed-1 probe's rise in "worse in true value" (0.8% to 5.1%) is the probe's true value
+ignoring maker waste and failure while the band prices both. `true_value` now scales food by
+the worst food-slot keep `1 - p_fail` at that tool's chain skill (not the product of every
+food slot) and scales each payoff tool's `KIT_UPKEEP` by `maker_waste`. At chain skill 1 both
+factors are 1, so the old value is unchanged. Probe only: `food()` is still the raw
+multipliers, so "worse in true food" still ignores failure, and no `MAKER_*` constant,
+`KIT_UPKEEP`, axe term or labour price moved. A re-run of `diag_copper_over_steel_axe` is not
+comparable to the +0.031 above, which used the old yardstick.
+
+## Step 3. Maker skill (done on branch skills-step3, PR #5)
+
+Code (passes by Grok Build, review and coordination by Build Bot). Three step-2 fixes first:
+- Fix 1 (cdb3b2d, probe only): "worse by own valuation" compares the changed slot in the same
+  kit context, so it measures what the band ranks by again (seed 1 128x80 200 y: 0.0%, tie 17.7%,
+  most ties fibre vs rawhide snare at equal mesh quality).
+- Fix 3 (36c1eae): founding bands use their tools at `USE_FOUNDER` (0.7) from the first season.
+  This moves trajectories: on seed 5 300 y population 140 788 -> 99 479 and farming food 26% ->
+  16%. The diagnostic CI (a) on fixes-only dfc7d7e (run 41556841045) shows it is a timing shift
+  across seeds, not a systematic loss (1.286M vs step 2 1.291M over seeds 1..10). Not tuned.
+- Fix 2 (dfc7d7e, diagnostic only): copper axe over steel axe, see the section above. No sim
+  change. Whether the steel axe should pay its chain is left to Michael (no `KIT_UPKEEP`, axe term,
+  labour price or `MAKER_*` constant moved).
+
+Then the maker skill: technique labels derived at recipe registration, never saved (c1a2ce8); a
+band's maker skill per technique is `m = max(skill, TECH_CARRY * best same-technique skill)`, a
+tool's chain skill is the weighted geometric mean over its chain (01ab43b); waste `1 + 0.8(1-m)`
+on labour, scrap on materials, quality and failure `p_fail = MAKER_FAIL (1-m)^2` with `MAKER_FAIL`
+0.25 (c358354); the kit choice prices waste and failure at the band's own chain skill (9076047);
+counters `make_failures` / `make_scrap`, YearStats `maker_*` means and event `FirstSteelSmith`
+(3a9e0d6); chain skill refilled only when it moved (fa6fb44) and only moved chains replayed
+(632dcca), both bit-identical; the probe's `true_value` counts maker waste and failure (42e4228).
+No save format bump (labels are derived), so v16 saves load unchanged.
+
+Local checks (RAYON_NUM_THREADS=4 or 1 thread for benches, fresh target dir per build):
+- `cargo test --release --workspace`: 112 passed, 7 ignored (also on CI, run 41569759385).
+  `build-web` compiles. A main save (seed 1, 128x80, Y200) loads and runs on. `FIXTURE_V10_HASH` .1 is 0x5cef0617c34457c6 from 3a9e0d6.
+- Bench, local (seed 5, 256x160, 300 y, 1 thread): main f8d80dd 57.0 s (pop 140 788),
+  fixes-only dfc7d7e 61.8 s (pop 99 479), head 632dcca 79.2 s (pop 104 860): +28% over
+  fixes-only. With chain fill forced to 1.0 the per-band cost is back at fixes-only, so the
+  overhead is almost all chain fill and replay.
+- Bench, GitHub (run 41569769916, same case): main 67.16 s; head 91.95 s on 1 thread, 58.88 s on
+  2, 48.94 s on 4, pop 104 860 on all thread counts. Head over main 1.37x.
+
+Guard rails on branch head 632dcca (archive=false), files docs/results-skills-step3-*.txt,
+against step 2:
+  - (a) run 41569747863 (seeds 1..10, 500 y, 256x160): crossings 5/10 (limit 6; step 2 5/10,
+    fixes-only 4/10), earliest Y123 (step 2 Y130); war 0.361 %/y (step 2 0.347, +4%); total
+    population 1.192M (step 2 1.291M, -7.7%; fixes-only 1.286M), lowest seed 56.0k; no collapse.
+    Farm share 44.7% (step 2 48.6%, fixes-only 47.7%).
+  - (b) run 41569759385 (seeds 499246292..301, 750 y, 800x800): crossings 2/10 (limit under 7;
+    step 2 1/10), s293 Y622 as in step 2 and s298 Y657; war 0.287 %/y over 10 seeds, 0.300 over the
+    9 that lived in step 2 (step 2: 0.274 and about 0.30); total population 8.65M (step 2 8.42M);
+    over the same 9 seeds 8.18M (-2.9%). Seed 499246298, which died at Y210 in steps 1 and 2, now
+    lives (475k at Y750, one lineage), most likely through the fix 3 founder floor. Farm share
+    43.4% (23-58%). Sim time 17 346 s against 15 991 s (+8.5%); the slowest job (seeds 292-293)
+    ran 101 minutes of the 150 allowed.
+  - No crossing before Y100 in either check. All guard rails pass.
+
+Step 3 criteria, from (a) (`maker_*` means per seed in metrics-all.csv; (b) agrees: lag 5-33
+years, median 16, steel 0.57-0.79 against hot-forging 0.86-0.98 at Y750):
+  - Steel follows hot-forging: steel onset lags hot-forge onset by 7-30 years, median 13 (per
+    seed 13, 15, 30, 11, 11, 14, 7, 16, 7, 13).
+  - Practice lowers failure: steel `m` starts near 0.31 (nothing to carry from), reaches
+    0.58-0.94 by +25 years and 0.69-0.99 by +50, so `p_fail` falls from about 0.12 to under
+    0.04. The unit tests pin the per-band fall. Failures per 1000 bands stay flat in aggregate
+    (about 31-39 a year, Y200-500) because new bands and new chains keep entering.
+  - Skill differs across bands: at Y500 steel is 0.52-0.82 against hot-forging 0.90-0.99.
+
+Probe, (a) run 41569747863 (`probe: true`, 256x160, 500 y). Seeds 6-10 finished; seeds 1-5 were still
+running when this was written (informational). Over seeds 6-10, worse in true value is 16-23% per
+seed and worse_held 2.0-5.8% (food 1.0-6.3%). The probe's `true_value` now counts maker waste and
+failure (42e4228), so this is not comparable with step 2's 14.2% / 3.9%. Top worse-held pairs:
+copper axe over steel axe 308k band-years (23%), plant fibre net over flax net 271k (20%), iron axe
+over steel axe 103k (8%), copper point over iron point 68k (5%). Top worse adoptions: copper point
+over iron point 28k (11%), copper axe over steel axe 26k (10%), iron axe over steel axe 22k (8%).
+Axes are still the main open pair (fix 2).
+
+Behaviour changes, not tuned (inherent to the design): population -7% and farm share 44.7%
+against 47.7% from the maker skill itself (fixes-only vs head on CI (a)); at 800x800 the same 9
+seeds are -2.9%. The fix 3 timing shift, and seed 499246298 now surviving.
+
+Open problems:
+  - Perf: head is +28% over fixes-only locally (1.37x main on CI). Pass 7 counters on the seed-5
+    bench: 147M chain reads, 2.5M chain walks, 73M replays, 44.7M adopts. A lazy per-item chain
+    (bit-identical) reached 1.33x and a batched replay was slower (90.6 s); neither is committed.
+    The cost is chain fill and replay through `refresh_toolkit`, spread over every phase.
+  - Steel axe: copper and iron axes still win over the steel axe (top worse pairs in the probe).
+    A pricing question for Michael; nothing changed.
+  - Fix 3 is in as built; reverting or tuning it is Michael's call.

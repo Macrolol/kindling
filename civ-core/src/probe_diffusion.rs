@@ -27,22 +27,42 @@
 //!
 //! (skills step 0, docs/PROPOSAL-skills.md 3.8) Tool choices are also scored against the true
 //! value of a kit (`true_value`: food multipliers, boat soundness, protection and fine work,
-//! less the upkeep of the payoff-slot tools, plus `PROBE_FIGHT_W` x fight strength), against
-//! its food part only (`food`), and against the band's own valuation (`own_value`: the same
-//! discounted decision score the kit choice uses, on that band's view). `true_value`, `food`
-//! and `payoff` are unchanged from step 0. Gaps within `PROBE_TIE` are ties.
+//! less the upkeep of the payoff-slot tools, plus `PROBE_FIGHT_W` x fight strength) and against
+//! its food part only (`food`). `food` and `payoff` are unchanged from step 0.
+//! (skills step 3 pass 5) `true_value` also applies the band's chain skill: food is scaled by
+//! the worst food-slot keep `1 - p_fail`, and each distinct payoff tool's `KIT_UPKEEP` is
+//! scaled by `maker_waste`. At chain skill 1 both factors are 1, so the old value is unchanged.
+//! The sim does not read `true_value`.
+//! Gaps within `PROBE_TIE` are ties.
 //! - **adoption**: when a slot's pick changes from A to B (both tools), B's kit is compared
 //!   with the kit the band would have with A kept (A forced back into the slot); if A can no
 //!   longer be made the change is "forced";
+//! - **own valuation** (skills step 3 fix 1): for that changed slot only, B and A are scored
+//!   in the band's chosen kit with only that slot swapped, by `slot_score_m(...).0` at that
+//!   item's chain skill (1 when the chain was never filled). That is the number
+//!   `make_kit_for_view` ranks the slot by (`choose_food`'s price on a food slot, with waste
+//!   and failure on the current side only; `nonfood_scores` otherwise, still `KIT_UPKEEP`).
+//!   The delta is chosen minus alternative. Worse is about 0% by
+//!   construction: the pick is the strict maximum of that score in the context the pass
+//!   scored, so it falls below `-PROBE_TIE` only when a later greedy pass changed a slot this
+//!   one reads (pass 2 re-scores a food slot whose dependency moved; a hull does not read the
+//!   kit). Per-slot scores are not additive (food slots share yields, an edge serves hunt and
+//!   cut, and forcing A can change other slots), so the old whole-kit sum stays beside it as
+//!   `adopt_worse_own_kit` / `adopt_tie_own_kit` at the end of the skills CSV and as
+//!   "own (whole kit)" in the summary;
 //! - **held** (yearly, `worse_held_share`): band-years an item filled a slot while another
 //!   makeable item for that slot gave a kit of higher true value;
 //! - "believed wrong" needs beliefs (step 4) and reads NA until then.
 //! Extra files: `skills-<W>x<H>-seed<S>.csv` (every `PROBE_EVERY` years: these figures for the
-//! period, the skills YearStats fields and counters, NA for what later steps add) and
-//! `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted over which better one).
+//! period, the skills YearStats fields and counters, NA for what later steps add, then the
+//! whole-kit own columns) and `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted
+//! over which better one).
 use crate::band::{loss_guard, make_kit, refine_kit, weapon_q, Kit, KIT_UPKEEP};
-use crate::effects::{fills_payoff, make_kit_among_view, make_kit_for_view, recipe_info, slot_score, BandView, PAYOFF_SLOTS};
-use crate::knowledge::{closure, Known, Toolkit, FROM_PARENT, FROM_SELF};
+use crate::effects::{
+    fills_payoff, make_kit_among_view, make_kit_for_view, maker_p_fail, maker_waste, recipe_info, slot_score_m, BandView, PAYOFF_SLOTS,
+};
+use crate::knowledge::{closure, fill_chain, Known, Recipe, Registry, Toolkit, FROM_PARENT, FROM_SELF};
+use crate::physics::Action;
 use crate::materials::*;
 use crate::{Config, Params, World};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -113,7 +133,7 @@ struct ItemAgg {
     // (skills step 0) adoption of this item into a slot, against the item it replaced
     adopt_n: u64,
     adopt_forced: u64,
-    /// [worse, tie, better] by true food, true value, own valuation
+    /// [worse, tie, better] by true food, true value, and own valuation of the changed slot
     adopt_food: [u64; 3],
     adopt_true: [u64; 3],
     adopt_own: [u64; 3],
@@ -144,24 +164,49 @@ fn food(k: &Kit) -> f32 {
     k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m + k.digest.iter().sum::<f32>()
 }
 
+/// Food payoff slots in `Kit::slot_item` order: hunt, cut, point, axe, net, trap.
+/// A boat, bow, shield, outrigger, plank or ship does not discount food.
+fn probe_food_slot(j: usize) -> bool {
+    matches!(j, 0 | 1 | 2 | 3 | 5 | 6)
+}
+
 /// (skills step 0) layer-1-like true value of a refined kit: food, boat, protection, fine
-/// work, less the upkeep of its payoff-slot tools (each tool once), plus fight strength
+/// work, less the upkeep of its payoff-slot tools (each tool once), plus fight strength.
+///
+/// (skills step 3 pass 5) Food is multiplied by the smallest `1 - maker_p_fail(chain_m)`
+/// among the kit's food-slot tools. That is one keep, the worst tool, not the product of
+/// every slot. Each distinct payoff tool's `KIT_UPKEEP` is multiplied by
+/// `maker_waste(chain_m)`. Chain skill 1 leaves both factors at 1, bit for bit with the
+/// old sum. This is not the economy: `KIT_UPKEEP` is not `tool_upkeep`, and a failed hull
+/// still does not change fight or the sea.
 fn true_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
     let mut up = 0.0;
     let mut seen: [Item; 12] = [NONE; 12];
+    let mut keep = 1.0;
     for j in 0..12 {
         let it = k.slot_item(j);
-        if it == NONE || seen[..j].contains(&it) {
+        if it == NONE {
+            continue;
+        }
+        if probe_food_slot(j) {
+            let one = 1.0 - maker_p_fail(tk.chain_m(it));
+            if one < keep {
+                keep = one;
+            }
+        }
+        if seen[..j].contains(&it) {
             continue;
         }
         seen[j] = it;
-        up += upkeep(it, info(tk, known, it).2);
+        up += upkeep(it, info(tk, known, it).2) * maker_waste(tk.chain_m(it));
     }
-    food(k) + k.boat_q + k.protect + k.fine - up + PROBE_FIGHT_W * (weapon_q(k) + 1.0 - loss_guard(k))
+    food(k) * keep + k.boat_q + k.protect + k.fine - up + PROBE_FIGHT_W * (weapon_q(k) + 1.0 - loss_guard(k))
 }
 
-/// (skills step 1) the band's own valuation: the decision score of each payoff slot, summed.
-/// The same `slot_score` the kit choice uses, on this band's view (not the nominal one).
+/// (skills step 1) Whole-kit sum of `slot_score(...).0` over the 12 payoff slots, on this
+/// band's view. Kept so step 2's "worse by own valuation" stays comparable
+/// (`adopt_*_own_kit`). It is not what the kit choice ranks by: the marginals are not
+/// additive, so the sum can put the band's own pick below the alternative.
 fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
     (0..12)
         .map(|j| {
@@ -169,10 +214,39 @@ fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
             if it == NONE {
                 0.0
             } else {
-                slot_score(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it)).0
+                slot_own(view, k, j, it, tk, known)
             }
         })
         .sum()
+}
+
+/// Decision score of `it` in payoff slot `j` of context `k`. Food slots: `choose_food`'s
+/// current price at `tk.chain_m` (waste and failure; the full side is not used here).
+/// The rest: `nonfood_scores`, which ignore maker skill. `slot_score_m(...).0`.
+fn slot_own(view: &BandView, k: &Kit, j: usize, it: Item, tk: &Toolkit, known: &[Known]) -> f32 {
+    slot_score_m(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it), tk.chain_m(it)).0
+}
+
+/// `k` with payoff slot `j` (`Kit::slot_item` order) set to `it`. The other slots stay,
+/// so both items of a changed slot are scored in the same context.
+fn with_slot(k: &Kit, j: usize, it: Item) -> Kit {
+    let mut o = *k;
+    match j {
+        0 => o.hunt = it,
+        1 => o.cut = it,
+        2 => o.point = it,
+        3 => o.axe = it,
+        4 => o.boat = it,
+        5 => o.net = it,
+        6 => o.trap = it,
+        7 => o.bow = it,
+        8 => o.shield = it,
+        9 => o.outrigger = it,
+        10 => o.plank = it,
+        11 => o.ship = it,
+        _ => {}
+    }
+    o
 }
 
 /// (skills step 0) the kit the band would choose with `a` in slot `j`: the items it would
@@ -211,7 +285,10 @@ struct Period {
     adopt_forced: u64,
     adopt_food: [u64; 3],
     adopt_true: [u64; 3],
+    /// changed slot, scored in the chosen kit (`slot_score(...).0`)
     adopt_own: [u64; 3],
+    /// whole-kit sum, the step 2 measure
+    adopt_own_kit: [u64; 3],
     held_n: u64,
     held_worse_true: u64,
     held_worse_food: u64,
@@ -222,6 +299,7 @@ impl Period {
             self.adopt_food[k] += p.adopt_food[k];
             self.adopt_true[k] += p.adopt_true[k];
             self.adopt_own[k] += p.adopt_own[k];
+            self.adopt_own_kit[k] += p.adopt_own_kit[k];
         }
         self.adopt_n += p.adopt_n;
         self.adopt_forced += p.adopt_forced;
@@ -261,7 +339,9 @@ fn toolkit(w: &World, b: &crate::band::Band) -> Toolkit {
             raws.add(i);
         }
     }
-    closure(&w.reg, &b.known, &raws, false)
+    let mut tk = closure(&w.reg, &b.known, &raws, false);
+    fill_chain(&w.reg, &b.known, &mut tk);
+    tk
 }
 
 fn kit_items(k: &Kit) -> HashSet<Item> {
@@ -296,7 +376,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     let sk_fields: Vec<String> = crate::data::year_fields(&crate::world::YearStats::default()).into_iter().map(|(k, _)| k).skip_while(|k| k != "use_skill_edge").collect();
     writeln!(
         skcsv,
-        "year,bands,pop,adopt_n,adopt_forced,adopt_worse_food,adopt_tie_food,adopt_worse_true,adopt_tie_true,adopt_worse_own,adopt_tie_own,adopt_believed_wrong,held_n,worse_held_share,worse_held_food_share,trial_rate_pshort_lo,trial_rate_pshort_mid,trial_rate_pshort_hi,belief_err_n1,belief_err_n5,belief_err_n20,fight_belief_err_n1,fight_belief_err_n5,fight_belief_err_n20,inv_payout,inv_decision_blind,inv_perturb,{},{}",
+        "year,bands,pop,adopt_n,adopt_forced,adopt_worse_food,adopt_tie_food,adopt_worse_true,adopt_tie_true,adopt_worse_own,adopt_tie_own,adopt_believed_wrong,held_n,worse_held_share,worse_held_food_share,trial_rate_pshort_lo,trial_rate_pshort_mid,trial_rate_pshort_hi,belief_err_n1,belief_err_n5,belief_err_n20,fight_belief_err_n1,fight_belief_err_n5,fight_belief_err_n20,inv_payout,inv_decision_blind,inv_perturb,{},{},adopt_worse_own_kit,adopt_tie_own_kit",
         sk_fields.join(","),
         sk_counters.iter().map(|n| format!("c_{n}")).collect::<Vec<_>>().join(",")
     )
@@ -348,21 +428,25 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                         period.adopt_forced += 1;
                         continue;
                     };
-                    let (f0, t0v, o0) = *now_vals.get_or_insert_with(|| {
+                    let (f0, t0v, o_kit) = *now_vals.get_or_insert_with(|| {
                         let mut kr = kit;
                         refine_kit(&mut kr, &tk, &b.known);
                         (food(&kr), true_value(&kr, &tk, &b.known), own_value(&view, &kit, &tk, &b.known))
                     });
-                    let oa = own_value(&view, &ka, &tk, &b.known);
+                    // Same context: the chosen kit, with only this slot swapped to A.
+                    // Not the forced kit — that one can change the other slots.
+                    let own_d = slot_own(&view, &kit, j, bn, &tk, &b.known) - slot_own(&view, &with_slot(&kit, j, a), j, a, &tk, &b.known);
+                    let oa_kit = own_value(&view, &ka, &tk, &b.known);
                     refine_kit(&mut ka, &tk, &b.known);
                     let ta = true_value(&ka, &tk, &b.known);
-                    let (cf, ct, co) = (cmp3(f0 - food(&ka)), cmp3(t0v - ta), cmp3(o0 - oa));
+                    let (cf, ct, co, cok) = (cmp3(f0 - food(&ka)), cmp3(t0v - ta), cmp3(own_d), cmp3(o_kit - oa_kit));
                     ag.adopt_food[cf] += 1;
                     ag.adopt_true[ct] += 1;
                     ag.adopt_own[co] += 1;
                     period.adopt_food[cf] += 1;
                     period.adopt_true[ct] += 1;
                     period.adopt_own[co] += 1;
+                    period.adopt_own_kit[cok] += 1;
                     if ct == 0 {
                         let e = pairs.entry(("adopt_worse_true", bn, a)).or_default();
                         e.0 += 1;
@@ -613,7 +697,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             let cv: Vec<String> = crate::world::Counters::NAMES.iter().zip(w.counters.values()).filter(|(n, _)| sk_counters.contains(*n)).map(|(_, v)| v.to_string()).collect();
             writeln!(
                 skcsv,
-                "{},{nb},{pop},{},{},{},{},{},{},{},{},NA,{},{},{},NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,{},{}",
+                "{},{nb},{pop},{},{},{},{},{},{},{},{},NA,{},{},{},NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,{},{},{},{}",
                 tick / 4,
                 p.adopt_n,
                 p.adopt_forced,
@@ -627,7 +711,9 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                 d(p.held_worse_true, p.held_n),
                 d(p.held_worse_food, p.held_n),
                 ys.join(","),
-                cv.join(",")
+                cv.join(","),
+                d(p.adopt_own_kit[0], na),
+                d(p.adopt_own_kit[1], na)
             )
             .unwrap();
             for (&o, c) in &cnt {
@@ -725,7 +811,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     let sh = |x: u64, n: u64| if n > 0 { 100.0 * x as f64 / n as f64 } else { f64::NAN };
     let na = tot.adopt_n - tot.adopt_forced;
     println!(
-        "  skills split {tag}: adoptions {} (forced {}) | worse in true food {:.1}% (tie {:.1}%) | worse in true value {:.1}% (tie {:.1}%) | worse by own valuation {:.1}% (tie {:.1}%) | believed wrong NA | held band-years {} worse_held_share {:.1}% (food {:.1}%)",
+        "  skills split {tag}: adoptions {} (forced {}) | worse in true food {:.1}% (tie {:.1}%) | worse in true value {:.1}% (tie {:.1}%) | worse by own valuation {:.1}% (tie {:.1}%) | own (whole kit) {:.1}% (tie {:.1}%) | believed wrong NA | held band-years {} worse_held_share {:.1}% (food {:.1}%)",
         tot.adopt_n,
         tot.adopt_forced,
         sh(tot.adopt_food[0], na),
@@ -734,6 +820,8 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         sh(tot.adopt_true[1], na),
         sh(tot.adopt_own[0], na),
         sh(tot.adopt_own[1], na),
+        sh(tot.adopt_own_kit[0], na),
+        sh(tot.adopt_own_kit[1], na),
         tot.held_n,
         sh(tot.held_worse_true, tot.held_n),
         sh(tot.held_worse_food, tot.held_n)
@@ -775,4 +863,132 @@ fn probe_hide() {
             println!("  {:5.0} {:5} {:.2} {:.2} {:6.2} {:.2} {:.2}", w.tick as f32 / 4.0, w.bands.len(), needers.len() as f32 / nb, has / nb, hunt, ok, g / g0);
         }
     }
+}
+
+/// The pre-pass-5 sum: no maker waste, no failure. Kept so the skill-1 case can
+/// be compared bit for bit.
+fn old_true_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
+    let mut up = 0.0;
+    let mut seen: [Item; 12] = [NONE; 12];
+    for j in 0..12 {
+        let it = k.slot_item(j);
+        if it == NONE || seen[..j].contains(&it) {
+            continue;
+        }
+        seen[j] = it;
+        up += upkeep(it, info(tk, known, it).2);
+    }
+    food(k) + k.boat_q + k.protect + k.fine - up + PROBE_FIGHT_W * (weapon_q(k) + 1.0 - loss_guard(k))
+}
+
+/// A net and a spear, each one shape step from a raw the band holds.
+fn net_and_spear(net_skill: f32, spear_skill: f32) -> (Toolkit, Vec<Known>, Item, Item) {
+    let fibre = item(Form::Raw, Mat::Fibre);
+    let wood = item(Form::Raw, Mat::Wood);
+    let net = item(Form::Net, Mat::Fibre);
+    let spear = item(Form::Spear, Mat::Wood);
+    let mut reg = Registry::default();
+    let id_net = reg.insert(Recipe {
+        action: Action::Shape as u8,
+        inputs: [fibre, NONE, NONE, NONE],
+        output: net,
+        p: 0.5,
+        ..Default::default()
+    });
+    let id_spear = reg.insert(Recipe {
+        action: Action::Shape as u8,
+        inputs: [wood, NONE, NONE, NONE],
+        output: spear,
+        p: 0.5,
+        ..Default::default()
+    });
+    let known = vec![
+        Known { recipe: id_net, skill: net_skill, ..Default::default() },
+        Known { recipe: id_spear, skill: spear_skill, ..Default::default() },
+    ];
+    let mut raws = ItemSet::default();
+    raws.add(fibre);
+    raws.add(wood);
+    let mut tk = closure(&reg, &known, &raws, false);
+    fill_chain(&reg, &known, &mut tk);
+    (tk, known, net, spear)
+}
+
+fn shaped_boat(skill: f32) -> (Toolkit, Vec<Known>, Item) {
+    let wood = item(Form::Raw, Mat::Wood);
+    let boat = item(Form::Boat, Mat::Wood);
+    let mut reg = Registry::default();
+    let id = reg.insert(Recipe {
+        action: Action::Shape as u8,
+        inputs: [wood, NONE, NONE, NONE],
+        output: boat,
+        p: 0.4,
+        ..Default::default()
+    });
+    let known = vec![Known { recipe: id, skill, ..Default::default() }];
+    let mut raws = ItemSet::default();
+    raws.add(wood);
+    let mut tk = closure(&reg, &known, &raws, false);
+    fill_chain(&reg, &known, &mut tk);
+    (tk, known, boat)
+}
+
+#[test]
+fn true_value_at_chain_skill_one_matches_the_old_sum() {
+    let (tk, known, net, spear) = net_and_spear(1.0, 1.0);
+    assert_eq!(tk.chain_m(net).to_bits(), 1.0f32.to_bits());
+    assert_eq!(tk.chain_m(spear).to_bits(), 1.0f32.to_bits());
+    let mut k = Kit::default();
+    k.net = net;
+    k.hunt = spear;
+    k.boat = item(Form::Boat, Mat::Fibre);
+    k.plants_m = 1.25;
+    k.game_m = 0.4;
+    k.farm_m = 0.8;
+    k.boat_q = 0.3;
+    k.protect = 0.1;
+    k.fine = 0.05;
+    assert_eq!(true_value(&k, &tk, &known).to_bits(), old_true_value(&k, &tk, &known).to_bits());
+    // No chain filled: every chain skill reads as 1, and the sum is the old one.
+    let bare = Toolkit::default();
+    assert_eq!(true_value(&k, &bare, &known).to_bits(), old_true_value(&k, &bare, &known).to_bits());
+}
+
+#[test]
+fn true_value_uses_the_worst_food_keep_and_wastes_upkeep() {
+    let (tk, known, net, spear) = net_and_spear(0.4, 0.7);
+    let m_net = tk.chain_m(net);
+    let m_spear = tk.chain_m(spear);
+    assert!(m_net < 0.5 && m_spear < 0.8, "{m_net} {m_spear}");
+    let mut k = Kit::default();
+    k.net = net;
+    k.hunt = spear;
+    k.plants_m = 2.0;
+    k.boat_q = 0.5;
+    let keep_net = 1.0 - maker_p_fail(m_net);
+    let keep_spear = 1.0 - maker_p_fail(m_spear);
+    let keep = keep_net.min(keep_spear);
+    let product = keep_net * keep_spear;
+    assert!(keep > product + 1e-4, "the product would over-discount");
+    let up = upkeep(net, info(&tk, &known, net).2) * maker_waste(m_net) + upkeep(spear, info(&tk, &known, spear).2) * maker_waste(m_spear);
+    let fight = PROBE_FIGHT_W * (weapon_q(&k) + 1.0 - loss_guard(&k));
+    let expect = food(&k) * keep + k.boat_q + k.protect + k.fine - up + fight;
+    assert_eq!(true_value(&k, &tk, &known).to_bits(), expect.to_bits());
+    let over = food(&k) * product + k.boat_q + k.protect + k.fine - up + fight;
+    assert_ne!(true_value(&k, &tk, &known).to_bits(), over.to_bits());
+
+    // A hull is not a food slot: its failure does not scale food. Waste still hits upkeep.
+    let (btk, bknown, boat) = shaped_boat(0.4);
+    let mb = btk.chain_m(boat);
+    assert!(maker_p_fail(mb) > 0.0, "{mb}");
+    let mut hull = Kit::default();
+    hull.boat = boat;
+    hull.plants_m = 2.0;
+    hull.boat_q = 0.4;
+    let bup = upkeep(boat, info(&btk, &bknown, boat).2) * maker_waste(mb);
+    let bf = PROBE_FIGHT_W * (weapon_q(&hull) + 1.0 - loss_guard(&hull));
+    let bexpect = food(&hull) + hull.boat_q + hull.protect + hull.fine - bup + bf;
+    assert_eq!(true_value(&hull, &btk, &bknown).to_bits(), bexpect.to_bits());
+    let discounted = food(&hull) * (1.0 - maker_p_fail(mb)) + hull.boat_q + hull.protect + hull.fine - bup + bf;
+    assert_ne!(true_value(&hull, &btk, &bknown).to_bits(), discounted.to_bits());
 }
