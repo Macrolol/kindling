@@ -23,6 +23,8 @@ mod tests_diffusion;
 #[cfg(test)]
 mod tests_diag;
 #[cfg(test)]
+mod tests_diag_axe;
+#[cfg(test)]
 mod tests_skills;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
