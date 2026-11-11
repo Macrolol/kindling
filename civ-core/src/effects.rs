@@ -1439,6 +1439,33 @@ fn choose_food_belief<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, l
     }
 }
 
+/// Price of `it` in chooser `slot`, the way layer 2 ranks it. A food slot with a
+/// non-empty table uses the belief or the prior (not stored), with the other food
+/// slots painted the same way. Labour is the stored belief when it is known.
+/// An empty table, and every non-food slot, stay on `slot_score_m` so `KIT_UPKEEP`
+/// and the true food score do not move. Maker skill is ignored once a table exists.
+pub fn belief_slot_price<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: usize, it: Item, info: &F, m_item: f32, beliefs: &[crate::band::Belief]) -> f32 {
+    if it == NONE {
+        return 0.0;
+    }
+    if !is_food_slot(slot) || beliefs.is_empty() {
+        return slot_score_m(view, kit, slot, it, info, m_item).0;
+    }
+    let mut base = yargs_of(kit, slot, info, &view.user, &quiet);
+    paint_belief_context(&mut base, kit, slot, beliefs);
+    let m0 = yields(&base);
+    let w = weights(view, &digest_of(kit));
+    let q = quote_of(beliefs, slot, it);
+    let food = food_from_mean(slot, &base, &m0, &w, q.mean, q.fail, kit.bow != NONE);
+    let labour = if q.known && q.labour > 0.0 {
+        q.labour
+    } else {
+        let (_sk, _ql, d) = info(it);
+        tool_upkeep(view.upkeep_rate, it, d, food_sealed(slot, it, kit, pitch_in_use(kit, view.wet)))
+    };
+    price_of(food, labour, view)
+}
+
 struct Bucket {
     n: u8,
     v: [Cand; NMAT],

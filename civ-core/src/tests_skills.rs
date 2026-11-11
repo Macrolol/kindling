@@ -8,7 +8,7 @@ use crate::beliefs::{
     PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, TRIAL_SHARE, WRITE_OFF_SEASONS,
 };
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_beliefs, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
+    belief_slot_price, food_mults, harvest_for, kit_yields, make_kit_beliefs, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
     novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
     CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, LC_PRIOR, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
     USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
@@ -2601,11 +2601,36 @@ fn unseen_maker_skill_and_quality_do_not_move_the_kit() {
     assert_eq!(after.cut, stone, "only the observed mean moves the knife");
 }
 
+/// The probe's food rank is this price. An empty table matches the true score bit for bit.
+/// Swapping the means swaps which knife wins, which is the believed-wrong gap.
+#[test]
+fn belief_slot_price_follows_the_mean_and_leaves_the_true_score() {
+    let (flint, copper, avail) = two_knives();
+    let info = |_: Item| (1.0f32, 0.0f32, 0u8);
+    let view = BandView::nominal();
+    let kit = make_kit_scored(&avail, &info, &view, &|_| 1.0);
+    let true_p = slot_score_m(&view, &kit, 1, flint, &info, 0.2).0;
+    let via = belief_slot_price(&view, &kit, 1, flint, &info, 0.2, &[]);
+    assert_eq!(via.to_bits(), true_p.to_bits(), "no table: the true current score");
+    let boat = item(Form::Boat, Mat::Wood);
+    let hull = slot_score_m(&view, &kit, 11, boat, &info, 0.2).0;
+    let hull_b = belief_slot_price(&view, &kit, 11, boat, &info, 0.2, &[held(flint, 4.0, 1.0, FLAG_OWN)]);
+    assert_eq!(hull.to_bits(), hull_b.to_bits(), "a hull stays on KIT_UPKEEP");
+    let rosy = [held(flint, 4.0, 0.05, FLAG_OWN), held(copper, 4.0, 6.0, FLAG_OWN)];
+    let dull = [held(flint, 4.0, 6.0, FLAG_OWN), held(copper, 4.0, 0.05, FLAG_OWN)];
+    let rose_c = belief_slot_price(&view, &kit, 1, copper, &info, 1.0, &rosy);
+    let rose_f = belief_slot_price(&view, &kit, 1, flint, &info, 1.0, &rosy);
+    let dull_c = belief_slot_price(&view, &kit, 1, copper, &info, 1.0, &dull);
+    let dull_f = belief_slot_price(&view, &kit, 1, flint, &info, 1.0, &dull);
+    assert!(rose_c > rose_f + 0.02, "a rosy copper mean outranks flint ({rose_c} vs {rose_f})");
+    assert!(dull_f > dull_c + 0.02, "the same knives, beliefs swapped ({dull_f} vs {dull_c})");
+}
+
 /// The belief food choice does not name the true-effects account, nor maker waste or failure.
 #[test]
 fn belief_choice_does_not_call_tool_effects() {
     let src = include_str!("effects.rs");
-    for name in ["fn choose_food_belief", "fn food_from_mean", "fn quote_of", "fn paint_belief_context", "fn make_kit_beliefs"] {
+    for name in ["fn choose_food_belief", "fn food_from_mean", "fn quote_of", "fn paint_belief_context", "fn make_kit_beliefs", "fn belief_slot_price"] {
         let body = fn_source(src, name);
         assert!(!body.contains("tool_effects"), "{name}");
         assert!(!body.contains("maker_p_fail"), "{name}");
