@@ -1,8 +1,8 @@
 # Proposal: recording headless runs, and watching them live or as replays
 
-Status: design only. No code in this change.
+Status: design, plus one measurement example the sim does not call (`civ-core/examples/replay_codec_experiment.rs`).
 Base: `replay-proposal`, from `main` at 3b2a515.
-Builds on [PROPOSAL-data.md](PROPOSAL-data.md) section 2 (live streaming and remote viewing) and section 4 (open questions). Measurements are from the 26 Oct spike (`civ-core/examples/stream_spike.rs` on branch `spike/data-stream`, not re-run here): an 800×800 world at Y750, 1.17 M people, 68.7 k bands, 4 threads. Population figures for the two CI cases are from the skills step 3 reports (`docs/results-skills-step3-seeds1-10-500y.txt`, `docs/results-skills-step3-750y-800x800.txt`).
+Builds on [PROPOSAL-data.md](PROPOSAL-data.md) section 2 (live streaming and remote viewing) and section 4 (open questions). Sizes in §2–§7 are from the 26 Oct spike (`civ-core/examples/stream_spike.rs` on branch `spike/data-stream`, not re-run here): an 800×800 world at Y750, 1.17 M people, 68.7 k bands, 4 threads. Population figures for the two CI cases are from the skills step 3 reports (`docs/results-skills-step3-seeds1-10-500y.txt`, `docs/results-skills-step3-750y-800x800.txt`). §9 measures codecs on a bot save, `main_seed6_y350_256x160.civsave` (256×160, Y350, 67,836 people). The late 800×800 save was not on disk; those §9 rows are pending.
 
 Michael's question: watch a headless run while it is going (including one on another computer, or on GitHub Actions) and watch it again afterwards, in the native app and in the web build.
 
@@ -21,7 +21,7 @@ Michael's question: watch a headless run while it is going (including one on ano
 
 **Kept**
 
-- The spike's costs and sizes, and its conclusion: send whole pictures (keyframes), not deltas. A year of band changes was 97 % of the bands (mostly population), so a delta was 578 KB against a 596 KB keyframe. Cell XOR saved about 10 %. Not worth a second code path.
+- The spike's costs and sizes. Building a picture was 1.7–2 % of a season. A late 800×800 picture was 596 KB of band rows and 273 KB of three `u8` layers. A whole-row band delta was 578 KB, because 97 % of bands changed, and a cell XOR saved about 10 %. §9 keeps that result: a whole-row delta is still the wrong codec. It does not keep the conclusion that every delta is the wrong codec.
 - Learned and Forgot go out as per-item counts, never as one record per person. They were 97 % of ~52 k events per tick.
 - Capture reads the world after `step()` returns. It does not touch the RNG. Streaming must not change `state_hash` or the save.
 - The recording file is the transport. Everything else (a local watcher, a browser, another computer) reads that file. No Tokio, no axum.
@@ -34,14 +34,16 @@ Michael's question: watch a headless run while it is going (including one on ano
 - The viewer is the existing map, not a separate dashboard. §2.5 recommended a chart page first and a real viewer later (its phase 3, "only if the dashboard earns it"). The thing you asked for is the native app and the web build, so that is the design. A chart page is not a step.
 - A recording does not drop pictures when the disk is slow. §2.2 said drop a frame rather than wait. That is right for an optional live preview, and wrong for the file you will scrub later. The writer may stall the loop *between* steps. At one picture a year the stall does not happen: the disk sees well under 1 MB/s.
 - No event tap in the first cut. §2.2's `tap: Option<Vec<Event>>` on `push_event` (`civ-core/src/world.rs:1084`) is still the right fix if a single year ever overflows the rings. It is not needed for a yearly recording, and it edits the same function the skills work is in. See §3 and §8.
-- The picture is not a save blob. `docs/PROPOSAL-skills.md` (near the streaming note) says a future stream should reuse the save's band layout, including the belief block from skills step 4. This recording does not. That layout is the resume format (`civ-core/src/codec.rs`, `BANDS_V`). It is large, it changes when bands change, and it would make a recording about as big as a save. Beliefs stay in the save. New counters from step 4 still show up, because the year's numbers are copied by counter name.
+- The picture is not a save blob. The resume format (`civ-core/src/codec.rs`, `BANDS_V` 3) is large, it changes when bands change, and copying it would make a recording about as big as a save. Skills step 4 does not change that save layout: the v16 belief block is already on the band row from step 2 (`BANDS_V` 3), and step 4 only fills it. Whether a recording's picture should carry that block is open question 6, not a settled change. New counters from step 4 still show up either way, because the year's numbers are copied by counter name.
 - CI does not upload a yearly 800×800 recording by default. §2.4 guessed 40–80 MB per seed with decade pictures and suggested uploading them by default. Decade pictures are the right *opt-in* for the big batch. The default stays off, so a normal CI run does not grow.
+- Band rows between keyframes are a per-field delta, not a fresh list every year. The data proposal rejected deltas because a whole-row delta did not shrink. §9 measures that again (it still does not) and measures a field delta that does, with no error in position or population. Layers stay whole pictures. Charts stay exact `YearStats`.
 
 **Added**
 
 - A versioned, append-only, seekable file (`.kndrec`), flushed every year, so a killed run still plays up to the last finished year.
 - The same compatibility rule as saves: a version field, and old readers stay.
 - Sizes for the two CI cases and for 1650×1650, and a viewer that says what it cannot show.
+- A measured picture codec (§9). Per-field band deltas in version 1. Layers left as deflated `u8` planes. The 800×800 rows of that measurement are pending.
 - How the web build opens a file, and how Actions stays inside the free plan's 20 concurrent jobs.
 
 ---
@@ -154,7 +156,7 @@ The viewer divides back by the same scale. The picture matches; the float undern
 **Not in the recording**
 
 - Individual Learned / Forgot events (~25 k of each per tick at the spike).
-- Recipes, stocks, kit contents, beliefs, grudges, who taught what. That is the inspector, and it needs a `World` or a save.
+- Recipes, stocks, kit contents, beliefs, grudges, who taught what. The inspector needs a `World` or a save for all of these. Beliefs are the open case: [PROPOSAL-skills.md](PROPOSAL-skills.md) §4 says the belief block should be in the stream frame layout from the start, and this draft leaves it out (question 6).
 - `cell_first` / "this item's spread" (overlay 2). A producible bitset per band would be another ~0.4 MB a picture at late 800×800 (68 k bands × ~200 items). Later, if you want it, as its own record type. Not in version 1.
 - Fish, game, plants, the RNG, and anything required to call `step()`.
 
@@ -183,8 +185,8 @@ then records, each:
 | 2 | Map | `encode_map` bytes, once |
 | 3 | Year | deflate(MessagePack) of `YearStats` + `Frame` |
 | 4 | Events | deflate(`codec::encode_events`) of this year's non-Learned/Forgot events, weddings included |
-| 5 | Bands | deflate(MessagePack) of `[BandDot]`, picture years only |
-| 6 | Cells | deflate of `layers: u8`, then `w*h*layers` bytes |
+| 5 | Bands | picture years only. Deflate(MessagePack) of `[BandDot]` on the first picture, on every 10th picture, and whenever the previous picture is more than a year ago (so a CI decade file is all keyframes). Otherwise deflate of an id-sorted field delta from the previous picture (§9). Exact cells, exact population |
+| 6 | Cells | deflate of `layers: u8`, then `w*h*layers` bytes. Not a delta and not a lossy transform (§9) |
 | 7 | Index | one entry, appended when that year is flushed: `year u32`, `flags u16` (bit0 = has a picture), `offset u64` of the Year record |
 | 8 | End | JSON one-liner: last year, bytes written. Absent while the run is alive |
 
@@ -221,12 +223,12 @@ Band bytes follow population, not the map. Cell bytes follow the area. Early yea
 
 | run | late picture | average year, picture every year | whole run, every year | whole run, picture every 10 years |
 |---|---|---|---|---|
-| **(a)** 256×160, 500 y, ~130 k people (seeds range ~56–258 k) | ~0.10 MB | ~40 KB | **about 15–40 MB** per seed | **about 5–12 MB** per seed |
-| **(b)** 800×800, 750 y, ~1 M people (seeds ~0.2–1.7 M) | ~0.7–1.2 MB | ~0.3 MB | **about 200–350 MB** per seed | **about 40–80 MB** per seed |
+| **(a)** 256×160, 500 y, ~130 k people (seeds range ~56–258 k) | ~0.10 MB estimate at the fat end of that range. **Measured, seed 6 Y351, 67,836 people, 3,393 bands: 38,271 B** (23,343 B MessagePack bands + 14,928 B layers). **24,874 B** with the §9 field delta | ~40 KB estimate. The measured year is 38 KB, or 25 KB with the field delta | **about 15–40 MB** per seed, still an estimate. This one year sits under that pace; field deltas take about a third off the measured picture | **about 5–12 MB** per seed, estimate. Decade files are keyframes, so §9 does not shrink them |
+| **(b)** 800×800, 750 y, ~1 M people (seeds ~0.2–1.7 M) | ~0.7–1.2 MB **estimate, pending** | ~0.3 MB **estimate, pending** | **about 200–350 MB** per seed, **pending** | **about 40–80 MB** per seed, **pending** |
 | 1650×1650, ~1 M people, as in the spike's scaling note | ~2 MB | — | ~2 MB × years × ~0.4 | decade pictures stay in the low hundreds of MB for 750 y |
 | 1650×1650 if it ever fills to the same density as the spike (about 4× the people) | ~4–4.5 MB | — | roughly double the line above | still a viewing file, not a save |
 
-Ten seeds of (a) at a picture every year: **about 0.2–0.4 GB**. Ten seeds of (b) at a picture every year: **about 2–3.5 GB**, which is over the 2 GB release-asset cap and would be split (`headless-sims.yml` already splits at 2 GB). Ten seeds of (b) with decade pictures: **about 0.4–0.8 GB**, one asset, no split.
+Ten seeds of (a) at a picture every year: **about 0.2–0.4 GB**, an estimate. The measured seed-6 picture is 38 KB (25 KB with a field delta) at 68 k people, so a small seed pulls a ten-seed archive toward the bottom of that range, and field deltas pull it further. That is one year of one seed, not ten full runs. Ten seeds of (b) at a picture every year: **about 2–3.5 GB**, which is over the 2 GB release-asset cap and would be split (`headless-sims.yml` already splits at 2 GB). Ten seeds of (b) with decade pictures: **about 0.4–0.8 GB**, one asset, no split. Both (b) figures are still the spike's estimates. §9 does not replace them: if the measured field-delta ratio carried over, only the yearly file would shrink (bands are the part that shrinks, and a decade file is keyframes). Pending a real 800×800 picture.
 
 A year's stats without a picture are a few kilobytes on (a) and around 10–20 KB on (b). Leaving them in on the decade setting is what makes the charts still move every year while the map holds still for ten.
 
@@ -403,9 +405,9 @@ Which seeds, when you do turn it on:
 
 | you want | inputs | recording |
 |---|---|---|
-| the usual early-game check | seeds `1..10`, 500 y, map `256x160` (or blank, the default) | `year`. About 0.2–0.4 GB for all ten. Cheap enough to keep |
-| the usual late-game check | seeds `499246292..499246301`, 750 y, map `800x800` | `decade`. About 0.4–0.8 GB for all ten |
-| one late world, properly | one of those seeds, 750 y, `800x800` | `year`. About 200–350 MB, one file you can scrub |
+| the usual early-game check | seeds `1..10`, 500 y, map `256x160` (or blank, the default) | `year`. About 0.2–0.4 GB for all ten, an estimate from §2. The measured seed-6 year is 38 KB (25 KB with the §9 delta), so expect the low side, lower again with field deltas. Still not a measured ten-seed archive |
+| the usual late-game check | seeds `499246292..499246301`, 750 y, map `800x800` | `decade`. About 0.4–0.8 GB for all ten. Estimate, pending §9. Decade files are keyframes, so the codec does not shrink this one |
+| one late world, properly | one of those seeds, 750 y, `800x800` | `year`. About 200–350 MB, one file you can scrub. Estimate, pending. Field deltas would cut the band half only; do not budget on that until it is measured |
 
 Do not record all ten late seeds at `year`. That is 2–3.5 GB, the release asset splits at 2 GB, and it crowds the storage below.
 
@@ -415,7 +417,7 @@ Do not record all ten late seeds at `year`. That is 2–3.5 GB, the release asse
 
 The picture costs about 0.5 % of sim time (§3). The step 3 late batch was about 290 minutes of sim across ten seeds (the slowest seed, 499246292, was 3063 s). Recording adds a couple of minutes to that batch, not a new job. Public repositories do not pay for GitHub-hosted minutes. The free plan's 2 000 private minutes are not the limit that matters here.
 
-Storage is the limit. The release asset cap in this repo is 2 GB (`docs/CI-ARCHIVES.md`, and the split at `headless-sims.yml` near the `2000000000` check). Included Actions storage on the Free plan is 500 MB, then paid; several large artifacts kept for 30 days will pass that even when minutes are free. Treat that 500 MB as the number to stay near, not as a hard wall the workflow should depend on.
+Storage is the limit. The release asset cap in this repo is 2 GB (`docs/CI-ARCHIVES.md`, and the split at `headless-sims.yml` near the `2000000000` check). GitHub's billing docs quote 500 MB of included Actions storage on the Free plan, then paid storage, but those docs describe billing for private repositories, and Kindling is public. Whether that 500 MB figure applies here still needs checking before it drives retention rules such as the 7-day cut. The rules below are sensible either way; they should not rest on an unchecked allowance.
 
 Rules so a recorded run does not sit in two places at full size for a month:
 
@@ -455,6 +457,8 @@ seed 499246292 Y 400 pop … | 1234.0s | recording 180 MB
 
 PNG timelapse frames are not part of recording. `map_pixels` can make them later, in the viewer, from a picture it has already decoded. Encoding PNG on the sim thread (the data proposal's 20–60 ms) is wasted if the app is going to draw the picture anyway.
 
+§9 is the codec measurement. It lowers the band half of a *yearly* picture (38,271 B → 24,874 B on the one 256×160 year we timed) and does not lower decade files, which store keyframes. The 800×800 disk cells above stay estimates until that save is measured.
+
 ### Risks
 
 - **A recording that changes the run.** Mitigated by `&World`, no work inside `step`, and a test that `save_bytes` matches a run with recording off. `state_hash` alone is not enough (`world.rs:4579`).
@@ -464,7 +468,7 @@ PNG timelapse frames are not part of recording. `map_pixels` can make them later
 - **The renderer refactor changes the live picture.** `DrawIn` for a live world is the same slices `map_pixels` reads today. Check with a screenshot of a known seed before and after, overlays 0, 1, 3, 6, 7 and 8.
 - **Quantized layers.** Trade and conflict colours match the ramp; a tooltip that showed the raw float would be off. The recording UI should not show a fake precise float. Charts use `YearStats`.
 - **Wasm and a 300 MB file.** Accepted for one seed. Not accepted as "open the whole ten-seed archive in the page".
-- **Skills step 4** (beliefs, the kit decision, new counters; `docs/PROPOSAL-skills.md` step 4) edits `band.rs` and `world.rs`. The recording module only reads public fields that already exist (`id`, `x`, `y`, `pop`, `lineage`, `flame`, `sow`, `herd`, `n_items`, the layers, `Frame`, `YearStats`). New counters appear by name with no version bump. The belief block is not in the picture, on purpose, so step 4's save-layout change does not invalidate recordings. Do not merge the recording work into the skills PR, and do not add the `push_event` tap in that PR.
+- **Skills step 4** (beliefs, the kit decision, new counters; `docs/PROPOSAL-skills.md` step 4) edits `band.rs` and `world.rs`. The recording module only reads public fields that already exist (`id`, `x`, `y`, `pop`, `lineage`, `flame`, `sow`, `herd`, `n_items`, the layers, `Frame`, `YearStats`). New counters appear by name with no version bump. Step 4 does not change the save layout: the v16 belief block (`BANDS_V` 3) already exists from step 2 and is only filled, so there is no save-layout change that could invalidate recordings. This draft leaves the belief block out of the picture; that departs from PROPOSAL-skills §4 and is open question 6 for Michael. Do not merge the recording work into the skills PR, and do not add the `push_event` tap in that PR.
 - **Scope.** The viewer is the app. No dashboard, no results database, no relay, in this design.
 
 ### Open questions
@@ -473,9 +477,10 @@ These replace the three in [PROPOSAL-data.md](PROPOSAL-data.md) §4. The first t
 
 1. **Live, day to day.** Is "the file on this machine, tail it" the common case, or do you want the localhost server (and an SSH tunnel) in the first slice? The file works either way. The server is a step of its own (§8, step 7).
 2. **CI default, when you start using it.** This design says `off` until you pass `decade` or `year`, and `decade` for the 800×800 ten-seed batch. If you would rather have decade pictures on every late-game run without remembering the flag, say so. I would not turn `year` on for that batch.
-3. **How smooth.** A picture a year means discs jump once a year. Is that enough to watch? `--record-seasons` is there if a short run needs smoother motion, at about 2 % and four times the file. I would not make it the default.
+3. **How smooth.** A picture a year means discs jump once a year. Is that enough to watch? `--record-seasons` is there if a short run needs smoother motion, at about 2 % and four times the file. I would not make it the default. §9 measured the other way to smooth a *decade* file (interpolate between keyframes, store a correction when the interpolation is outside a budget). Watchable corrections cost most of a yearly picture, so I would not do that in version 1 either.
 4. **Item spread.** Overlay 2 stays save-only in version 1. Is that acceptable, or do you want a later record type with a producible bitset (roughly +0.4 MB on a late 800×800 picture)?
 5. **Hosted-runner "near live".** Is download-when-the-job-finishes enough, with a self-hosted runner when you want true live? I recommend yes. A periodic re-upload from the hosted job is extra storage and still lags by whatever interval we pick.
+6. **Beliefs in the picture.** [PROPOSAL-skills.md](PROPOSAL-skills.md) §4 says the belief block should be in the stream frame layout from the start (band layout 3, with the `use_skill` column and the belief block). This draft leaves beliefs out: the viewer does not draw them, they are large, and the save stays the resume format. That is a departure, not a consequence of step 4. The v16 belief block already exists (`BANDS_V` 3, from skills step 2); step 4 fills it and does not change the save layout. Do you want beliefs in recording version 1, or only in the save?
 
 ---
 
@@ -494,7 +499,145 @@ Each step is checkable on its own. Effort is S (a day or less), M (a few days), 
 | 7 | **CI switch.** the `record` input in §6, retention, the progress size already from step 3, a paragraph in `docs/CI-ARCHIVES.md`. No new job | workflow + docs | S | a dispatch with `record=year` on one small seed uploads `recording.kndrec`; a dispatch with `record` omitted uploads nothing new |
 | 8 | **Local server.** `tiny_http`, feature-gated, localhost, the GET list in §4, `--replay --serve` for a finished file | native, feature off for wasm | M | from another device, an SSH tunnel and a browser (or the app pointed at the URL) follow a run that is still stepping. Nothing listens if the flag is absent |
 | 9 | **Event tap, only if a year overflows the rings.** the `serde(skip)` buffer from the data proposal, drained at year close, still not saved | civ-core `world.rs` `push_event`. **Do this after skills step 4**, not during it | S | a test with the tap on and off has identical `save_bytes`. Not scheduled until the rings actually lose events |
+| 10 | **Band field deltas.** The §9 codec, in the same change as step 1. Id-sorted per-field deltas for `BandDot` when the previous picture is last year. A MessagePack keyframe on the first picture, every 10 pictures, and whenever the gap is longer than a year (a decade recording is all keyframes). Layers stay deflate of the five `u8` planes. No population quantisation, no Haar or quadtree, no interpolated decade playback in version 1 | civ-core `replay.rs` | S | a one-year delta round-trips onto the previous dots with 0 cells of error and 0 population error, and the deflated delta is smaller than that year's keyframe. The example stays an example |
 
-Steps 1–3 give you a file. Steps 4–6 let you watch it in the app and on the web. Step 7 is the Actions switch. Step 8 is live viewing from another device. Step 9 is deliberately last and maybe never.
+Steps 1–3 give you a file. Steps 4–6 let you watch it in the app and on the web. Step 7 is the Actions switch. Step 8 is live viewing from another device. Step 9 is deliberately last and maybe never. Step 10 is part of step 1's format, not a later pass: version 1 of the file should not freeze the "every picture is a MessagePack list" layout and then change it.
 
-Suggested order against the skills work: 1 and 2 can merge any time (they only add a module). 4, 5, 6 and 7 do not touch civ-core. 3 touches the headless runner only. None of 1–8 should be committed on the skills branch.
+Suggested order against the skills work: 1, 2 and 10 can merge any time (they only add a module). 4, 5, 6 and 7 do not touch civ-core. 3 touches the headless runner only. None of 1–8 or 10 should be committed on the skills branch.
+
+---
+
+## 9. A Kindling-specific lossy codec for recordings
+
+Viewing only. Charts and totals stay the year's `YearStats`. Saves are not touched, and a recording stays a versioned file of its own. The question is whether the picture itself can be smaller than "deflate the rows and the five `u8` planes", and what that does to what you see.
+
+The codec was measured, not estimated, by `civ-core/examples/replay_codec_experiment.rs` (header comment: experiment for this section, not used by the sim). It loads a save, takes picture A, steps one year (4 ticks) for picture B, then nine more years for a decade gap. Compression is deflate level 3, the same setting §2 uses. Dependencies are the ones civ-core already has (`flate2`, `rmp-serde`). No new crate.
+
+**Save.** `main_seed6_y350_256x160.civsave`, a bot save, not one of Michael's. Format v16. Map 256×160. Picture A is year 350: 3,354 bands, 67,836 people. Picture B is year 351: 3,393 bands, 68,795 people. One year of sim was 1,212 ms; the nine years after that were 8,745 ms. The late 800×800 save (`opt-saves/main_s499246296_y750_800x800.civsave`) was not on disk. Every 800×800 cell below is **pending**. Do not read the 256×160 ratios as that world's numbers.
+
+What changed from A to B, among the 3,344 bands in both pictures: position 64.9 %, population 65.6 %, lineage 0 %, flags 1.2 %, item-count 68.3 %. Births 49, deaths 10. Over the ten year-steps, 98.1 % of bands differed in some field. Mean population is about 20.
+
+### 1. Bands as tracked entities
+
+Positions are already cells (`u16`). Population quantisation is two significant figures, exact below 100, so a small change in a small band should round to nothing. Births and deaths are add and remove lists. Streams are id-sorted. Two codings of "delta":
+
+- **Whole row**, which is what the spike tried. If anything in the row changed, store the whole row.
+- **Per field.** Store only the fields that changed, as a mask plus those values. Adds and removes stay lists.
+
+| method (picture B, deflate level 3) | bytes | raw | max position (cells, Chebyshev) | mean position (Euclidean) | max relative pop | mean relative pop | encode |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| keyframe, packed 18 B/row | 27,162 | 61,074 | 0 | 0 | 0 | 0 | 1.8 ms |
+| keyframe, MessagePack (the §2 layout) | 23,343 | 33,587 | 0 | 0 | 0 | 0 | 1.2 ms |
+| whole-row delta, exact | 26,056 | 58,570 | 0 | 0 | 0 | 0 | 1.3 ms |
+| whole-row delta, population quantised | 26,056 | 58,570 | 0 | 0 | 0 | 0 | 1.6 ms |
+| field delta, exact | 9,946 | 15,102 | 0 | 0 | 0 | 0 | 0.5 ms |
+| field delta, population quantised | 9,946 | 15,102 | 0 | 0 | 0 | 0 | 0.5 ms |
+
+Mean over the ten year-steps: packed keyframe 27,013 B, whole-row delta 26,181 B, whole-row with quantised population 26,181 B, field delta 10,215 B. The share of bands that changed at all was 98.1 % exact and 98.1 % after quantisation.
+
+Quantisation does **not** fix the spike. The spike's whole-row delta was 578 KB against a 596 KB keyframe, because almost every band's population moved. Here the same shape shows up at a smaller scale: 26,056 B against 27,162 B, about 4 % off. Two significant figures changed nothing we could measure. Every band in picture B was a fixed point of the quantiser (max relative error 0 on the quantised keyframe). The quantiser is exact below 100, and this world's bands sit there (mean population about 20), so a change of one person is still a change. Even if population had frozen, position moved on 65 % of bands and the item count on 68 %, so a whole-row rule would still resend the row. 800×800 is pending, but the spike's own mean was about 17 people per band (1.17 M / 68.7 k), so the same quantiser is likely to be exact there too. That is an expectation, not a measurement.
+
+The field delta is the one that works, and it is lossless. 9,946 B, which is 43 % of the 23,343 B MessagePack keyframe and 37 % of the 27,162 B packed keyframe. A move of one cell is a zigzag integer, not a new row. Encode is half a millisecond. Error is 0 cells and 0 population, because nothing was quantised away. This is a delta from last year. A delta across a decade was not measured. With 98 % of bands changing every year, a ten-year gap should be treated as a keyframe until someone measures it.
+
+### 2. Layers as smooth fields
+
+Picture B, five planes (`tend`, `dom`, `fert`, `trade`, `conflict`), 256×160, raw 204,800 B. The baseline is those bytes deflated: **14,928 B**, max error 0, mean error 0, encode 0.7 ms. The planes are sparse or flat, which is why deflate is already this small: `tend` 9.5 % nonzero, `dom` 5.6 %, `trade` 11.7 %, `conflict` 1.9 %. `fert` is the odd one: 100 % nonzero, mean 247.5 out of 255, a nearly full field with a few lower cells, not a sparse mask.
+
+| method | bytes | raw | max error (u8 steps) | mean error (u8 steps) | encode |
+|---|---:|---:|---:|---:|---:|
+| baseline, plain `u8` + deflate | 14,928 | 204,800 | 0 | 0 | 0.7 ms |
+| 4×4 tile mean | 1,655 | 12,810 | 238 | 2.21 | 0.1 ms |
+| 8×8 tile mean | 626 | 3,210 | 250 | 3.54 | 0.05 ms |
+| 16×16 tile mean | 239 | 810 | 251 | 5.74 | <0.1 ms |
+| quadtree, tolerance 0 (lossless) | 19,233 | 39,923 | 0 | 0 | 1.2 ms |
+| quadtree, tolerance 4 | 16,959 | 33,661 | 4 | 0.017 | 1.0 ms |
+| quadtree, tolerance 8 | 15,429 | 30,205 | 8 | 0.043 | 1.0 ms |
+| quadtree, tolerance 16 | 13,145 | 25,535 | 14 | 0.108 | 0.7 ms |
+| 8×8 Haar, Q=1 (lossless) | 28,042 | 41,664 | 0 | 0 | 1.2 ms |
+| 8×8 Haar, Q=4 | 20,660 | 36,397 | 8 | 0.130 | 1.0 ms |
+| 8×8 Haar, Q=8 | 16,438 | 31,839 | 15 | 0.207 | 0.6 ms |
+| 8×8 Haar, Q=16 | 12,247 | 26,565 | 26 | 0.368 | 0.5 ms |
+
+Haar is an integer Haar on 8×8 blocks (reversible at Q=1; the example checks that), then a uniform quantiser and a list of the nonzero coefficients. No extra dependency. Q=2 was also run: 25,033 B, max error 9, mean 0.091. It does not beat the rows above.
+
+Coarse tiles are tiny and not usable. Max error near 250 is a hot cell and a zero cell averaged into one shade, painted across the whole tile. The mean looks small only because most cells are already the common value. That is the wrong picture of a camp, a road or a coast.
+
+Within a max error of 8 levels, the smallest coding per layer was:
+
+| layer | baseline | best at max ≤ 8 | max | mean | which |
+|---|---:|---:|---:|---:|---|
+| tend | 4,095 | 3,368 | 7 | 0.102 | quadtree T=8 |
+| dom | 680 | 575 | 3 | 0.001 | quadtree T=8 |
+| fert | 2,658 | 2,658 | 0 | 0 | baseline |
+| trade | 5,363 | 5,363 | 0 | 0 | baseline |
+| conflict | 1,569 | 1,532 | 7 | 0.018 | quadtree T=8 |
+
+A few hundred bytes on the sparse planes, and the two planes that hold the detail (`fert`, `trade`) prefer plain deflate. Lossless quadtree and lossless Haar are both *larger* than the baseline (19.2 KB and 28.0 KB against 14.9 KB): the block or tree header costs more than LZ77 spends on a flat interior. 800×800 is pending. The shape (a lot of quiet ocean, a sharp coast) is the same reason the spike's cell XOR only saved about 10 %, so I do not expect a transform to win there either. That is an expectation.
+
+### 3. Bits where the activity is
+
+Tiles compared with the previous picture. Unchanged tiles (or tiles within a skip tolerance) are not sent; the viewer keeps the old tile. A tile that does change is sent whole, or as a mean, or as four quadrant means, if that stays inside a per-cell budget, otherwise whole. 16×16 over 256×160 is 160 tiles a layer, 800 tiles across five layers.
+
+| method (B against A) | bytes | max u8 | mean u8 | encode | tiles sent | tiles skipped |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline, whole planes | 14,928 | 0 | 0 | 0.7 ms | — | — |
+| 16×16, exact, resend any change | 13,952 | 0 | 0 | 1.2 ms | 128 | 672 |
+| 16×16, exact skip, LOD budget 8 | 13,839 | 7 | 0.001 | 1.0 ms | 128 | 672 |
+| 16×16, skip if change ≤ 8, LOD budget 8 | 11,960 | 8 | 0.010 | 1.2 ms | 93 | 707 |
+| 8×8, exact | 13,678 | 0 | 0 | 1.1 ms | 353 | 2,847 |
+
+Across the decade gap (year 360 against year 350), exact 16×16 was 14,952 B and the tolerant one was 14,022 B, against a year-360 baseline of 15,904 B. Mean of the ten year-steps: baseline 15,530 B, exact 16×16 14,539 B, tolerant 13,148 B.
+
+Skipping the quiet tiles does not beat deflate by enough to matter. 672 of 800 tiles were unchanged and the lossless coding only fell from 14,928 B to 13,952 B (6 %). Deflate was already not spending bits on the zeros. Allowing 8 levels of error on a quiet tile gets to 11,960 B, about 20 % off, for a codec the viewer has to keep in sync with the previous picture. Same story as the spike's cell XOR. Not a second code path.
+
+### 4. Interpolate between decade keyframes
+
+Pictures at year 350 and year 360 are stored. Years 351–359 are predicted: position and population linearly interpolated for a band present at both ends, other fields taken from the nearer keyframe, births held at the end where they appear and deaths held at the start until they vanish. Layers are interpolated per cell. A correction is stored when the prediction misses the budget. Two budgets:
+
+- **Viewing.** Position within 1 cell (Chebyshev), relative population within 10 %, each layer within 8 u8 steps.
+- **Tight.** Position exact, relative population within 5 %, layers within 2.
+
+Interpolation alone, with no corrections, is not watchable. On bands matched by id: max position error 17 cells in year 351, rising to 35 in year 359; mean position a few cells; max relative population from 2.0 to 7.5 (a band shown at several times its real size). Layers: max error 95–171 u8, mean about 0.5–0.9. Ghost bands (in the prediction, not in the year) 373–534. Missing bands 19–85.
+
+Corrections bring it back inside the budget. The worst corrected year at the viewing budget was exactly on the budget: 1.0 cell, 0.100 relative population, 8 u8. Mean of the nine correction years:
+
+| | band bytes | layer bytes | sum |
+|---|---:|---:|---:|
+| viewing budget, mean correction | 10,784 | 13,493 | 24,278 |
+| tight budget, mean correction | — | — | 25,850 |
+| one packed keyframe (year 360) | 25,862 | 15,904 | 41,766 |
+| mean full picture, years 351–360 (packed bands + layers) | | | 42,543 |
+
+Amortised, one keyframe plus nine viewing corrections, over the ten years: **26,027 B/year**. That is 61 % of storing every picture (42,543 B), and about **6×** a decade file that just holds the map still (the keyframe's 41,766 B spread over ten years, about 4.2 KB/year of picture). The tight budget barely costs more (25,850 B against 24,278 B): once you are correcting at all, most of the bytes are the bands and tiles that moved for real, not the ones sitting just outside a loose budget. Encode stays in the same 1 ms band as the other layer codings.
+
+The band half of a correction (10.8 KB) is about the same size as an ordinary year-to-year field delta (10.2 KB). Interpolation is not buying band bytes. The layer half (13.5 KB) is most of a full layer picture (15.5 KB), because a linear blend of a coast is outside an 8-level budget on enough tiles that those tiles are sent anyway.
+
+### Recommendation
+
+**Version 1, adopt**
+
+- Per-field band deltas, id-sorted, with add and remove lists, from the previous *year's* picture. Lossless: 0 cells, 0 population error. A MessagePack keyframe on the first picture, every 10 pictures, and any time the previous picture is more than a year back. A CI decade file (`--record-every 10`) is therefore all keyframes: the 43 % figure is a year-to-year measurement, and a decade gap was not measured. Scrubbing to a keyframe does not apply a chain of deltas. Measured 9,946 B against 23,343 B for the MessagePack keyframe on this year.
+- Layers unchanged: five `u8` planes, deflate level 3, error 0 beyond the quantisation §2 already specifies (the ramp the viewer divides back by). Charts stay `YearStats`.
+
+**Version 1, do not adopt**
+
+- Population quantised to two significant figures. Measured saving: none. Error budget would have been ≤ 5 % relative, and on this save the error was 0 because it never moved a value. It also cannot rescue a whole-row delta while position and item-count keep changing.
+- Whole-row deltas. 26,056 B against 27,162 B. The spike's 578 KB against 596 KB, again.
+- Tile means, quadtree, Haar. A max error of 8 is not enough to beat plain deflate, and a max error of ~250 (the cheap tiles) is the wrong coastline. Error budget I would have accepted for a real saving: max 8 u8 on `tend`, `dom` and `conflict`, and exact `fert` and `trade`. The measured saving at that budget is a few hundred bytes a layer.
+- Activity refresh. Lossless saving 6 % (13,952 B against 14,928 B). With an 8-level budget, 11,960 B. Not worth the state the viewer would have to keep.
+- Decade interpolation. Error budget for "watchable": 1 cell, 10 % population, 8 u8. Corrections then cost 24,278 B/year, against ~4.2 KB/year for a still decade picture and 42,543 B for a real picture every year. Smooth decade playback is most of the way back to recording every year. The tight budget (0 cells, 5 %, 2 u8) is 25,850 B/year.
+
+**Later, only after the 800×800 picture exists**
+
+- Re-run the same example on that save and fill the pending rows. Do not tune a coarser population step (nearest 5, one significant figure, and so on) until that run shows bands large enough for two significant figures to be a no-op *and* a coarser step to be worth an error budget. Nothing coarser was measured here.
+- Revisit Haar or a quadtree only if that world's layers stop being "flat interior, sharp coast". I do not expect it.
+- Interpolation only if you want decade files to move and you accept roughly 0.6× a yearly file to get it. I would spend that budget on yearly pictures instead.
+
+**What this does to the CI sizes**
+
+- **(a) yearly, 256×160.** Measured late-ish picture, this seed and year: 38,271 B baseline (MessagePack bands + layers), 24,874 B with the version-1 delta. The §2 whole-run **15–40 MB** and the ten-seed **0.2–0.4 GB** stay estimates. This year is under the pace those ranges assumed, and the delta takes about a third off the picture, so a recorded (a) batch should come in at the low end, somewhat lower with the delta. Not a substitute for summing 500 years.
+- **(a) decade.** Unchanged by the codec. Keyframes only. The §2 **5–12 MB** per seed stays an estimate; the measured keyframe is 38 KB, so a seed this size is toward the bottom of that range or under it.
+- **(b) yearly, 800×800.** **Pending.** The §2 figure stays **200–350 MB** per seed. Projection, not a measurement: bands were about 0.60 MB of the old ~1.0 MB late picture, and here a field delta was 43 % of a MessagePack keyframe, which would put a late (b) picture near 0.66 MB and the file near two thirds of 200–350 MB. Do not plan retention on that until the save exists.
+- **(b) decade.** **Pending, and the codec would not move it** even if the ratio holds, because a decade recording stores keyframes. The §2 **40–80 MB** per seed, **0.4–0.8 GB** for ten, stays the number to plan on.
+
+CPU is not the constraint. The slowest encode above is under 2 ms. The year of sim was 1,212 ms. The spike's 0.5 % of the run (§3) still covers version 1, and a field delta is less work than deflating a keyframe, not more.
