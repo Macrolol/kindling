@@ -256,9 +256,20 @@ Current: `FORMAT_VERSION = 16` (skills step 2: user skill by form). Kindling v0.
   - On load, an empty `use_skill` (every pre-v16 save) is filled in `World::after_load`,
     after recipe cleanup: for each form, the best `Known.skill` among that band's recipes
     whose output has that form, else 0. `learn_curve` becomes `LC_PRIOR`,
-    `last_fight_switch` becomes `u32::MAX`. The rest stay 0 and `beliefs` stay empty.
-    `fight_calib` 0 = unset until step 6; raid zeros until step 8; beliefs empty until
-    step 4.
+    `last_fight_switch` becomes `u32::MAX`. `fight_calib` 0 stays unset until step 6;
+    raid zeros stay until step 8.
+  - An empty `beliefs` block (a v16 save from before step 4, and v1–v15 after migration)
+    is a starting state, not a blank the sim leaves blank. After the toolkit is rebuilt,
+    `after_load` writes one belief per occupied payoff slot of that true-score kit:
+    `n = BELIEF_NMAX / 2`, mean and variance from the true expected multiplier at the
+    loaded user skill, `fail` from the make-failure chance, labour from upkeep. Flags
+    stay 0. The kit is not saved, so it is then rebuilt from that table before the
+    inspector's economy pass; a second load is the same world. A table that already has
+    entries is kept. Founders get the same fill at `n = BELIEF_NMAX` and user skill 0.7
+    after their kit is chosen, which is a starting state, not a later peek.
+  - `YearStats` gained `beliefs_mean`, `belief_n_mean` and `learn_curve_mean` (means for
+    that year). The struct is `serde(default)`, so a history row written before those
+    fields reads them as 0. No format bump.
   - `start_skills` still zeros `use_skill` to length `NFORM`. Founders then set
     `USE_FOUNDER` on each form of the kit they are founded with (decision R1). Both
     daughter sites overwrite that with `USE_INHERIT` of the parent. `Band::fit_vectors`

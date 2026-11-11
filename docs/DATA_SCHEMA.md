@@ -434,9 +434,17 @@ Additive, `serde(default)`; older saves read a missing field as 0.
     skill is below 1, plus a failed tool's marginal draw spent again. At maker skill
     1 the surplus is 0). A failed slot spends that item's marginal draw again, so
     two failed slots that share an item may count one item twice;
-  - (step 4) `beliefs_formed`, `tools_written_off`, `tools_retried`, `beliefs_told`,
-    `beliefs_inherited`, `belief_err` (summed absolute belief error x 1000; mean =
-    `belief_err / beliefs_formed`), `beliefs_evicted` (dropped from a full belief table);
+  - (step 4) `beliefs_formed` (a belief stored on first use), `tools_written_off` (a payoff
+    tool dropped within `WRITE_OFF_SEASONS` of first own use while its mean is below a fresh
+    prior), `tools_retried` (a later trial of a written-off item), `beliefs_told` (a belief
+    accepted in the close-tie exchange), `beliefs_inherited` (entries copied to a daughter
+    that stands), `beliefs_evicted` (dropped from a full table). These are sums.
+    `belief_err` is a gauge: each year it is overwritten with the mean absolute relative
+    error of kit beliefs against the expected multiplier (no novice draw), times 1000.
+    It is not `belief_err / beliefs_formed`. It still sits in the `sum` group, so a frame
+    delta is `since` (this year minus last year, or 0 when the gauge fell) and `Counters::add`
+    adds those deltas. The run total in `counters` is the latest overwrite. `fight_belief_err`
+    stays a summed fight-belief error and is still 0 (step 6);
   - (step 5) `kit_switches` (slot picks changed), `switches_conserve` (to save a material),
     `switches_fight` (for fight value), `switches_risk` (to a safer, lower-paying tool),
     `kit_trials`, `trials_declined_risk`, `trial_food_lost` (person-seasons x 1000);
@@ -455,8 +463,10 @@ Additive, `serde(default)`; older saves read a missing field as 0.
     short: mean, 90th percentile);
   - (step 6) `fight_need_mean`, `weapon_over_food_share` (share of slot picks putting fight
     value over food);
-  - (step 4) `beliefs_mean` (beliefs per band), `belief_n_mean` (observations behind a belief),
-    `learn_curve_mean`;
+  - (step 4) `beliefs_mean` (belief entries per band), `belief_n_mean` (mean `n` of beliefs
+    that match the current kit; 0 if none), `learn_curve_mean` (mean `learn_curve`).
+    Means for that year, not sums. `serde(default)`: a history row from before they were
+    filled reads 0;
   - (step 6) `fight_believed_mean`, `fight_true_mean` (believed and true fight strength of the
     bands' weapons); `arms_races` (races going), `arms_race_max_bands`, `arms_race_max_share`
     (largest race, share of bands), `arms_race_max_span` (its span, cells);
@@ -465,18 +475,23 @@ Additive, `serde(default)`; older saves read a missing field as 0.
 - The diffusion probe (`civ-core/src/probe_diffusion.rs`, not a run output) gains per-item
   columns in `items-*.csv` (`adopt_n`, `adopt_forced`, `adopt_worse_food`, `adopt_tie_food`,
   `adopt_worse_true`, `adopt_tie_true`, `adopt_worse_own`, `adopt_tie_own`,
-  `adopt_believed_wrong` (NA until step 4), `held_n`, `worse_held_share`,
+  `adopt_believed_wrong`, `held_n`, `worse_held_share`,
   `worse_held_food_share`, `held_gap_mean`) and two files, `skills-*.csv` (per `PROBE_EVERY`
   years: the same split for the period, the fields and counters above, NA for what later steps
   add) and `pairs-*.csv` (which item was held or adopted over which better one).
-  `adopt_worse_own` / `adopt_tie_own` (skills step 3 fix 1) are the changed slot only: the
-  chosen item and the one it replaced, scored in the band's chosen kit with only that slot
-  swapped, by `slot_score_m(...).0` at the item's chain skill (the same number
-  `make_kit_for_view` ranks that slot by; non-food slots still ignore maker skill).
-  Worse is about 0 by construction. The old whole-kit sum of those scores is not additive, so
-  it is kept as `adopt_worse_own_kit` / `adopt_tie_own_kit`, appended at the end of each
-  `skills-*.csv` row (not on `items-*.csv`). `tools/diffusion_probe_agg.py` prints the split
-  from the items file, so its "own valuation" is the per-slot figure.
+  `adopt_worse_own` / `adopt_tie_own` are the changed slot only: the chosen item and the one
+  it replaced, scored in the band's chosen kit with only that slot swapped, by
+  `belief_slot_price` (skills step 4). That is the price layer 2 ranks a food slot by: the
+  belief, or the prior when the band has none for that item, with the other food slots
+  painted the same way. An empty belief table, and every non-food slot, stay on
+  `slot_score_m(...).0` (`KIT_UPKEEP` off food; maker skill still applies only on the empty
+  table). The kit the probe watches is the belief kit. Worse by that price is about 0 by
+  construction. `adopt_believed_wrong` is a pick that is worse in true value and better by
+  that price (a count on `items-*.csv`, a share of adoptions with a choice on `skills-*.csv`).
+  The old whole-kit sum of those same slot prices is not additive, so it is kept as
+  `adopt_worse_own_kit` / `adopt_tie_own_kit`, appended at the end of each `skills-*.csv`
+  row (not on `items-*.csv`). `tools/diffusion_probe_agg.py` prints the split from the items
+  file, so its "own valuation" is the per-slot figure.
 
 ## What a save keeps (format v14)
 
