@@ -2,7 +2,9 @@
 //!
 //! `diag_copper_over_steel_axe` (skills step 3 fix 2): bands whose fitted kit
 //! holds a copper axe while a steel axe is makeable. Numbers only — the test
-//! does not assert a ranking.
+//! does not assert a ranking. Its own-score path is `slot_score` at maker
+//! skill 1 (the step-2 account). `diag_axe_breakeven` in `tests_diag_axe` is
+//! the step-3 account: `slot_score_m` at `chain_m`, plus the labour break-even.
 //!
 //! `DIAG_SAVE` is the snapshot path. If it is unset, `DIAG_SAVE_DEFAULT` is used.
 
@@ -17,11 +19,11 @@ use crate::World;
 
 /// Seed 6, 256x160, year 350, main `f8d80dd`. Replaced only if that snapshot
 /// has too few copper-axe-over-steel bands to measure.
-const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
+pub(crate) const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
 
 /// Probe tie and fight weight, copied from `probe_diffusion` so this test does
 /// not reach into that module. A gap within `PROBE_TIE` is a tie there.
-const PROBE_TIE: f32 = 0.02;
+pub(crate) const PROBE_TIE: f32 = 0.02;
 const PROBE_FIGHT_W: f32 = 0.1;
 
 /// Axe is best[] slot 4 (`CHOOSE_ORDER`), payoff index 3.
@@ -182,23 +184,23 @@ fn pct(k: u64, n: u64) -> f64 {
 /// times the worst food-slot keep `1 - p_fail`. `upkeep` is `KIT_UPKEEP` times
 /// `maker_waste` at each distinct payoff tool's chain skill. At chain skill 1
 /// both factors are 1. `other` is boat soundness plus fine work.
-struct Tv {
-    food: f32,
-    plants: f32,
-    farm: f32,
-    protect: f32,
-    other: f32,
-    upkeep: f32,
-    fight: f32,
+pub(crate) struct Tv {
+    pub(crate) food: f32,
+    pub(crate) plants: f32,
+    pub(crate) farm: f32,
+    pub(crate) protect: f32,
+    pub(crate) other: f32,
+    pub(crate) upkeep: f32,
+    pub(crate) fight: f32,
 }
 
 impl Tv {
-    fn value(&self) -> f32 {
+    pub(crate) fn value(&self) -> f32 {
         self.food + self.protect + self.other - self.upkeep + self.fight
     }
 }
 
-fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
+pub(crate) fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     let mut up = 0.0;
     let mut seen: [Item; 12] = [NONE; 12];
     let mut keep = 1.0;
@@ -235,7 +237,7 @@ fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     }
 }
 
-fn with_axe(k: &Kit, axe: Item) -> Kit {
+pub(crate) fn with_axe(k: &Kit, axe: Item) -> Kit {
     let mut c = *k;
     c.axe = axe;
     c
