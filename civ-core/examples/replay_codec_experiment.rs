@@ -1,9 +1,11 @@
 //! EXPERIMENT for PROPOSAL-replay.md, not used by the sim.
 //!
-//! Throwaway measurement of a viewing-only lossy picture codec. Loads a save,
+//! Throwaway measurement of a viewing-only picture codec. Loads a save,
 //! extracts band rows and the five u8 layers (picture A), steps one year
-//! (4 ticks) for picture B, then up to nine further years for a decade gap.
-//! Encodes the deflate level-3 baseline and the four ideas in the proposal.
+//! (4 ticks) for picture B, then further years for a decade gap when one
+//! year is cheap enough. Encodes the deflate level-3 baseline, the four
+//! ideas in the proposal, and error-bounded population quantisers (log
+//! buckets and a dead-band that compares against the last sent value).
 //! Does not write a recording and does not change library code.
 //!
 //! `cargo run --release -p civ-core --example replay_codec_experiment -- <save>`
@@ -13,6 +15,7 @@ use civ_core::materials::NONE;
 use civ_core::world::World;
 use std::collections::BTreeMap;
 use std::io::Write;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 const LAYER_NAMES: [&str; 5] = ["tend", "dom", "fert", "trade", "conflict"];
@@ -39,6 +42,7 @@ struct Picture {
 fn main() {
     haar_self_check();
     qpop_self_check();
+    qlog_self_check();
 
     let path = std::env::args().nth(1).expect("usage: replay_codec_experiment <save>");
     let t_load = Instant::now();
@@ -77,12 +81,22 @@ fn main() {
     ));
 
     let mut decade_ms = 0.0;
-    // One year on this map is cheap enough that nine more (a decade gap) is in budget.
-    // A pathological save that already spent two minutes on one year is skipped.
-    let do_decade = year_ms < 120_000.0;
-    if do_decade {
+    // Nine more years is a decade gap. Above two minutes for one year, step
+    // fewer so a dead-band still has more than one sample, and log that.
+    // Above five minutes, stop: the picture-B codecs are the measurement.
+    let extra = if year_ms < 120_000.0 {
+        9
+    } else if year_ms < 180_000.0 {
+        3
+    } else if year_ms < 300_000.0 {
+        1
+    } else {
+        0
+    };
+    log(&format!("extra_years {extra}"));
+    if extra > 0 {
         let t_dec = Instant::now();
-        for k in 0..9 {
+        for k in 0..extra {
             for _ in 0..4 {
                 world.step();
             }
@@ -97,7 +111,7 @@ fn main() {
         }
         decade_ms = elapsed_ms(t_dec);
     } else {
-        log("decade gap skipped: one year was not cheap");
+        log("no extra years: one year was not cheap");
     }
 
     let a = &pics[0];
@@ -128,8 +142,9 @@ fn main() {
     check_qpop_dots("field_qpop", &shown_field_q, &b.dots);
     report_bands("field_delta_qpop2", &field_q, &shown_field_q, &b.dots, true);
 
-    if do_decade {
-        println!("\n== 1b year-to-year band deltas across the decade (mean of 10 steps)");
+    if pics.len() > 2 {
+        let n = pics.len() - 1;
+        println!("\n== 1b year-to-year band deltas across {n} steps (mean)");
         let mut sum_spike = 0usize;
         let mut sum_spike_q = 0usize;
         let mut sum_field_q = 0usize;
@@ -137,7 +152,6 @@ fn main() {
         let mut sum_q_changed = 0u64;
         let mut sum_exact_changed = 0u64;
         let mut sum_bands = 0u64;
-        let n = 10usize;
         for i in 0..n {
             let prev = &pics[i];
             let next = &pics[i + 1];
@@ -212,17 +226,19 @@ fn main() {
     run_activity("act8_lod_budget8", a, b, 8, 0, 8);
     run_activity("act8_exact_skip0", a, b, 8, 0, 0);
 
-    if do_decade {
+    if pics.len() > 2 {
+        let n = pics.len() - 1;
         let last = pics.last().unwrap();
-        println!("\n== 3b activity across a decade gap (year+10 vs A) and mean of 10 year-steps");
-        run_activity("decade_gap_act16_exact", a, last, 16, 0, 0);
-        run_activity("decade_gap_act16_lod8", a, last, 16, 0, 8);
-        run_activity("decade_gap_act16_rare8", a, last, 16, 8, 8);
+        let gap_label = if n >= 10 { "decade" } else { "partial" };
+        println!("\n== 3b activity across a {n}-year gap (last vs A) and mean of {n} year-steps");
+        run_activity(&format!("{gap_label}_gap_act16_exact"), a, last, 16, 0, 0);
+        run_activity(&format!("{gap_label}_gap_act16_lod8"), a, last, 16, 0, 8);
+        run_activity(&format!("{gap_label}_gap_act16_rare8"), a, last, 16, 8, 8);
         let mut sum_exact = 0usize;
         let mut sum_lod = 0usize;
         let mut sum_rare = 0usize;
         let mut sum_base = 0usize;
-        for i in 0..10 {
+        for i in 0..n {
             sum_base += deflate3(&concat_layers(&pics[i + 1].layers)).len();
             sum_exact += activity_bytes(&pics[i], &pics[i + 1], 16, 0, 0);
             sum_lod += activity_bytes(&pics[i], &pics[i + 1], 16, 0, 8);
@@ -230,27 +246,33 @@ fn main() {
         }
         println!(
             "mean year baseline_layers {sum_base_b} B   act16_exact {sum_exact_b} B   act16_lod8 {sum_lod_b} B   act16_rare8 {sum_rare_b} B",
-            sum_base_b = sum_base / 10,
-            sum_exact_b = sum_exact / 10,
-            sum_lod_b = sum_lod / 10,
-            sum_rare_b = sum_rare / 10
+            sum_base_b = sum_base / n,
+            sum_exact_b = sum_exact / n,
+            sum_lod_b = sum_lod / n,
+            sum_rare_b = sum_rare / n
         );
     }
 
-    if do_decade {
+    if pics.len() > 10 {
         println!("\n== 4 viewer interpolation between year 0 and year 10, corrections for years 1..9");
         run_idea4(&pics);
     } else {
-        println!("\n== 4 decade interpolation: skipped");
+        println!(
+            "\n== 4 decade interpolation: skipped ({} year-steps, need 10)",
+            pics.len() - 1
+        );
     }
+
+    run_pop_quantisers(&pics, year_ms);
 
     println!("\n== SUMMARY");
     println!("save={path}");
     println!("map={}x{} year_A={} bands_A={} pop_A={}", a.w, a.h, a.year, a.dots.len(), a.dots.iter().map(|d| d.pop as u64).sum::<u64>());
     println!("bands_B={}", b.dots.len());
+    println!("year_steps={}", pics.len() - 1);
     println!("sim_one_year_ms={year_ms:.1}");
-    println!("sim_nine_more_years_ms={decade_ms:.1}");
-    println!("decade={}", if do_decade { "yes" } else { "no" });
+    println!("sim_extra_years_ms={decade_ms:.1}");
+    println!("decade={}", if pics.len() > 10 { "yes" } else { "no" });
     println!("baseline_picture_B_bytes={}", deflate3(&pack_bands(&b.dots)).len() + deflate3(&concat_layers(&b.layers)).len());
     println!("baseline_bands_packed_B={}", deflate3(&pack_bands(&b.dots)).len());
     println!("baseline_bands_msgpack_B={}", deflate3(&pack_msgpack(&b.dots)).len());
@@ -259,7 +281,7 @@ fn main() {
     println!("field_qpop_delta_A_to_B={}", deflate3(&fq).len());
     println!("spike_qpop_delta_A_to_B={}", deflate3(&encode_spike_delta(&a.dots, &b.dots, true)).len());
     println!("spike_raw_delta_A_to_B={}", deflate3(&encode_spike_delta(&a.dots, &b.dots, false)).len());
-    println!("800x800=pending");
+    println!("scale={}x{}", a.w, a.h);
 }
 
 fn log(s: &str) {
@@ -2055,4 +2077,410 @@ fn matched_err(pred: &[Dot], truth: &[Dot]) -> (f64, f64, f64, f64, usize) {
     }
     let (a, b, c, d) = pop_err(&shown, &real);
     (a, b, c, d, n)
+}
+
+/// Error bound: |shown - truth| <= max(abs_floor, ceil(rel_num/rel_den * truth)).
+fn pop_bound(p: u32, rel_num: u32, rel_den: u32, abs_floor: u32) -> u32 {
+    let rel = (u64::from(p) * u64::from(rel_num) + u64::from(rel_den) - 1) / u64::from(rel_den);
+    (rel as u32).max(abs_floor)
+}
+
+/// Centers spaced so the Voronoi half-gap equals `pop_bound` at the left center.
+/// Tie on a midpoint goes to the lower center. Outputs are fixed points.
+fn build_centers(rel_num: u32, rel_den: u32, abs_floor: u32) -> Vec<u32> {
+    let mut centers = vec![0u32];
+    let mut c = 0u32;
+    while c < 5_000_000 {
+        let bound = pop_bound(c, rel_num, rel_den, abs_floor).max(1);
+        let step = bound.saturating_mul(2);
+        let next = c.saturating_add(step);
+        if next <= c {
+            break;
+        }
+        centers.push(next);
+        c = next;
+    }
+    centers
+}
+
+fn centers_5() -> &'static [u32] {
+    static C: OnceLock<Vec<u32>> = OnceLock::new();
+    C.get_or_init(|| build_centers(1, 20, 2))
+}
+
+fn centers_10() -> &'static [u32] {
+    static C: OnceLock<Vec<u32>> = OnceLock::new();
+    C.get_or_init(|| build_centers(1, 10, 2))
+}
+
+fn nearest_center(centers: &[u32], p: u32) -> u32 {
+    let last = *centers.last().expect("centers");
+    if p > last {
+        panic!("pop {p} above quantiser table {last}");
+    }
+    let i = centers.partition_point(|&c| c < p);
+    if i == 0 {
+        return centers[0];
+    }
+    if i == centers.len() {
+        return last;
+    }
+    let lo = centers[i - 1];
+    let hi = centers[i];
+    if hi - p < p - lo {
+        hi
+    } else {
+        lo
+    }
+}
+
+fn qlog5(p: u32) -> u32 {
+    nearest_center(centers_5(), p)
+}
+
+fn qlog10(p: u32) -> u32 {
+    nearest_center(centers_10(), p)
+}
+
+fn qlog_self_check() {
+    for (num, den, q) in [(1u32, 20u32, qlog5 as fn(u32) -> u32), (1, 10, qlog10)] {
+        let mut prev = 0u32;
+        for p in 0..80_000u32 {
+            let g = q(p);
+            let err = g.abs_diff(p);
+            let bound = pop_bound(p, num, den, 2);
+            assert!(err <= bound, "qlog {num}/{den} {p} -> {g} err {err} bound {bound}");
+            assert_eq!(q(g), g, "qlog not a fixed point at {g}");
+            assert!(g >= prev, "qlog not monotonic at {p}");
+            prev = g;
+        }
+    }
+}
+
+fn id_pop(p: u32) -> u32 {
+    p
+}
+
+fn with_pop(dots: &[Dot], f: impl Fn(u32) -> u32) -> Vec<Dot> {
+    let mut v = dots.to_vec();
+    for d in &mut v {
+        d.pop = f(d.pop);
+    }
+    v
+}
+
+fn overlay_sent(dots: &[Dot], sent: &BTreeMap<u32, u32>) -> Vec<Dot> {
+    dots.iter()
+        .map(|d| {
+            let mut c = d.clone();
+            c.pop = *sent.get(&d.id).unwrap_or_else(|| panic!("missing sent {}", d.id));
+            c
+        })
+        .collect()
+}
+
+struct QMeasure {
+    bytes: usize,
+    spike_bytes: usize,
+    max_abs: u32,
+    mean_abs: f64,
+    max_rel: f64,
+    mean_rel: f64,
+    surv_sent: u64,
+    surv: u64,
+    all_sent: u64,
+    bands: u64,
+    enc_ms: f64,
+    spike_ms: f64,
+}
+
+fn people_err(shown: &[Dot], truth: &[Dot]) -> (u32, f64, f64, f64) {
+    let mut max_abs = 0u32;
+    let mut sum_abs = 0u64;
+    for (s, t) in shown.iter().zip(truth.iter()) {
+        assert_eq!(s.id, t.id, "people_err id");
+        let d = s.pop.abs_diff(t.pop);
+        max_abs = max_abs.max(d);
+        sum_abs += u64::from(d);
+    }
+    let mean_abs = sum_abs as f64 / shown.len().max(1) as f64;
+    let (_, _, max_rel, mean_rel) = pop_err(shown, truth);
+    (max_abs, mean_abs, max_rel, mean_rel)
+}
+
+fn pop_send_counts(prev: &[Dot], next: &[Dot]) -> (u64, u64, u64) {
+    let mut surv_sent = 0u64;
+    let mut surv = 0u64;
+    let mut all_sent = 0u64;
+    let mut i = 0;
+    let mut j = 0;
+    while i < prev.len() || j < next.len() {
+        if j >= next.len() || (i < prev.len() && prev[i].id < next[j].id) {
+            i += 1;
+        } else if i >= prev.len() || next[j].id < prev[i].id {
+            all_sent += 1;
+            j += 1;
+        } else {
+            surv += 1;
+            if prev[i].pop != next[j].pop {
+                surv_sent += 1;
+                all_sent += 1;
+            }
+            i += 1;
+            j += 1;
+        }
+    }
+    (surv_sent, surv, all_sent)
+}
+
+fn measure_pair(prev_shown: &[Dot], next_shown: &[Dot], next_truth: &[Dot]) -> QMeasure {
+    let t = Instant::now();
+    let (raw, decoded) = encode_field_delta(prev_shown, next_shown, FieldMode::Exact);
+    let bytes = deflate3(&raw).len();
+    let enc_ms = elapsed_ms(t);
+    check_dots("quant roundtrip", &decoded, next_shown, true);
+    let (max_abs, mean_abs, max_rel, mean_rel) = people_err(next_shown, next_truth);
+    let (surv_sent, surv, all_sent) = pop_send_counts(prev_shown, next_shown);
+    let t2 = Instant::now();
+    let spike_bytes = deflate3(&encode_spike_delta(prev_shown, next_shown, false)).len();
+    let spike_ms = elapsed_ms(t2);
+    QMeasure {
+        bytes,
+        spike_bytes,
+        max_abs,
+        mean_abs,
+        max_rel,
+        mean_rel,
+        surv_sent,
+        surv,
+        all_sent,
+        bands: next_truth.len() as u64,
+        enc_ms,
+        spike_ms,
+    }
+}
+
+fn assert_bound(shown: &[Dot], truth: &[Dot], rel_num: u32, rel_den: u32, abs_floor: u32) {
+    for (s, t) in shown.iter().zip(truth.iter()) {
+        let err = s.pop.abs_diff(t.pop);
+        let bound = pop_bound(t.pop, rel_num, rel_den, abs_floor);
+        assert!(
+            err <= bound,
+            "bound broken id {} shown {} truth {} err {err} bound {bound}",
+            t.id, s.pop, t.pop
+        );
+    }
+}
+
+fn stateless_steps(pics: &[Picture], f: fn(u32) -> u32, bound: Option<(u32, u32, u32)>) -> Vec<QMeasure> {
+    let mut rows = Vec::new();
+    for w in pics.windows(2) {
+        let prev = with_pop(&w[0].dots, f);
+        let next = with_pop(&w[1].dots, f);
+        if let Some((num, den, floor)) = bound {
+            assert_bound(&next, &w[1].dots, num, den, floor);
+        }
+        rows.push(measure_pair(&prev, &next, &w[1].dots));
+    }
+    rows
+}
+
+fn deadband_steps(pics: &[Picture], rel_num: u32, rel_den: u32, abs_floor: u32) -> Vec<QMeasure> {
+    let mut sent: BTreeMap<u32, u32> = pics[0].dots.iter().map(|d| (d.id, d.pop)).collect();
+    let mut rows = Vec::new();
+    for w in pics.windows(2) {
+        let prev_shown = overlay_sent(&w[0].dots, &sent);
+        let mut next_sent: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut i = 0;
+        let mut j = 0;
+        let prev = &w[0].dots;
+        let next = &w[1].dots;
+        while i < prev.len() || j < next.len() {
+            if j >= next.len() || (i < prev.len() && prev[i].id < next[j].id) {
+                i += 1;
+            } else if i >= prev.len() || next[j].id < prev[i].id {
+                next_sent.insert(next[j].id, next[j].pop);
+                j += 1;
+            } else {
+                let truth = next[j].pop;
+                let last = sent[&prev[i].id];
+                let shown = if truth.abs_diff(last) > pop_bound(truth, rel_num, rel_den, abs_floor) {
+                    truth
+                } else {
+                    last
+                };
+                next_sent.insert(next[j].id, shown);
+                i += 1;
+                j += 1;
+            }
+        }
+        let next_shown = overlay_sent(next, &next_sent);
+        assert_bound(&next_shown, next, rel_num, rel_den, abs_floor);
+        rows.push(measure_pair(&prev_shown, &next_shown, next));
+        sent = next_sent;
+    }
+    rows
+}
+
+fn print_pop_hist(label: &str, dots: &[Dot]) {
+    let n = dots.len().max(1);
+    let sum: u64 = dots.iter().map(|d| u64::from(d.pop)).sum();
+    let max = dots.iter().map(|d| d.pop).max().unwrap_or(0);
+    let mut c10 = 0u64;
+    let mut c20 = 0u64;
+    let mut c40 = 0u64;
+    let mut c100 = 0u64;
+    let mut c500 = 0u64;
+    for d in dots {
+        if d.pop < 10 {
+            c10 += 1;
+        }
+        if d.pop < 20 {
+            c20 += 1;
+        }
+        if d.pop < 40 {
+            c40 += 1;
+        }
+        if d.pop < 100 {
+            c100 += 1;
+        }
+        if d.pop < 500 {
+            c500 += 1;
+        }
+    }
+    let nf = n as f64;
+    println!(
+        "QH {label} bands={} mean_pop={:.3} max={} lt10={:.1} lt20={:.1} lt40={:.1} lt100={:.1} lt500={:.1}",
+        dots.len(),
+        sum as f64 / nf,
+        max,
+        100.0 * c10 as f64 / nf,
+        100.0 * c20 as f64 / nf,
+        100.0 * c40 as f64 / nf,
+        100.0 * c100 as f64 / nf,
+        100.0 * c500 as f64 / nf
+    );
+}
+
+fn emit_q(tag: &str, name: &str, step: usize, m: &QMeasure) {
+    let surv_pct = if m.surv == 0 { 0.0 } else { 100.0 * m.surv_sent as f64 / m.surv as f64 };
+    let all_pct = if m.bands == 0 { 0.0 } else { 100.0 * m.all_sent as f64 / m.bands as f64 };
+    println!(
+        "Q {tag} {name} step={step} bytes={} spike_bytes={} max_abs={} mean_abs={:.4} max_rel={:.6} mean_rel={:.6} surv_sent={} surv={} surv_pct={surv_pct:.2} all_sent={} bands={} all_pct={all_pct:.2} enc_ms={:.3} spike_ms={:.3}",
+        m.bytes, m.spike_bytes, m.max_abs, m.mean_abs, m.max_rel, m.mean_rel, m.surv_sent, m.surv, m.all_sent, m.bands, m.enc_ms, m.spike_ms
+    );
+}
+
+fn print_q_row(name: &str, m: &QMeasure) {
+    let surv_pct = if m.surv == 0 { 0.0 } else { 100.0 * m.surv_sent as f64 / m.surv as f64 };
+    let all_pct = if m.bands == 0 { 0.0 } else { 100.0 * m.all_sent as f64 / m.bands as f64 };
+    println!(
+        "{:<16} {:>10} {:>10} {:>8} {:>8.3} {:>8.4} {:>8.4} {:>8.1} {:>8.1} {:>8.2}",
+        name,
+        m.bytes,
+        m.spike_bytes,
+        m.max_abs,
+        m.mean_abs,
+        m.max_rel,
+        m.mean_rel,
+        surv_pct,
+        all_pct,
+        m.enc_ms
+    );
+}
+
+fn mean_q(rows: &[QMeasure]) -> QMeasure {
+    let n = rows.len().max(1) as f64;
+    let mut max_abs = 0u32;
+    let mut max_rel = 0.0f64;
+    let mut bytes = 0usize;
+    let mut spike_bytes = 0usize;
+    let mut mean_abs = 0.0;
+    let mut mean_rel = 0.0;
+    let mut surv_sent = 0u64;
+    let mut surv = 0u64;
+    let mut all_sent = 0u64;
+    let mut bands = 0u64;
+    let mut enc_ms = 0.0;
+    let mut spike_ms = 0.0;
+    for m in rows {
+        max_abs = max_abs.max(m.max_abs);
+        max_rel = max_rel.max(m.max_rel);
+        bytes += m.bytes;
+        spike_bytes += m.spike_bytes;
+        mean_abs += m.mean_abs;
+        mean_rel += m.mean_rel;
+        surv_sent += m.surv_sent;
+        surv += m.surv;
+        all_sent += m.all_sent;
+        bands += m.bands;
+        enc_ms += m.enc_ms;
+        spike_ms += m.spike_ms;
+    }
+    let k = rows.len().max(1);
+    QMeasure {
+        bytes: bytes / k,
+        spike_bytes: spike_bytes / k,
+        max_abs,
+        mean_abs: mean_abs / n,
+        max_rel,
+        mean_rel: mean_rel / n,
+        surv_sent,
+        surv,
+        all_sent,
+        bands,
+        enc_ms: enc_ms / n,
+        spike_ms: spike_ms / n,
+    }
+}
+
+fn run_pop_quantisers(pics: &[Picture], year_ms: f64) {
+    println!("\n== 5 population quantisers");
+    println!(
+        "log buckets: 5% and 10% relative steps, absolute floor ±2 (half-gap = max(2, ceil(rel * center)))."
+    );
+    println!(
+        "dead-band: send the exact pop only when |truth - last_sent| > max(2, ceil(rel * truth)). Last sent starts as the keyframe. Comparing to last sent keeps the error inside that bound; comparing to last year's truth would drift."
+    );
+    print_pop_hist("picture_A", &pics[0].dots);
+    print_pop_hist("picture_B", &pics[1].dots);
+    println!(
+        "{:<16} {:>10} {:>10} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "method", "field_B", "spike_B", "max_abs", "mean_abs", "max_rel", "mean_rel", "surv_%", "all_%", "enc_ms"
+    );
+
+    let series: [(&str, Vec<QMeasure>); 6] = [
+        ("field_exact", stateless_steps(pics, id_pop, None)),
+        ("field_qpop2", stateless_steps(pics, qpop, None)),
+        ("field_qlog5", stateless_steps(pics, qlog5, Some((1, 20, 2)))),
+        ("field_qlog10", stateless_steps(pics, qlog10, Some((1, 10, 2)))),
+        ("field_dead5", deadband_steps(pics, 1, 20, 2)),
+        ("field_dead10", deadband_steps(pics, 1, 10, 2)),
+    ];
+    println!("-- A to B");
+    for (name, rows) in &series {
+        print_q_row(name, &rows[0]);
+        emit_q("ab", name, 0, &rows[0]);
+    }
+    let n = series[0].1.len();
+    println!("-- mean of {n} year-steps (max_abs and max_rel are the worst year, not the mean)");
+    for (name, rows) in &series {
+        let m = mean_q(rows);
+        print_q_row(name, &m);
+        emit_q("mean", name, n, &m);
+        let mut worst_abs = 0u32;
+        let mut worst_rel = 0.0f64;
+        for (i, row) in rows.iter().enumerate() {
+            worst_abs = worst_abs.max(row.max_abs);
+            worst_rel = worst_rel.max(row.max_rel);
+            emit_q("year", name, i, row);
+        }
+        println!("QBOUND {name} steps={n} worst_max_abs={worst_abs} worst_max_rel={worst_rel:.6}");
+    }
+    let enc = series[0].1[0].enc_ms;
+    let pct = if year_ms <= 0.0 { 0.0 } else { 100.0 * enc / year_ms };
+    println!(
+        "QSIM field_exact_ab_enc_ms={enc:.3} sim_one_year_ms={year_ms:.1} enc_over_sim_pct={pct:.4}"
+    );
+    let _ = std::io::stdout().flush();
 }

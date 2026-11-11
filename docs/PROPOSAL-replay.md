@@ -2,7 +2,7 @@
 
 Status: design, plus one measurement example the sim does not call (`civ-core/examples/replay_codec_experiment.rs`).
 Base: `replay-proposal`, from `main` at 3b2a515.
-Builds on [PROPOSAL-data.md](PROPOSAL-data.md) section 2 (live streaming and remote viewing) and section 4 (open questions). Sizes in §2–§7 are from the 26 Oct spike (`civ-core/examples/stream_spike.rs` on branch `spike/data-stream`, not re-run here): an 800×800 world at Y750, 1.17 M people, 68.7 k bands, 4 threads. Population figures for the two CI cases are from the skills step 3 reports (`docs/results-skills-step3-seeds1-10-500y.txt`, `docs/results-skills-step3-750y-800x800.txt`). §9 measures codecs on a bot save, `main_seed6_y350_256x160.civsave` (256×160, Y350, 67,836 people). The late 800×800 save was not on disk; those §9 rows are pending.
+Builds on [PROPOSAL-data.md](PROPOSAL-data.md) section 2 (live streaming and remote viewing) and section 4 (open questions). Sizes in §2–§7 are from the 26 Oct spike (`civ-core/examples/stream_spike.rs` on branch `spike/data-stream`, not re-run here): an 800×800 world at Y750, 1.17 M people, 68.7 k bands, 4 threads. Population figures for the two CI cases are from the skills step 3 reports (`docs/results-skills-step3-seeds1-10-500y.txt`, `docs/results-skills-step3-750y-800x800.txt`). §9 measures codecs on two bot saves: `main_seed6_y350_256x160.civsave` (256×160, Y350, 67,836 people) and `main_s499246296_y750_800x800.civsave` (800×800, Y750, 1,301,977 people, 72,169 bands).
 
 Michael's question: watch a headless run while it is going (including one on another computer, or on GitHub Actions) and watch it again afterwards, in the native app and in the web build.
 
@@ -43,7 +43,7 @@ Michael's question: watch a headless run while it is going (including one on ano
 - A versioned, append-only, seekable file (`.kndrec`), flushed every year, so a killed run still plays up to the last finished year.
 - The same compatibility rule as saves: a version field, and old readers stay.
 - Sizes for the two CI cases and for 1650×1650, and a viewer that says what it cannot show.
-- A measured picture codec (§9). Per-field band deltas in version 1. Layers left as deflated `u8` planes. The 800×800 rows of that measurement are pending.
+- A measured picture codec (§9), on both saves. Per-field band deltas in version 1. Layers left as deflated `u8` planes. No population quantisation in version 1: two significant figures are a no-op at this population, and an error-bounded quantiser that does drop small changes saves too little to be worth the error.
 - How the web build opens a file, and how Actions stays inside the free plan's 20 concurrent jobs.
 
 ---
@@ -224,11 +224,11 @@ Band bytes follow population, not the map. Cell bytes follow the area. Early yea
 | run | late picture | average year, picture every year | whole run, every year | whole run, picture every 10 years |
 |---|---|---|---|---|
 | **(a)** 256×160, 500 y, ~130 k people (seeds range ~56–258 k) | ~0.10 MB estimate at the fat end of that range. **Measured, seed 6 Y351, 67,836 people, 3,393 bands: 38,271 B** (23,343 B MessagePack bands + 14,928 B layers). **24,874 B** with the §9 field delta | ~40 KB estimate. The measured year is 38 KB, or 25 KB with the field delta | **about 15–40 MB** per seed, still an estimate. This one year sits under that pace; field deltas take about a third off the measured picture | **about 5–12 MB** per seed, estimate. Decade files are keyframes, so §9 does not shrink them |
-| **(b)** 800×800, 750 y, ~1 M people (seeds ~0.2–1.7 M) | ~0.7–1.2 MB **estimate, pending** | ~0.3 MB **estimate, pending** | **about 200–350 MB** per seed, **pending** | **about 40–80 MB** per seed, **pending** |
+| **(b)** 800×800, 750 y, ~1.3 M on the measured seed (reports span ~0.2–1.7 M) | **922 KB measured** at Y751 (639,927 B MessagePack bands + 281,603 B layers). **504 KB** with the §9 field delta (222,089 + 281,603) | the ten late years average **899 KB** for a full picture and about **504 KB** with the delta. A run-average over 750 years was not summed; early years are smaller | **200–350 MB** per seed, the planning range, not a 750-year sum. A year as fat as Y751 for all 750 years would be a ceiling of about 690 MB of keyframes or 380 MB of field-delta pictures | **40–80 MB** per seed. Decade files are keyframes, so the delta does not shrink them. 75 pictures at the measured 922 KB would be 69 MB; early pictures are smaller |
 | 1650×1650, ~1 M people, as in the spike's scaling note | ~2 MB | — | ~2 MB × years × ~0.4 | decade pictures stay in the low hundreds of MB for 750 y |
 | 1650×1650 if it ever fills to the same density as the spike (about 4× the people) | ~4–4.5 MB | — | roughly double the line above | still a viewing file, not a save |
 
-Ten seeds of (a) at a picture every year: **about 0.2–0.4 GB**, an estimate. The measured seed-6 picture is 38 KB (25 KB with a field delta) at 68 k people, so a small seed pulls a ten-seed archive toward the bottom of that range, and field deltas pull it further. That is one year of one seed, not ten full runs. Ten seeds of (b) at a picture every year: **about 2–3.5 GB**, which is over the 2 GB release-asset cap and would be split (`headless-sims.yml` already splits at 2 GB). Ten seeds of (b) with decade pictures: **about 0.4–0.8 GB**, one asset, no split. Both (b) figures are still the spike's estimates. §9 does not replace them: if the measured field-delta ratio carried over, only the yearly file would shrink (bands are the part that shrinks, and a decade file is keyframes). Pending a real 800×800 picture.
+Ten seeds of (a) at a picture every year: **about 0.2–0.4 GB**, an estimate. The measured seed-6 picture is 38 KB (25 KB with a field delta) at 68 k people, so a small seed pulls a ten-seed archive toward the bottom of that range, and field deltas pull it further. That is one year of one seed, not ten full runs. Ten seeds of (b) at a picture every year: **about 2–3.5 GB**, which is over the 2 GB release-asset cap and would be split (`headless-sims.yml` already splits at 2 GB). Ten seeds of (b) with decade pictures: **about 0.4–0.8 GB**, one asset, no split. Those two are still planning ranges, not sums of ten full runs. §9 now has the late picture: 922 KB as a keyframe, 504 KB with a field delta. Only the yearly file shrinks, and only in its band half. A decade file is keyframes.
 
 A year's stats without a picture are a few kilobytes on (a) and around 10–20 KB on (b). Leaving them in on the decade setting is what makes the charts still move every year while the map holds still for ten.
 
@@ -406,8 +406,8 @@ Which seeds, when you do turn it on:
 | you want | inputs | recording |
 |---|---|---|
 | the usual early-game check | seeds `1..10`, 500 y, map `256x160` (or blank, the default) | `year`. About 0.2–0.4 GB for all ten, an estimate from §2. The measured seed-6 year is 38 KB (25 KB with the §9 delta), so expect the low side, lower again with field deltas. Still not a measured ten-seed archive |
-| the usual late-game check | seeds `499246292..499246301`, 750 y, map `800x800` | `decade`. About 0.4–0.8 GB for all ten. Estimate, pending §9. Decade files are keyframes, so the codec does not shrink this one |
-| one late world, properly | one of those seeds, 750 y, `800x800` | `year`. About 200–350 MB, one file you can scrub. Estimate, pending. Field deltas would cut the band half only; do not budget on that until it is measured |
+| the usual late-game check | seeds `499246292..499246301`, 750 y, map `800x800` | `decade`. About 0.4–0.8 GB for all ten. Decade files are keyframes. The measured late keyframe is 922 KB (§9), so this range is no longer a spike guess; it is still not a sum of 75 pictures times ten seeds |
+| one late world, properly | one of those seeds, 750 y, `800x800` | `year`. About 200–350 MB, one file you can scrub. At Y751 density a field delta cuts that year's picture from 922 KB to 504 KB. Do not multiply 504 KB by 750: early years are smaller, and every 10th picture is still a keyframe |
 
 Do not record all ten late seeds at `year`. That is 2–3.5 GB, the release asset splits at 2 GB, and it crowds the storage below.
 
@@ -457,7 +457,7 @@ seed 499246292 Y 400 pop … | 1234.0s | recording 180 MB
 
 PNG timelapse frames are not part of recording. `map_pixels` can make them later, in the viewer, from a picture it has already decoded. Encoding PNG on the sim thread (the data proposal's 20–60 ms) is wasted if the app is going to draw the picture anyway.
 
-§9 is the codec measurement. It lowers the band half of a *yearly* picture (38,271 B → 24,874 B on the one 256×160 year we timed) and does not lower decade files, which store keyframes. The 800×800 disk cells above stay estimates until that save is measured.
+§9 is the codec measurement. It lowers the band half of a *yearly* picture (38,271 B → 24,874 B on the 256×160 year; 921,530 B → 503,692 B on the 800×800 year) and does not lower decade files, which store keyframes. The 800×800 disk cells above are that measurement, not the spike's guess. The 200–350 MB and 40–80 MB figures are still planning ranges for a whole run, not a sum.
 
 ### Risks
 
@@ -513,7 +513,10 @@ Viewing only. Charts and totals stay the year's `YearStats`. Saves are not touch
 
 The codec was measured, not estimated, by `civ-core/examples/replay_codec_experiment.rs` (header comment: experiment for this section, not used by the sim). It loads a save, takes picture A, steps one year (4 ticks) for picture B, then nine more years for a decade gap. Compression is deflate level 3, the same setting §2 uses. Dependencies are the ones civ-core already has (`flate2`, `rmp-serde`). No new crate.
 
-**Save.** `main_seed6_y350_256x160.civsave`, a bot save, not one of Michael's. Format v16. Map 256×160. Picture A is year 350: 3,354 bands, 67,836 people. Picture B is year 351: 3,393 bands, 68,795 people. One year of sim was 1,212 ms; the nine years after that were 8,745 ms. The late 800×800 save (`opt-saves/main_s499246296_y750_800x800.civsave`) was not on disk. Every 800×800 cell below is **pending**. Do not read the 256×160 ratios as that world's numbers.
+**Saves.** Both are bot saves, not Michael's. Format v16.
+
+- `main_seed6_y350_256x160.civsave`. Map 256×160. Picture A is year 350: 3,354 bands, 67,836 people. Picture B is year 351: 3,393 bands, 68,795 people. One year of sim was 1,212 ms; the nine years after that were 8,745 ms. A later run for the quantisers in §9.5 reproduced every byte count below; that run's year was 1,033 ms and the nine after it were 9,612 ms.
+- `main_s499246296_y750_800x800.civsave` (CI run 43021503049 on main). Map 800×800. Picture A is year 750: 72,169 bands, 1,301,977 people. Picture B is year 751: 72,328 bands, 1,308,981 people. One year of sim was 38,576 ms; the nine years after that were 369,605 ms (about 41 s a year). A full decade was cheap enough to step. The 800×800 tables are in the subsection after the 256×160 ones, and again as one block so the ratios are not copied across.
 
 What changed from A to B, among the 3,344 bands in both pictures: position 64.9 %, population 65.6 %, lineage 0 %, flags 1.2 %, item-count 68.3 %. Births 49, deaths 10. Over the ten year-steps, 98.1 % of bands differed in some field. Mean population is about 20.
 
@@ -535,7 +538,7 @@ Positions are already cells (`u16`). Population quantisation is two significant 
 
 Mean over the ten year-steps: packed keyframe 27,013 B, whole-row delta 26,181 B, whole-row with quantised population 26,181 B, field delta 10,215 B. The share of bands that changed at all was 98.1 % exact and 98.1 % after quantisation.
 
-Quantisation does **not** fix the spike. The spike's whole-row delta was 578 KB against a 596 KB keyframe, because almost every band's population moved. Here the same shape shows up at a smaller scale: 26,056 B against 27,162 B, about 4 % off. Two significant figures changed nothing we could measure. Every band in picture B was a fixed point of the quantiser (max relative error 0 on the quantised keyframe). The quantiser is exact below 100, and this world's bands sit there (mean population about 20), so a change of one person is still a change. Even if population had frozen, position moved on 65 % of bands and the item count on 68 %, so a whole-row rule would still resend the row. 800×800 is pending, but the spike's own mean was about 17 people per band (1.17 M / 68.7 k), so the same quantiser is likely to be exact there too. That is an expectation, not a measurement.
+Quantisation to two significant figures does **not** fix the spike. The spike's whole-row delta was 578 KB against a 596 KB keyframe, because almost every band's population moved. Here the same shape shows up at a smaller scale: 26,056 B against 27,162 B, about 4 % off. Two significant figures changed nothing we could measure. Every band in picture B was a fixed point of the quantiser (max relative error 0 on the quantised keyframe). The quantiser is exact below 100, and this world's bands sit there (mean population about 20, maximum 44), so a change of one person is still a change. Even if population had frozen, position moved on 65 % of bands and the item count on 68 %, so a whole-row rule would still resend the row. The 800×800 save is the same shape, measured, not guessed: mean population 18.0, maximum 47, and the quantised whole-row is byte-identical to the exact one (599,742 B). §9.5 measures quantisers that do drop a one-person change.
 
 The field delta is the one that works, and it is lossless. 9,946 B, which is 43 % of the 23,343 B MessagePack keyframe and 37 % of the 27,162 B packed keyframe. A move of one cell is a zigzag integer, not a new row. Encode is half a millisecond. Error is 0 cells and 0 population, because nothing was quantised away. This is a delta from last year. A delta across a decade was not measured. With 98 % of bands changing every year, a ten-year gap should be treated as a keyframe until someone measures it.
 
@@ -572,7 +575,7 @@ Within a max error of 8 levels, the smallest coding per layer was:
 | trade | 5,363 | 5,363 | 0 | 0 | baseline |
 | conflict | 1,569 | 1,532 | 7 | 0.018 | quadtree T=8 |
 
-A few hundred bytes on the sparse planes, and the two planes that hold the detail (`fert`, `trade`) prefer plain deflate. Lossless quadtree and lossless Haar are both *larger* than the baseline (19.2 KB and 28.0 KB against 14.9 KB): the block or tree header costs more than LZ77 spends on a flat interior. 800×800 is pending. The shape (a lot of quiet ocean, a sharp coast) is the same reason the spike's cell XOR only saved about 10 %, so I do not expect a transform to win there either. That is an expectation.
+A few hundred bytes on the sparse planes, and the two planes that hold the detail (`fert`, `trade`) prefer plain deflate. Lossless quadtree and lossless Haar are both *larger* than the baseline (19.2 KB and 28.0 KB against 14.9 KB): the block or tree header costs more than LZ77 spends on a flat interior. The 800×800 planes are the same shape at a larger size (baseline 281,603 B). A uniform quadtree or Haar does not beat it inside a max error of 8. Picking the best coding per layer saves 20,438 B, almost all of it on `tend`. That is the measurement the expectation was waiting on.
 
 ### 3. Bits where the activity is
 
@@ -588,7 +591,7 @@ Tiles compared with the previous picture. Unchanged tiles (or tiles within a ski
 
 Across the decade gap (year 360 against year 350), exact 16×16 was 14,952 B and the tolerant one was 14,022 B, against a year-360 baseline of 15,904 B. Mean of the ten year-steps: baseline 15,530 B, exact 16×16 14,539 B, tolerant 13,148 B.
 
-Skipping the quiet tiles does not beat deflate by enough to matter. 672 of 800 tiles were unchanged and the lossless coding only fell from 14,928 B to 13,952 B (6 %). Deflate was already not spending bits on the zeros. Allowing 8 levels of error on a quiet tile gets to 11,960 B, about 20 % off, for a codec the viewer has to keep in sync with the previous picture. Same story as the spike's cell XOR. Not a second code path.
+Skipping the quiet tiles does not beat deflate by enough to matter. 672 of 800 tiles were unchanged and the lossless coding only fell from 14,928 B to 13,952 B (6 %). Deflate was already not spending bits on the zeros. Allowing 8 levels of error on a quiet tile gets to 11,960 B, about 20 % off, for a codec the viewer has to keep in sync with the previous picture. Same story as the spike's cell XOR. On 800×800 the lossless 16×16 coding is 265,451 B against a 281,603 B baseline (6 % again; 10,353 of 12,500 tiles skipped). Not a second code path.
 
 ### 4. Interpolate between decade keyframes
 
@@ -612,32 +615,143 @@ Amortised, one keyframe plus nine viewing corrections, over the ten years: **26,
 
 The band half of a correction (10.8 KB) is about the same size as an ordinary year-to-year field delta (10.2 KB). Interpolation is not buying band bytes. The layer half (13.5 KB) is most of a full layer picture (15.5 KB), because a linear blend of a coast is outside an 8-level budget on enough tiles that those tiles are sent anyway.
 
+### 800×800, seed 499246296, year 750
+
+Same example, same deflate level 3. Picture A is year 750 (72,169 bands, 1,301,977 people). Picture B is year 751 (72,328 bands, 1,308,981 people). One year was 38,576 ms; nine more were 369,605 ms. Among the 71,261 bands in both pictures: position 71.3 %, population 63.7 %, lineage 0 %, flags 2.1 %, item-count 66.2 %. Births 1,067, deaths 908. Over the ten year-steps, 98.1 % of bands differed in some field, before and after two-significant-figure population quantisation. Mean population is 18.0. The largest band in picture B has 47 people. Every band is under 100, so two significant figures are exact.
+
+**Bands.** A MessagePack keyframe is slightly *larger* than the packed 18-byte row here (639,927 B against 618,165 B). On the 256×160 year it was the other way round. Three percent is not a reason to leave the §2 tuple layout. The field delta is 222,089 B, which is 35 % of that MessagePack keyframe and 36 % of the packed one. Encode of the deflate is 13 ms for the field delta and 32 ms for the keyframe.
+
+| method (picture B, deflate level 3) | bytes | raw | max position (cells) | mean position | max relative pop | mean relative pop | encode |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| keyframe, packed 18 B/row | 618,165 | 1,301,904 | 0 | 0 | 0 | 0 | 32.9 ms |
+| keyframe, MessagePack | 639,927 | 1,108,351 | 0 | 0 | 0 | 0 | 32.4 ms |
+| whole-row delta, exact | 599,742 | 1,261,034 | 0 | 0 | 0 | 0 | 31.1 ms |
+| whole-row delta, population quantised | 599,742 | 1,261,034 | 0 | 0 | 0 | 0 | 31.3 ms |
+| field delta, exact | 222,089 | 330,751 | 0 | 0 | 0 | 0 | 12.8 ms |
+| field delta, population quantised | 222,089 | 330,751 | 0 | 0 | 0 | 0 | 14.1 ms |
+
+Mean over the ten year-steps: packed keyframe 617,107 B, whole-row 598,567 B, whole-row quantised 598,567 B, field delta 222,143 B. Whole-row is 3 % under the packed keyframe. Same spike, larger numbers.
+
+**Layers.** Five planes, 800×800, raw 3,200,000 B. Baseline **281,603 B**, error 0, encode 15.5 ms. Fill: `tend` 14.9 % nonzero, `dom` 6.4 %, `trade` 14.3 %, `conflict` 3.2 %, `fert` 100 % nonzero and mean 246.6. Same coast-and-ocean shape as the small map.
+
+| method | bytes | raw | max error (u8) | mean error (u8) | encode |
+|---|---:|---:|---:|---:|---:|
+| baseline, plain `u8` + deflate | 281,603 | 3,200,000 | 0 | 0 | 15.5 ms |
+| 4×4 tile mean | 27,561 | 200,015 | 238 | 2.87 | 1.2 ms |
+| 8×8 tile mean | 8,710 | 50,010 | 250 | 4.46 | 0.4 ms |
+| 16×16 tile mean | 2,784 | 12,510 | 253 | 6.85 | 0.2 ms |
+| quadtree, tolerance 0 | 375,741 | 831,204 | 0 | 0 | 20.6 ms |
+| quadtree, tolerance 4 | 322,685 | 667,101 | 4 | 0.024 | 17.5 ms |
+| quadtree, tolerance 8 | 293,026 | 595,836 | 8 | 0.056 | 15.9 ms |
+| quadtree, tolerance 16 | 248,250 | 496,381 | 16 | 0.141 | 15.5 ms |
+| 8×8 Haar, Q=1 | 534,213 | 817,646 | 0 | 0 | 24.1 ms |
+| 8×8 Haar, Q=4 | 378,733 | 693,828 | 10 | 0.165 | 19.3 ms |
+| 8×8 Haar, Q=8 | 293,348 | 593,488 | 15 | 0.255 | 15.0 ms |
+| 8×8 Haar, Q=16 | 214,915 | 485,538 | 29 | 0.463 | 11.2 ms |
+
+Inside a max error of 8, applied to one layer at a time:
+
+| layer | baseline | best at max ≤ 8 | max | mean | which |
+|---|---:|---:|---:|---:|---|
+| tend | 85,072 | 69,010 | 8 | 0.145 | quadtree T=8 |
+| dom | 10,965 | 9,269 | 7 | 0.001 | quadtree T=8 |
+| fert | 48,118 | 48,118 | 0 | 0 | baseline |
+| trade | 100,536 | 100,536 | 0 | 0 | baseline |
+| conflict | 34,232 | 34,232 | 0 | 0 | baseline |
+
+The uniform quadtree at tolerance 8 is *larger* than the baseline (293,026 B against 281,603 B), because `fert` and `trade` get more expensive and they are most of the bytes. Per-layer selection saves 20,438 B, and 16,062 B of that is `tend`. Lossless quadtree and Haar are larger (376 KB and 534 KB). Not a second code path.
+
+**Activity.** 16×16 over 800×800 is 2,500 tiles a layer, 12,500 across five layers.
+
+| method (B against A) | bytes | max u8 | mean u8 | encode | tiles sent | tiles skipped |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline, whole planes | 281,603 | 0 | 0 | 15.5 ms | — | — |
+| 16×16, exact, resend any change | 265,451 | 0 | 0 | 27.3 ms | 2,147 | 10,353 |
+| 16×16, exact skip, LOD budget 8 | 263,007 | 8 | 0.002 | 25.6 ms | 2,147 | 10,353 |
+| 16×16, skip if change ≤ 8, LOD budget 8 | 230,298 | 8 | 0.004 | 22.8 ms | 1,636 | 10,864 |
+| 8×8, exact | 261,685 | 0 | 0 | 27.0 ms | 6,802 | 43,198 |
+
+Across the decade gap (year 760 against year 750), exact 16×16 was 267,131 B and the tolerant one was 237,592 B, against a year-760 layer baseline of 281,831 B. Mean of the ten year-steps: baseline 281,691 B, exact 16×16 265,660 B, tolerant 228,684 B. Lossless saving is 6 %, the same as the small map. The tolerant coding saves 18 % and needs the viewer to keep the previous picture. Not worth it.
+
+**Decade interpolation.** Pictures at year 750 and year 760. Same two budgets as the small map. Interpolation alone is not watchable: on matched bands, max position error 37 cells in year 751 and 58 in year 759; max relative population 4.5 rising to 8.3; layers max 126–172 u8. Ghost bands about 10,000. Missing bands 281–916.
+
+Corrections land on the budget (worst corrected year: 1.0 cell, 0.100 relative population, 8 u8). Mean of the nine correction years:
+
+| | band bytes | layer bytes | sum |
+|---|---:|---:|---:|
+| viewing budget, mean correction | 231,261 | 233,090 | 464,351 |
+| tight budget, mean correction | — | — | 498,301 |
+| one packed keyframe (year 760) | 611,490 | 281,831 | 893,321 |
+| mean full picture, years 751–760 (packed bands + layers) | | | 898,798 |
+
+Amortised, one keyframe plus nine viewing corrections: **507,248 B/year**, 56 % of storing every picture, and about **5.7×** a decade file that holds the map still (893,321 B / 10 ≈ 89 KB/year). The band half of a correction (231 KB) is the whole of a year-to-year field delta (222 KB). Interpolation is still not buying band bytes. The tight budget is 498,301 B/year.
+
+A late keyframe picture is 639,927 + 281,603 = **921,530 B**. The version-1 picture, field delta plus layers, is 222,089 + 281,603 = **503,692 B**. Encode of those two deflates is about 48 ms. The year of sim was 38,576 ms, so the picture is **0.12 %** of the year. The spike's half a percent still covers it.
+
+### 5. Population quantisers that drop a small change
+
+Two significant figures are exact below 100, and both saves live there (maximum band 44 and 47 in the two picture-B snapshots; 99.6 % and 99.7 % of bands are under 40). Build Bot's review is right: that quantiser was not tested. §9.5 adds two that do zero out a small change, and checks the error bound on every band. Both are still only in the example.
+
+**Log buckets.** Relative step 5 % or 10 %, absolute floor ±2 people. Centers are spaced by twice `max(2, ceil(rel × center))`, so a reconstructed population is at most that far from the truth. A midpoint rounds down. The output is a fixed point (`q(q(p)) = q(p)`). Under about 40 people at 5 %, and under about 20 at 10 %, the floor wins and the grid is multiples of 4. That is almost every band in these saves. The 5 % and 10 % steps are only visible on the handful of bands above that.
+
+**Dead-band.** The keyframe sends the exact population. A later year writes a band's population only when it differs from the **last sent** value by more than `max(2, ceil(rel × truth))`, and the value it writes is the exact population, not a bucket. The error cannot walk, because a year that would leave the ball around the last sent value sends again and the error goes back to zero. Comparing against last year's truth instead would let a change of one person a year drift with no bound. The example does not do that.
+
+"Pop sent, survivors" is the share of bands present in both pictures whose population field is written. Births are always sent. "Pop sent, all" counts births as well, over the bands in the new picture. Whole-row bytes are the spike coding on the same shown populations: a row is still sent when position or the item count changes. Max absolute and max relative are the worst year. The other columns are the mean of the ten steps, and the send shares are totals over those steps.
+
+256×160, mean of ten year-steps. One year of sim on the re-run was 1,033 ms. Encode of a field delta, including the round trip, is about 1 ms.
+
+| method | field bytes | whole-row bytes | max abs (people) | mean abs | max rel | mean rel | pop sent, survivors | pop sent, all |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| exact | 10,215 | 26,181 | 0 | 0 | 0 | 0 | 67.8 % | 68.4 % |
+| two significant figures | 10,215 | 26,181 | 0 | 0 | 0 | 0 | 67.8 % | 68.4 % |
+| log 5 %, floor ±2 | 8,876 | 23,636 | 3 | 1.00 | 0.333 | 0.067 | 32.7 % | 33.8 % |
+| log 10 %, floor ±2 | 8,776 | 23,279 | 4 | 1.15 | 0.333 | 0.072 | 29.6 % | 30.8 % |
+| dead-band 5 %, floor ±2 | 8,776 | 24,551 | 3 | 0.72 | 0.500 | 0.047 | 24.3 % | 25.6 % |
+| dead-band 10 %, floor ±2 | 8,577 | 24,259 | 5 | 0.95 | 0.500 | 0.055 | 19.9 % | 21.2 % |
+
+800×800, mean of ten year-steps. Encode is about 37 ms, which is 0.10 % of the 38,576 ms year.
+
+| method | field bytes | whole-row bytes | max abs (people) | mean abs | max rel | mean rel | pop sent, survivors | pop sent, all |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| exact | 222,143 | 598,567 | 0 | 0 | 0 | 0 | 64.4 % | 65.0 % |
+| two significant figures | 222,143 | 598,567 | 0 | 0 | 0 | 0 | 64.4 % | 65.0 % |
+| log 5 %, floor ±2 | 193,220 | 558,800 | 4 | 1.00 | 0.333 | 0.070 | 28.5 % | 29.6 % |
+| log 10 %, floor ±2 | 191,233 | 552,836 | 6 | 1.12 | 0.333 | 0.074 | 25.9 % | 27.1 % |
+| dead-band 5 %, floor ±2 | 190,924 | 567,164 | 3 | 0.75 | 0.500 | 0.052 | 20.1 % | 21.4 % |
+| dead-band 10 %, floor ±2 | 187,414 | 562,328 | 5 | 0.94 | 0.500 | 0.059 | 16.5 % | 17.8 % |
+
+The first dead-band year sends less, because nothing has drifted out to the threshold yet. On 800×800, year 751 against 750: the 5 % dead-band writes 12.3 % of surviving populations (184,241 B, max abs 3, mean abs 0.65, max rel 0.50, mean rel 0.041) and the 10 % dead-band writes 8.5 % (180,005 B, max abs 5, mean abs 0.77). By the later years the share has settled at the mean above. The worst absolute error does not rise from year to year. The run aborts if any band leaves `max(2, ceil(rel × truth))`. None did, on either save, for ten years.
+
+The relative error of 0.33 or 0.50 is the floor, not a leak. An error of two people on a band of four to six is a third or a half. The 5 % and 10 % steps barely differ, because almost every band is in the ±2 regime. Mean absolute error is about one person.
+
+What the bytes do to a picture, 800×800, using the ten-year means: the field delta falls from 222 KB to 187 KB at the looser dead-band (16 % off the delta). Layers stay 282 KB. The picture falls from about 504 KB to about 469 KB, which is 7 %. The whole-row coding falls from 599 KB to 562 KB and is still within 9 % of the packed keyframe. Dropping small population changes does not rescue a whole-row delta while position and the item count keep moving on about 70 % of bands.
+
 ### Recommendation
 
 **Version 1, adopt**
 
-- Per-field band deltas, id-sorted, with add and remove lists, from the previous *year's* picture. Lossless: 0 cells, 0 population error. A MessagePack keyframe on the first picture, every 10 pictures, and any time the previous picture is more than a year back. A CI decade file (`--record-every 10`) is therefore all keyframes: the 43 % figure is a year-to-year measurement, and a decade gap was not measured. Scrubbing to a keyframe does not apply a chain of deltas. Measured 9,946 B against 23,343 B for the MessagePack keyframe on this year.
+- Per-field band deltas, id-sorted, with add and remove lists, from the previous *year's* picture. Lossless: 0 cells, 0 population error. A MessagePack keyframe on the first picture, every 10 pictures, and any time the previous picture is more than a year back. A CI decade file (`--record-every 10`) is therefore all keyframes. The 35 % and 43 % figures are year-to-year measurements; a single delta spanning a decade was not measured, and with 98 % of bands changing every year it should stay a keyframe. Scrubbing to a keyframe does not apply a chain of deltas. Measured 9,946 B against 23,343 B on the 256×160 year, and 222,089 B against 639,927 B on the 800×800 year.
 - Layers unchanged: five `u8` planes, deflate level 3, error 0 beyond the quantisation §2 already specifies (the ramp the viewer divides back by). Charts stay `YearStats`.
 
 **Version 1, do not adopt**
 
-- Population quantised to two significant figures. Measured saving: none. Error budget would have been ≤ 5 % relative, and on this save the error was 0 because it never moved a value. It also cannot rescue a whole-row delta while position and item-count keep changing.
-- Whole-row deltas. 26,056 B against 27,162 B. The spike's 578 KB against 596 KB, again.
-- Tile means, quadtree, Haar. A max error of 8 is not enough to beat plain deflate, and a max error of ~250 (the cheap tiles) is the wrong coastline. Error budget I would have accepted for a real saving: max 8 u8 on `tend`, `dom` and `conflict`, and exact `fert` and `trade`. The measured saving at that budget is a few hundred bytes a layer.
-- Activity refresh. Lossless saving 6 % (13,952 B against 14,928 B). With an 8-level budget, 11,960 B. Not worth the state the viewer would have to keep.
-- Decade interpolation. Error budget for "watchable": 1 cell, 10 % population, 8 u8. Corrections then cost 24,278 B/year, against ~4.2 KB/year for a still decade picture and 42,543 B for a real picture every year. Smooth decade playback is most of the way back to recording every year. The tight budget (0 cells, 5 %, 2 u8) is 25,850 B/year.
+- Population quantised to two significant figures. Measured saving: none, on both saves. Max population in the picture-B snapshots is 44 and 47, so the quantiser never moved a value.
+- Log buckets and a dead-band tracker, at 5 % and 10 % with a ±2 floor. These do drop small changes. The dead-band is the better of the two: it sends the exact population, the error stays inside the bound for all ten years (it does not drift), and about 16–20 % of surviving bands send a population in the steady state, against 64 % exact. The saving is about 35 KB on a 222 KB field delta, and about 35 KB on a 504 KB picture, because the layers do not shrink. Max relative error is 0.5 on a tiny band, which is the floor doing what it was asked. Not worth a wrong disc in version 1. If a later version wants it, use the dead-band, not two significant figures and not the log buckets.
+- Whole-row deltas. 26,056 B against 27,162 B on the small map. 599,742 B against 618,165 B packed, and against 639,927 B MessagePack, on 800×800. The spike's 578 KB against 596 KB, again. Quantising population does not close that gap.
+- Tile means, quadtree, Haar. A max error of 8 is not enough to beat plain deflate on either map. On 800×800 a uniform quadtree at tolerance 8 is larger than the baseline, and the best per-layer choice saves 20,438 B of 281,603 B. The cheap tiles (max error ~250) are the wrong coastline.
+- Activity refresh. Lossless saving 6 % on both maps (13,952 B against 14,928 B; 265,451 B against 281,603 B). With an 8-level budget, 11,960 B and 230,298 B. Not worth the state the viewer would have to keep.
+- Decade interpolation. Same answer at both sizes. Watchable corrections cost 24,278 B/year on the small map and 464,351 B/year on 800×800, which is 56–61 % of storing every picture and about 6× a still decade picture. The tight budget barely costs more.
 
-**Later, only after the 800×800 picture exists**
+**Already measured, and still not a change of plan**
 
-- Re-run the same example on that save and fill the pending rows. Do not tune a coarser population step (nearest 5, one significant figure, and so on) until that run shows bands large enough for two significant figures to be a no-op *and* a coarser step to be worth an error budget. Nothing coarser was measured here.
-- Revisit Haar or a quadtree only if that world's layers stop being "flat interior, sharp coast". I do not expect it.
-- Interpolation only if you want decade files to move and you accept roughly 0.6× a yearly file to get it. I would spend that budget on yearly pictures instead.
+- Haar or a quadtree, now that the 800×800 layers exist. They are still a flat interior and a sharp coast. Not in version 1.
+- A coarser population step. It was measured (§9.5). The bands are small enough that two significant figures are a no-op, and the step that does bite (±2, or 5–10 % once a band is large enough) saves about 7 % of a late picture. I would spend that budget on nothing: the lossless field delta is the codec.
 
 **What this does to the CI sizes**
 
-- **(a) yearly, 256×160.** Measured late-ish picture, this seed and year: 38,271 B baseline (MessagePack bands + layers), 24,874 B with the version-1 delta. The §2 whole-run **15–40 MB** and the ten-seed **0.2–0.4 GB** stay estimates. This year is under the pace those ranges assumed, and the delta takes about a third off the picture, so a recorded (a) batch should come in at the low end, somewhat lower with the delta. Not a substitute for summing 500 years.
+- **(a) yearly, 256×160.** Measured picture, this seed and year: 38,271 B baseline (MessagePack bands + layers), 24,874 B with the version-1 delta. The §2 whole-run **15–40 MB** and the ten-seed **0.2–0.4 GB** stay estimates. This year is under the pace those ranges assumed, and the delta takes about a third off the picture, so a recorded (a) batch should come in at the low end, somewhat lower with the delta. Not a substitute for summing 500 years.
 - **(a) decade.** Unchanged by the codec. Keyframes only. The §2 **5–12 MB** per seed stays an estimate; the measured keyframe is 38 KB, so a seed this size is toward the bottom of that range or under it.
-- **(b) yearly, 800×800.** **Pending.** The §2 figure stays **200–350 MB** per seed. Projection, not a measurement: bands were about 0.60 MB of the old ~1.0 MB late picture, and here a field delta was 43 % of a MessagePack keyframe, which would put a late (b) picture near 0.66 MB and the file near two thirds of 200–350 MB. Do not plan retention on that until the save exists.
-- **(b) decade.** **Pending, and the codec would not move it** even if the ratio holds, because a decade recording stores keyframes. The §2 **40–80 MB** per seed, **0.4–0.8 GB** for ten, stays the number to plan on.
+- **(b) yearly, 800×800.** The late picture is measured: **922 KB** as a MessagePack keyframe plus layers, **504 KB** with the field delta. The §2 **200–350 MB** per seed stays the planning range for a whole run. It is not 504 KB × 750. Early years are smaller, and every 10th picture is a keyframe. A year as fat as Y751 for all 750 years would be a ceiling of about 690 MB of keyframes or 380 MB of field-delta pictures.
+- **(b) decade.** The codec does not move it. Keyframes only. The measured late keyframe is 922 KB, so 75 of those would be 69 MB and the real file is less. The §2 **40–80 MB** per seed, **0.4–0.8 GB** for ten, stays the number to plan on.
 
-CPU is not the constraint. The slowest encode above is under 2 ms. The year of sim was 1,212 ms. The spike's 0.5 % of the run (§3) still covers version 1, and a field delta is less work than deflating a keyframe, not more.
+CPU is not the constraint on either map. The slowest record deflate on the 800×800 picture is the MessagePack keyframe at 32 ms, plus 16 ms for the layers, about 48 ms all together. The year of sim was 38,576 ms. That is 0.12 % of the year. The spike's 0.5 % of the run (§3) still covers version 1, and a field delta is less work than deflating a keyframe, not more.
