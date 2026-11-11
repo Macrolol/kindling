@@ -6,9 +6,12 @@
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
-use crate::beliefs::{material_term, starter_belief, PayoffStart, BELIEF_NMAX, PAYOFF_SLOT};
+use crate::beliefs::{
+    expected_multiplier, fade_unused, food_payoff, material_term, note_payout, realised_multiplier, starter_belief, technique_fail, PayoffStart, BELIEF_NMAX, FLAG_YEAR, PAYOFF_SLOT,
+    TRIAL_SHARE,
+};
 use crate::effects::{
-    food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, pitch_in_use, recipe_info, sealed_factor,
+    food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor,
     tool_upkeep, u_eff, BandView, LC_PRIOR, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
@@ -661,9 +664,10 @@ counters! {
         /// (step 2) user skill passed on by teaching, and bands founded with inherited skill
         use_taught,
         use_inherited_bands,
-        /// (step 4) beliefs formed, tools written off and later retried, beliefs passed on by
-        /// telling and by inheritance, summed absolute belief error (x 1000, mean =
-        /// belief_err / beliefs_formed), and beliefs evicted from the full table
+        /// (step 4) beliefs formed on a first use, tools written off and later retried,
+        /// beliefs passed on by telling and by inheritance. `belief_err` is a gauge:
+        /// the last season's mean absolute relative error of kit beliefs, times 1000,
+        /// not a sum. `beliefs_evicted` counts drops from a full table.
         beliefs_formed,
         tools_written_off,
         tools_retried,
@@ -1111,6 +1115,117 @@ impl World {
         }
     }
 
+    /// (skills step 4) Record the multiplier the economy just paid. The incumbent
+    /// is observed at weight 1, including when a food slot failed (its own draw,
+    /// and `failed`). The fallback, if one replaced it in the food, is a second
+    /// observation of the term that was actually in the multipliers. A trial that
+    /// fired, and is not that fallback, is observed at `TRIAL_SHARE` with the
+    /// same slot draw. Nothing here rolls rng.
+    pub(crate) fn note_belief_payout(&self, b: &mut Band, ec: &Econ, fx: &mut Fx) {
+        let user = band_user(b);
+        let kit = b.d.kit;
+        let wet = self.near_water(b.cell(self.map.w));
+        let pitch = pitch_in_use(&kit, wet);
+        let rate = self.params.upkeep;
+        let in_kit = |e: &crate::band::Belief| (0..PAYOFF_SLOT.len()).any(|j| PAYOFF_SLOT[j] == e.slot && kit.slot_item(j) == e.item);
+        for j in 0..PAYOFF_SLOT.len() {
+            let inc = kit.slot_item(j);
+            if !valid_item(inc) || !ec.used.contains(&inc) {
+                continue;
+            }
+            let slot = PAYOFF_SLOT[j];
+            let failed = ec.make_fail & (1u16 << j) != 0;
+            self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, inc, 1.0, failed, true, &in_kit);
+            let mut paid_fb = NONE;
+            if failed && food_payoff(slot) {
+                let fb = kit.fallback[j];
+                if valid_item(fb) && fb != inc {
+                    paid_fb = fb;
+                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, fb, 1.0, false, true, &in_kit);
+                }
+            }
+            if ec.trial_on & (1u16 << j) != 0 {
+                let ch = kit.trial[j];
+                if valid_item(ch) && ch != inc && ch != paid_fb {
+                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, ch, TRIAL_SHARE, false, false, &in_kit);
+                }
+            }
+        }
+    }
+
+    fn observe_paid(
+        &self,
+        b: &mut Band,
+        fx: &mut Fx,
+        user: &[f32; NFORM],
+        kit: &Kit,
+        pitch: bool,
+        rate: f32,
+        slot: u8,
+        it: Item,
+        w: f32,
+        failed: bool,
+        sealed_pitch: bool,
+        in_kit: &impl Fn(&crate::band::Belief) -> bool,
+    ) {
+        let u = user[form(it) as usize];
+        let (_, quality, _) = recipe_info(&b.d.tk, &b.known, it);
+        let depth = b.d.tk.via(it).map(|v| v.2).unwrap_or(0);
+        let sealed = if sealed_pitch { sealed_factor(it, kit, pitch) } else { 1.0 };
+        let labour = tool_upkeep(rate, it, depth, sealed) * maker_waste(b.d.tk.chain_m(it));
+        let noise = novice_factor_u(u, self.cfg.seed, b.id, self.tick, slot as usize);
+        let x = realised_multiplier(slot as usize, it, u, quality, noise);
+        let fail_same = item_tech(&self.reg, b, it).and_then(|t| technique_fail(&b.beliefs, |e| item_tech(&self.reg, b, e.item) == Some(t)));
+        let (formed, evicted) = note_payout(&mut b.beliefs, &mut b.learn_curve, slot, it, x, w, failed, labour, fail_same, in_kit);
+        if formed {
+            fx.counters.beliefs_formed += 1;
+        }
+        if evicted {
+            fx.counters.beliefs_evicted += 1;
+        }
+    }
+
+    /// Mean beliefs per band, mean `n` of beliefs that match the current kit,
+    /// mean `learn_curve`. Empty world is all zeros.
+    fn belief_year_means(&self) -> (f32, f32, f32) {
+        let nb = self.bands.len();
+        if nb == 0 {
+            return (0.0, 0.0, 0.0);
+        }
+        let mut entries = 0.0f64;
+        let mut curve = 0.0f64;
+        let mut n_sum = 0.0f64;
+        let mut n_n = 0u32;
+        for b in &self.bands {
+            entries += b.beliefs.len() as f64;
+            curve += b.learn_curve as f64;
+            for e in &b.beliefs {
+                let in_kit = (0..PAYOFF_SLOT.len()).any(|j| PAYOFF_SLOT[j] == e.slot && b.d.kit.slot_item(j) == e.item);
+                if in_kit {
+                    n_sum += e.n as f64;
+                    n_n += 1;
+                }
+            }
+        }
+        let mean_n = if n_n == 0 { 0.0 } else { (n_sum / n_n as f64) as f32 };
+        ((entries / nb as f64) as f32, mean_n, (curve / nb as f64) as f32)
+    }
+
+    /// Once a year. Entries not paid this year fade; the year bit is cleared
+    /// on whatever remains, so the next year starts unmarked.
+    pub(crate) fn fade_year_beliefs(&mut self) {
+        for b in &mut self.bands {
+            if b.beliefs.is_empty() {
+                continue;
+            }
+            let used: Vec<bool> = b.beliefs.iter().map(|e| e.flags & FLAG_YEAR != 0).collect();
+            fade_unused(&mut b.beliefs, &used);
+            for e in &mut b.beliefs {
+                e.flags &= !FLAG_YEAR;
+            }
+        }
+    }
+
     pub fn year(&self) -> f32 {
         self.tick as f32 / 4.0
     }
@@ -1444,6 +1559,7 @@ impl World {
         for (b, f) in bands.iter_mut().zip(fxs) {
             self.apply_fx(f, Some(b));
         }
+        self.counters.belief_err = belief_err_x1000(bands);
         if let (Some(t), Some(p)) = (tk.as_mut(), self.prof.as_mut()) {
             p.t[15] += t.lap();
         }
@@ -1948,7 +2064,9 @@ impl World {
             used.push(it);
         }
         // (diffusion D3) now and then a band tries the better-in-prospect tool beside the one
-        // it relies on (only in a season it uses that slot): the trial wears it and practises it
+        // it relies on (only in a season it uses that slot): the trial wears it and practises it.
+        // `trial_on` is that decision, so the belief update does not roll again.
+        let mut trial_on = 0u16;
         for j in 0..kit.trial.len() {
             let (inc, ch) = (kit.slot_item(j), kit.trial[j]);
             if ch == NONE || !used.contains(&inc) || used.contains(&ch) {
@@ -1958,6 +2076,7 @@ impl World {
             if (roll >> 40) as f32 / (1u64 << 24) as f32 >= KIT_TRIAL_P {
                 continue;
             }
+            trial_on |= 1u16 << j;
             let (_, mask, depth) = b.d.tk.via(ch).unwrap_or((0, 0, 0));
             needed |= mask;
             // a trial was never caulked or glued: sealed = 1, so this wear stays what it was
@@ -2107,6 +2226,7 @@ impl World {
             used_forms,
             make_fail,
             make_failures,
+            trial_on,
             food_ratio: 0.0,
             store_after: 0.0,
             spare,
@@ -2122,6 +2242,9 @@ impl World {
 
     /// Phase 3 of a band's season: reads the world, writes the band, buffers the rest in `fx`.
     fn band_season(&self, b: &mut Band, ec: &Econ, rng: &mut Rng, fx: &mut Fx) {
+        // The payout is the one `economy` just computed, at the skill it used.
+        // Practice later in this season must not change the observation.
+        self.note_belief_payout(b, ec, fx);
         let p = self.params;
         let w = self.map.w;
         let ci = b.cell(w);
@@ -4519,6 +4642,11 @@ impl World {
             let mean = |i: usize| if n[i] == 0 { 0.0 } else { (sum[i] / n[i] as f64) as f32 };
             ([mean(0), mean(1), mean(2), mean(3)], smith)
         };
+        // Pre-fade: the year's beliefs as the bands held them. The gauge is the
+        // last season's error, refreshed here so a daughter born this year is in it.
+        let (beliefs_mean, belief_n_mean, learn_curve_mean) = self.belief_year_means();
+        self.counters.belief_err = belief_err_x1000(&self.bands);
+        self.fade_year_beliefs();
         if let Some((id, cell)) = steel_smith {
             let happened = self.events.iter().any(|e| e.kind == EventKind::FirstSteelSmith as u8);
             if !happened {
@@ -4576,6 +4704,9 @@ impl World {
             maker_steel: maker_means[1],
             maker_cast: maker_means[2],
             maker_smelt: maker_means[3],
+            beliefs_mean,
+            belief_n_mean,
+            learn_curve_mean,
             ..acc
         });
         self.archive_year();
@@ -4795,6 +4926,45 @@ pub(crate) fn practise_use(use_skill: &mut [f32], used: u32, floss: f32, gen: u3
     }
 }
 
+/// Technique of the recipe behind `it`, if it has a named one. `Other` and a
+/// raw with no recipe are `None` (the prior then uses `PRIOR_FAIL`).
+fn item_tech(reg: &crate::knowledge::Registry, b: &Band, it: Item) -> Option<crate::knowledge::Tech> {
+    let (i, _, _) = b.d.tk.via(it)?;
+    if i == u16::MAX {
+        return None;
+    }
+    let kn = b.known.get(i as usize)?;
+    let t = reg.tech(kn.recipe);
+    if t == crate::knowledge::Tech::Other { None } else { Some(t) }
+}
+
+/// Mean absolute relative error of kit beliefs against the expected multiplier
+/// (no novice draw), times 1000. A gauge: the caller stores it, it does not sum.
+fn belief_err_x1000(bands: &[Band]) -> u64 {
+    let mut n = 0u32;
+    let mut acc = 0.0f64;
+    for b in bands {
+        let user = band_user(b);
+        for e in &b.beliefs {
+            let in_kit = (0..PAYOFF_SLOT.len()).any(|j| PAYOFF_SLOT[j] == e.slot && b.d.kit.slot_item(j) == e.item);
+            if !in_kit || !valid_item(e.item) {
+                continue;
+            }
+            let (_, q, _) = recipe_info(&b.d.tk, &b.known, e.item);
+            let exp = expected_multiplier(e.slot as usize, e.item, user[form(e.item) as usize], q);
+            if !(exp > 1e-6) {
+                continue;
+            }
+            let rel = ((e.mean - exp) / exp).abs();
+            if rel.is_finite() {
+                acc += rel as f64;
+                n += 1;
+            }
+        }
+    }
+    if n == 0 { 0 } else { (acc / n as f64 * 1000.0).round() as u64 }
+}
+
 /// (skills step 3 fix 3) Effective user skill the decision and the economy read
 /// for this band. `u_eff` of the stored skills, then every entry floored at
 /// `USE_FOUNDER` while `gen == 0`, including a form whose stored skill is still
@@ -4868,6 +5038,9 @@ pub struct Econ {
     /// Not saved. `make_failures` is the popcount; `band_season` flushes it to the counter.
     pub make_fail: u16,
     pub make_failures: u32,
+    /// (skills step 4) payoff slots whose trial roll succeeded, bit `j` of `Kit::slot_item`.
+    /// The same roll the economy already took. Not saved.
+    pub trial_on: u16,
     pub food_ratio: f32,
     pub store_after: f32,
     pub spare: f32,

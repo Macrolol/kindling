@@ -294,6 +294,19 @@ pub(crate) fn novice_z(seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
     (h >> 40) as f32 / (1u64 << 24) as f32 * 2.0 - 1.0
 }
 
+/// `1 + NOVICE_SD*(1-u)*z` for user skill `u` in chooser `slot`. The draw is
+/// `novice_z` of that slot: the one the economy already took, not a new one.
+/// A slot the economy does not noise is exactly 1, and so is `u == 1`.
+pub(crate) fn novice_factor_u(u: f32, seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
+    match slot {
+        0 | 1 | 2 | 4 | 10 | 12 | 13 => {
+            let z = novice_z(seed, band, tick, slot);
+            1.0 + NOVICE_SD * (1.0 - u) * z
+        }
+        _ => 1.0,
+    }
+}
+
 /// `1 + NOVICE_SD*(1-u)*z` for the tool in `slot`. Empty slot, or `u == 1`, is exactly 1.
 pub(crate) fn novice_factor(k: &Kit, user: &[f32; NFORM], seed: u64, band: u32, tick: u32, slot: usize) -> f32 {
     let it = match slot {
@@ -309,9 +322,7 @@ pub(crate) fn novice_factor(k: &Kit, user: &[f32; NFORM], seed: u64, band: u32, 
     if it == NONE {
         return 1.0;
     }
-    let u = user[form(it) as usize];
-    let z = novice_z(seed, band, tick, slot);
-    1.0 + NOVICE_SD * (1.0 - u) * z
+    novice_factor_u(user[form(it) as usize], seed, band, tick, slot)
 }
 
 /// Five food multipliers (plants, game, fish, small, farm), quality included.

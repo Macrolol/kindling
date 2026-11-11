@@ -3006,7 +3006,9 @@ fn skills_unfilled_fields_stay_zero() {
     }
     let names: Vec<&str> = Counters::NAMES.iter().copied().skip_while(|n| *n != "kit_switches").take_while(|n| *n != "max_fight_deaths").collect();
     assert_eq!(names.len(), 27);
-    const LIVE: &[&str] = &["use_taught", "use_inherited_bands", "make_failures", "make_scrap"];
+    const LIVE: &[&str] = &[
+        "use_taught", "use_inherited_bands", "make_failures", "make_scrap", "beliefs_formed", "beliefs_evicted", "belief_err",
+    ];
     for (n, v) in Counters::NAMES.iter().zip(w.counters.values()) {
         if names.contains(n) && !LIVE.contains(n) {
             assert_eq!(v, 0, "counter {n}");
@@ -3016,6 +3018,7 @@ fn skills_unfilled_fields_stay_zero() {
     assert_eq!(fields.len(), 26);
     const LIVE_FIELDS: &[&str] = &[
         "use_skill_edge", "use_skill_spear", "use_skill_bow", "use_skill_net", "use_skill_boat", "maker_hot_forge", "maker_steel", "maker_cast", "maker_smelt",
+        "beliefs_mean", "belief_n_mean", "learn_curve_mean",
     ];
     for (k, v) in fields {
         if LIVE_FIELDS.contains(&k.as_str()) {

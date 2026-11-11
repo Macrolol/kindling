@@ -3,13 +3,13 @@
 use crate::band::{edge_q, Band, Belief, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::beliefs::{
-    belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, food_prior, material_term, observe, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
-    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
-    PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, WRITE_OFF_SEASONS,
+    belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, fold_learn_curve, food_prior, material_term, observe, realised_multiplier, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
+    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, FLAG_YEAR, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
+    PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, TRIAL_SHARE, WRITE_OFF_SEASONS,
 };
 use crate::effects::{
     food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
-    novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
+    novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
     CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, LC_PRIOR, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
     USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
@@ -2095,6 +2095,7 @@ fn belief_constants_match_the_proposal() {
     assert_eq!(LC_RATE.to_bits(), 0.2f32.to_bits());
     assert_eq!(INFO_W.to_bits(), 0.3f32.to_bits());
     assert_eq!(WRITE_OFF_SEASONS, 4);
+    assert_eq!(TRIAL_SHARE.to_bits(), 0.25f32.to_bits());
 }
 
 #[test]
@@ -2237,9 +2238,18 @@ fn belief_mean_converges_and_doubt_shrinks() {
     for _ in 0..8 {
         observe(&mut flat, &mut learn, 1.0, 1.0, false, 0.0);
     }
-    assert!(near(learn.first_mean, 1.0));
-    let expect = LC_PRIOR + LC_RATE * (1.0 - LC_PRIOR);
-    assert!(near(learn.curve, expect), "flat tool pulls the curve toward 1, got {}", learn.curve);
+    assert_eq!(flat.n.to_bits(), BELIEF_NMAX.to_bits());
+    // The proposal's one-shot blend toward ratio 1. The season rule spreads that
+    // over the climb and does not store the first-season mean, so it lands close.
+    let shot = blend_learn_curve(LC_PRIOR, 1.0, 1.0);
+    assert!((learn.curve - shot).abs() < 0.02, "flat climb {} vs one-shot {shot}", learn.curve);
+    assert_eq!(learn.first_mean.to_bits(), 0.0f32.to_bits());
+    let span = BELIEF_NMAX - PRIOR_N - 1.0;
+    let frac = 1.0 / span;
+    let expect = (LC_PRIOR.ln() * (1.0 - LC_RATE * frac) + LC_RATE * 1.2f32.ln()).exp();
+    assert!(near(fold_learn_curve(LC_PRIOR, 1.0, 1.2, 1.5, 2.5), expect), "one step of the climb");
+    assert_eq!(fold_learn_curve(LC_PRIOR, 1.0, 1.5, PRIOR_N, PRIOR_N + 1.0).to_bits(), LC_PRIOR.to_bits(), "the first season is the baseline");
+    assert_eq!(fold_learn_curve(LC_PRIOR, 1.0, 1.5, BELIEF_NMAX, BELIEF_NMAX).to_bits(), LC_PRIOR.to_bits(), "at the cap a founder does not teach");
     assert!(near(blend_learn_curve(LC_PRIOR, 1.5, 1.0), LC_PRIOR + LC_RATE * (1.5 - LC_PRIOR)));
     assert_eq!(blend_learn_curve(LC_PRIOR, 1.0, 0.0).to_bits(), LC_PRIOR.to_bits());
 }
@@ -2318,4 +2328,80 @@ fn eviction_keeps_kit_items_and_the_table_stays_bounded() {
         }
     }
     assert_eq!(many.len(), BELIEF_CAP);
+}
+
+/// A first use stores a prior and then one season of the realised multiplier.
+/// The novice factor is the draw the economy already takes for that slot.
+/// A trial weighs `TRIAL_SHARE`. The first season does not move `learn_curve`.
+/// At the year, an unpaid entry fades and a paid one only loses `FLAG_YEAR`.
+#[test]
+fn payout_forms_a_belief_and_the_year_fades_what_was_not_used() {
+    use crate::world::Econ;
+    let mut w = world();
+    for _ in 0..4 {
+        w.step();
+    }
+    let y = w.history.last().unwrap();
+    assert!(y.learn_curve_mean > 1.0, "learn_curve_mean {}", y.learn_curve_mean);
+    assert_eq!(w.counters.beliefs_told, 0);
+    assert_eq!(w.counters.tools_written_off, 0);
+    assert_eq!(w.counters.tools_retried, 0);
+    assert_eq!(w.counters.beliefs_inherited, 0);
+
+    let mut b = std::mem::take(&mut w.bands[0]);
+    b.beliefs.clear();
+    b.learn_curve = LC_PRIOR;
+    let it = item(Form::Edge, Mat::Flint);
+    let trial = item(Form::Edge, Mat::Stone);
+    b.d.kit.cut = it;
+    b.d.kit.trial[1] = trial;
+    let u = band_user(&b)[Form::Edge as usize];
+    let noise = novice_factor_u(u, w.cfg.seed, b.id, w.tick, 1);
+    let (_, q, _) = recipe_info(&b.d.tk, &b.known, it);
+    let x = realised_multiplier(1, it, u, q, noise);
+    let prior = food_prior(&[], 1, it, None, None);
+    let k = 1.0 / (prior.n + 1.0);
+    let mean = prior.mean + k * (x - prior.mean);
+    let mut fx = Fx::default();
+    let ec = Econ { used: vec![it, trial], trial_on: 1u16 << 1, ..Default::default() };
+    w.note_belief_payout(&mut b, &ec, &mut fx);
+    assert_eq!(fx.counters.beliefs_formed, 2);
+    let got = b.beliefs.iter().find(|e| e.item == it && e.slot == 1).expect("cut belief");
+    assert!(near(got.n, PRIOR_N + 1.0), "n {}", got.n);
+    assert!(near(got.mean, mean), "mean {} vs {mean}", got.mean);
+    assert_eq!(got.flags, FLAG_OWN | FLAG_YEAR);
+    assert_eq!((got.fight_n, got.fight_mean, got.fight_var), (0.0, 0.0, 0.0));
+    let tr = b.beliefs.iter().find(|e| e.item == trial && e.slot == 1).expect("trial belief");
+    assert!(near(tr.n, PRIOR_N + TRIAL_SHARE), "trial n {}", tr.n);
+    assert_eq!(b.learn_curve.to_bits(), LC_PRIOR.to_bits());
+
+    let iron = item(Form::Edge, Mat::Iron);
+    let copper = item(Form::Edge, Mat::Copper);
+    b.beliefs.push(Belief { item: iron, slot: 1, n: 1.0, mean: 2.0, var: 0.5, flags: 0, ..Default::default() });
+    b.beliefs.push(Belief { item: copper, slot: 1, n: 0.12, mean: 1.0, var: 0.2, flags: 0, ..Default::default() });
+    let iron_i = b.beliefs.iter().position(|e| e.item == iron).unwrap();
+    let p = food_prior(&b.beliefs, 1, iron, None, Some(iron_i));
+    let iron_mean = 2.0 + (1.0 - BELIEF_FADE) * (p.mean - 2.0);
+    w.bands[0] = b;
+    w.fade_year_beliefs();
+    let kept = w.bands[0].beliefs.iter().find(|e| e.item == it).unwrap();
+    assert_eq!(kept.flags & FLAG_YEAR, 0);
+    assert!(kept.flags & FLAG_OWN != 0);
+    assert!(near(kept.mean, mean));
+    assert!(w.bands[0].beliefs.iter().all(|e| e.item != copper), "n 0.12 fades under 0.1");
+    let faded = w.bands[0].beliefs.iter().find(|e| e.item == iron).unwrap();
+    assert!(near(faded.n, BELIEF_FADE), "faded n {}", faded.n);
+    assert!(near(faded.mean, iron_mean), "faded mean {} vs {iron_mean}", faded.mean);
+
+    let mut b = std::mem::take(&mut w.bands[0]);
+    let curve0 = b.learn_curve;
+    let mean0 = b.beliefs.iter().find(|e| e.item == it).unwrap().mean;
+    let mut fx2 = Fx::default();
+    let ec2 = Econ { used: vec![it], ..Default::default() };
+    w.note_belief_payout(&mut b, &ec2, &mut fx2);
+    assert_eq!(fx2.counters.beliefs_formed, 0, "the second season updates, it does not form");
+    let got = b.beliefs.iter().find(|e| e.item == it).unwrap();
+    assert!(near(got.n, PRIOR_N + 2.0), "n {}", got.n);
+    let expect_c = fold_learn_curve(curve0, mean0, got.mean, PRIOR_N + 1.0, PRIOR_N + 2.0);
+    assert_eq!(b.learn_curve.to_bits(), expect_c.to_bits(), "curve {} vs {expect_c}", b.learn_curve);
 }

@@ -3,7 +3,8 @@
 //! Priors use visible material terms and the band's own beliefs. Updates use
 //! an outcome the caller already observed. This module does not call
 //! `tool_effects`. Founders and a load of an empty table are filled once from
-//! the kit. The season loop does not update or read beliefs until a later sub-part.
+//! the kit. The season loop records payouts and fades unused entries; it does
+//! not read beliefs when choosing a kit.
 
 use crate::effects::{motion_cos, user_factor, NOVICE_SD};
 use crate::materials::{boat_q, cut_q, durability, form, mat, mesh_q, valid_item, Form, Item};
@@ -50,10 +51,19 @@ pub const INFO_W: f32 = 0.3;
 pub const WRITE_OFF_SEASONS: u32 = 4;
 
 /// Own use, copied at a split, heard from a partner, seen on a band that won.
+/// `FLAG_YEAR` is set by a payout update and cleared at the yearly fade. It is
+/// a bit of the saved flags byte, not a new field, so a mid-year save fades
+/// the same entries.
 pub const FLAG_OWN: u8 = 1;
 pub const FLAG_INHERITED: u8 = 2;
 pub const FLAG_TOLD: u8 = 4;
 pub const FLAG_SEEN: u8 = 8;
+pub const FLAG_YEAR: u8 = 16;
+
+/// Share of a slot a trial records. The economy still pays the incumbent in
+/// full (splitting the food is step 5); the tried tool is an extra observation
+/// at this weight.
+pub const TRIAL_SHARE: f32 = 0.25;
 
 /// A prior for one item in one slot, before any season of use.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,8 +74,8 @@ pub struct FoodPrior {
     pub fail: f32,
 }
 
-/// `learn_curve` and the mean after the first season of own use.
-/// `first_mean` is 0 until that season. It is not a saved field.
+/// `learn_curve` for a unit test. `first_mean` is not used by the season loop:
+/// the climb is folded into the saved curve (see `fold_learn_curve`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LearnState {
     pub curve: f32,
@@ -241,19 +251,88 @@ pub fn blend_learn_curve(curve: f32, mean_now: f32, mean_first: f32) -> f32 {
     curve + LC_RATE * (ratio - curve)
 }
 
-/// Update `b` and, when this season completes the first one of own use, remember
-/// its mean. Blend `learn` when `n` reaches the cap.
+/// Fold one own-use improvement into `learn_curve`. No per-belief baseline.
+///
+/// The proposal blends once, at `LC_RATE`, toward `mean_cap / mean_first` when
+/// `n` reaches the cap. That first-season mean is not saved. While own-use
+/// weight `n - PRIOR_N` is already at least 1 (so this update is past the
+/// baseline) and `n` is still below the cap, add `ln(mean_after / mean_before)`
+/// on a log scale. A full climb from that season to the cap (`SPAN` of `n`)
+/// moves `ln(curve)` about `LC_RATE` of the way to `ln(ratio)`. At the cap,
+/// and on the update that first completes a season, the curve is left alone.
+/// A climb back after fade teaches again, because `n` is below the cap.
+pub fn fold_learn_curve(curve: f32, mean_before: f32, mean_after: f32, n_before: f32, n_after: f32) -> f32 {
+    let own = n_before - PRIOR_N;
+    if !(own >= 1.0) || !(n_before < BELIEF_NMAX) || !(curve > 0.0) {
+        return curve;
+    }
+    if !(mean_before > 0.0) || !(mean_after > 0.0) {
+        return curve;
+    }
+    let ratio = mean_after / mean_before;
+    if !ratio.is_finite() || !(ratio > 0.0) {
+        return curve;
+    }
+    let span = BELIEF_NMAX - PRIOR_N - 1.0;
+    let dn = (n_after.min(BELIEF_NMAX) - n_before).max(0.0);
+    if !(span > 0.0) || !(dn > 0.0) {
+        return curve;
+    }
+    let frac = (dn / span).min(1.0);
+    let ln_new = curve.ln() * (1.0 - LC_RATE * frac) + LC_RATE * ratio.ln();
+    let out = ln_new.exp();
+    if out.is_finite() && out > 0.0 { out } else { curve }
+}
+
+/// Update `b` and fold the improvement into `learn.curve` when this observation
+/// is past the first season and still under the cap. `first_mean` is not read.
 pub fn observe(b: &mut crate::band::Belief, learn: &mut LearnState, x: f32, w: f32, failed: bool, labour_obs: f32) {
     let n0 = if b.n.is_finite() { b.n } else { 0.0 };
-    let crossed = update_belief(b, x, w, failed, labour_obs);
-    let own0 = (n0 - PRIOR_N).max(0.0);
-    let own1 = (b.n - PRIOR_N).max(0.0);
-    if learn.first_mean == 0.0 && own0 < 1.0 && own1 >= 1.0 {
-        learn.first_mean = b.mean;
+    let mean0 = b.mean;
+    update_belief(b, x, w, failed, labour_obs);
+    learn.curve = fold_learn_curve(learn.curve, mean0, b.mean, n0, b.n);
+}
+
+/// Record one payout. No entry yet: store the prior (if the table has room),
+/// then update. Returns `(formed, evicted)`. A duplicate that is already
+/// stored is updated, not formed again. `FLAG_YEAR` marks it used this year.
+pub fn note_payout(
+    beliefs: &mut Vec<crate::band::Belief>,
+    curve: &mut f32,
+    slot: u8,
+    it: Item,
+    x: f32,
+    w: f32,
+    failed: bool,
+    labour_obs: f32,
+    fail_same: Option<f32>,
+    in_kit: impl Fn(&crate::band::Belief) -> bool,
+) -> (bool, bool) {
+    if !(w > 0.0) || !x.is_finite() || !valid_item(it) || !(material_term(slot as usize, it) > 0.0) {
+        return (false, false);
     }
-    if crossed {
-        learn.curve = blend_learn_curve(learn.curve, b.mean, learn.first_mean);
-    }
+    let mut formed = false;
+    let mut evicted = false;
+    let idx = if let Some(i) = beliefs.iter().position(|e| e.item == it && e.slot == slot) {
+        i
+    } else {
+        let bel = belief_from_prior(slot, it, food_prior(beliefs, slot, it, fail_same, None));
+        let rec = remember(beliefs, bel, in_kit);
+        evicted = rec.evicted.is_some();
+        if !rec.stored {
+            return (false, evicted);
+        }
+        formed = true;
+        beliefs.len() - 1
+    };
+    let n0 = beliefs[idx].n;
+    let mean0 = beliefs[idx].mean;
+    update_belief(&mut beliefs[idx], x, w, failed, labour_obs);
+    beliefs[idx].flags |= FLAG_YEAR;
+    let mean1 = beliefs[idx].mean;
+    let n1 = beliefs[idx].n;
+    *curve = fold_learn_curve(*curve, mean0, mean1, n0, n1);
+    (formed, evicted)
 }
 
 /// Drop the entry with the smallest `n` for which `in_kit` is false.
@@ -331,6 +410,12 @@ pub fn food_payoff(slot: u8) -> bool {
 /// The novice draw averages to 1, so it is not in the mean. Not a food total.
 pub fn expected_multiplier(slot: usize, it: Item, u: f32, quality: f32) -> f32 {
     material_term(slot, it) * user_factor(u) * (1.0 + crate::band::QUALITY_YIELD * quality)
+}
+
+/// That multiplier times the novice factor the economy already applied (`noise`).
+/// `noise` is 1 on a slot the economy does not draw.
+pub fn realised_multiplier(slot: usize, it: Item, u: f32, quality: f32, noise: f32) -> f32 {
+    expected_multiplier(slot, it, u, quality) * noise
 }
 
 /// Variance of that multiplier. Food slots use the novice draw (`z` uniform on
