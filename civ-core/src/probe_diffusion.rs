@@ -38,10 +38,10 @@
 //!   with the kit the band would have with A kept (A forced back into the slot); if A can no
 //!   longer be made the change is "forced";
 //! - **own valuation** (skills step 3 fix 1): for that changed slot only, B and A are scored
-//!   in the band's chosen kit with only that slot swapped, by `slot_score_m(...).0` at that
-//!   item's chain skill (1 when the chain was never filled). That is the number
-//!   `make_kit_for_view` ranks the slot by (`choose_food`'s price on a food slot, with waste
-//!   and failure on the current side only; `nonfood_scores` otherwise, still `KIT_UPKEEP`).
+//!   in the band's chosen kit with only that slot swapped, by `belief_slot_price` (the
+//!   belief or the prior on a food slot once the table is non-empty; `slot_score_m(...).0`
+//!   when it is empty, and for every non-food slot, still `KIT_UPKEEP`). That is what
+//!   layer 2 ranks the slot by.
 //!   The delta is chosen minus alternative. Worse is about 0% by
 //!   construction: the pick is the strict maximum of that score in the context the pass
 //!   scored, so it falls below `-PROBE_TIE` only when a later greedy pass changed a slot this
@@ -52,14 +52,14 @@
 //!   "own (whole kit)" in the summary;
 //! - **held** (yearly, `worse_held_share`): band-years an item filled a slot while another
 //!   makeable item for that slot gave a kit of higher true value;
-//! - "believed wrong" needs beliefs (step 4) and reads NA until then.
+//! - "believed wrong" (step 4): the pick is worse in true value and better by the belief price.
 //! Extra files: `skills-<W>x<H>-seed<S>.csv` (every `PROBE_EVERY` years: these figures for the
 //! period, the skills YearStats fields and counters, NA for what later steps add, then the
 //! whole-kit own columns) and `pairs-<W>x<H>-seed<S>.csv` (which item was held or adopted
 //! over which better one).
 use crate::band::{loss_guard, make_kit, refine_kit, weapon_q, Kit, KIT_UPKEEP};
 use crate::effects::{
-    fills_payoff, make_kit_among_view, make_kit_for_view, maker_p_fail, maker_waste, recipe_info, slot_score_m, BandView, PAYOFF_SLOTS,
+    belief_slot_price, fills_payoff, make_kit_among_view, make_kit_beliefs, maker_p_fail, maker_waste, recipe_info, BandView, PAYOFF_SLOTS,
 };
 use crate::knowledge::{closure, fill_chain, Known, Recipe, Registry, Toolkit, FROM_PARENT, FROM_SELF};
 use crate::physics::Action;
@@ -137,6 +137,8 @@ struct ItemAgg {
     adopt_food: [u64; 3],
     adopt_true: [u64; 3],
     adopt_own: [u64; 3],
+    /// worse in true value, better by the belief price of the changed slot
+    adopt_believed_wrong: u64,
     /// band-years this item filled a slot, and those with a makeable item of higher true value
     /// (or higher food) for the slot
     held_n: u64,
@@ -207,24 +209,24 @@ fn true_value(k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
 /// band's view. Kept so step 2's "worse by own valuation" stays comparable
 /// (`adopt_*_own_kit`). It is not what the kit choice ranks by: the marginals are not
 /// additive, so the sum can put the band's own pick below the alternative.
-fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known]) -> f32 {
+fn own_value(view: &BandView, k: &Kit, tk: &Toolkit, known: &[Known], beliefs: &[crate::band::Belief]) -> f32 {
     (0..12)
         .map(|j| {
             let it = k.slot_item(j);
             if it == NONE {
                 0.0
             } else {
-                slot_own(view, k, j, it, tk, known)
+                slot_own(view, k, j, it, tk, known, beliefs)
             }
         })
         .sum()
 }
 
-/// Decision score of `it` in payoff slot `j` of context `k`. Food slots: `choose_food`'s
-/// current price at `tk.chain_m` (waste and failure; the full side is not used here).
-/// The rest: `nonfood_scores`, which ignore maker skill. `slot_score_m(...).0`.
-fn slot_own(view: &BandView, k: &Kit, j: usize, it: Item, tk: &Toolkit, known: &[Known]) -> f32 {
-    slot_score_m(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it), tk.chain_m(it)).0
+/// Decision score of `it` in payoff slot `j` of context `k`. Food slots with a table:
+/// the belief price (`belief_slot_price`). An empty table, and every non-food slot,
+/// stay on `slot_score_m(...).0` (`KIT_UPKEEP` off food).
+fn slot_own(view: &BandView, k: &Kit, j: usize, it: Item, tk: &Toolkit, known: &[Known], beliefs: &[crate::band::Belief]) -> f32 {
+    belief_slot_price(view, k, PAYOFF_SLOTS[j], it, &|it| info(tk, known, it), tk.chain_m(it), beliefs)
 }
 
 /// `k` with payoff slot `j` (`Kit::slot_item` order) set to `it`. The other slots stay,
@@ -251,10 +253,10 @@ fn with_slot(k: &Kit, j: usize, it: Item) -> Kit {
 
 /// (skills step 0) the kit the band would choose with `a` in slot `j`: the items it would
 /// pick there instead are taken away one by one until `a` is the pick (None if it never is)
-fn force(view: &BandView, tk: &Toolkit, known: &[Known], j: usize, a: Item) -> Option<Kit> {
+fn force(view: &BandView, tk: &Toolkit, known: &[Known], j: usize, a: Item, beliefs: &[crate::band::Belief]) -> Option<Kit> {
     let mut avail = tk.avail;
     for _ in 0..16 {
-        let k = make_kit_among_view(view, &avail, tk, known);
+        let k = make_kit_beliefs(&avail, &|it| recipe_info(tk, known, it), view, &|it| tk.chain_m(it), beliefs);
         let p = k.slot_item(j);
         if p == a {
             return Some(k);
@@ -285,10 +287,12 @@ struct Period {
     adopt_forced: u64,
     adopt_food: [u64; 3],
     adopt_true: [u64; 3],
-    /// changed slot, scored in the chosen kit (`slot_score(...).0`)
+    /// changed slot, scored by the belief price (true score when the table is empty)
     adopt_own: [u64; 3],
-    /// whole-kit sum, the step 2 measure
+    /// whole-kit sum of those same slot prices
     adopt_own_kit: [u64; 3],
+    /// worse in true value and better by the belief price
+    believed_wrong: u64,
     held_n: u64,
     held_worse_true: u64,
     held_worse_food: u64,
@@ -303,6 +307,7 @@ impl Period {
         }
         self.adopt_n += p.adopt_n;
         self.adopt_forced += p.adopt_forced;
+        self.believed_wrong += p.believed_wrong;
         self.held_n += p.held_n;
         self.held_worse_true += p.held_worse_true;
         self.held_worse_food += p.held_worse_food;
@@ -408,7 +413,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             let tk = toolkit(&w, b);
             // (skills step 1) the kit the band relies on, ranked on its own view
             let view = w.band_view(b);
-            let kit = make_kit_for_view(&view, &tk, &b.known);
+            let kit = make_kit_beliefs(&tk.avail, &|it| recipe_info(&tk, &b.known, it), &view, &|it| tk.chain_m(it), &b.beliefs);
             let ki = kit_items(&kit);
             // (skills step 0) adoption: a slot's pick changed since last season
             let picks: [Item; 12] = std::array::from_fn(|j| kit.slot_item(j));
@@ -422,7 +427,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     let ag = agg.entry(bn).or_default();
                     ag.adopt_n += 1;
                     period.adopt_n += 1;
-                    let forced = if tk.avail.has(a) { force(&view, &tk, &b.known, j, a) } else { None };
+                    let forced = if tk.avail.has(a) { force(&view, &tk, &b.known, j, a, &b.beliefs) } else { None };
                     let Some(mut ka) = forced else {
                         ag.adopt_forced += 1;
                         period.adopt_forced += 1;
@@ -431,12 +436,13 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     let (f0, t0v, o_kit) = *now_vals.get_or_insert_with(|| {
                         let mut kr = kit;
                         refine_kit(&mut kr, &tk, &b.known);
-                        (food(&kr), true_value(&kr, &tk, &b.known), own_value(&view, &kit, &tk, &b.known))
+                        (food(&kr), true_value(&kr, &tk, &b.known), own_value(&view, &kit, &tk, &b.known, &b.beliefs))
                     });
                     // Same context: the chosen kit, with only this slot swapped to A.
                     // Not the forced kit — that one can change the other slots.
-                    let own_d = slot_own(&view, &kit, j, bn, &tk, &b.known) - slot_own(&view, &with_slot(&kit, j, a), j, a, &tk, &b.known);
-                    let oa_kit = own_value(&view, &ka, &tk, &b.known);
+                    // Food slots rank by the belief price; non-food stays on KIT_UPKEEP.
+                    let own_d = slot_own(&view, &kit, j, bn, &tk, &b.known, &b.beliefs) - slot_own(&view, &with_slot(&kit, j, a), j, a, &tk, &b.known, &b.beliefs);
+                    let oa_kit = own_value(&view, &ka, &tk, &b.known, &b.beliefs);
                     refine_kit(&mut ka, &tk, &b.known);
                     let ta = true_value(&ka, &tk, &b.known);
                     let (cf, ct, co, cok) = (cmp3(f0 - food(&ka)), cmp3(t0v - ta), cmp3(own_d), cmp3(o_kit - oa_kit));
@@ -447,6 +453,11 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                     period.adopt_true[ct] += 1;
                     period.adopt_own[co] += 1;
                     period.adopt_own_kit[cok] += 1;
+                    // Worse in true value, better by what layer 2 ranks the slot by.
+                    if ct == 0 && co == 2 {
+                        ag.adopt_believed_wrong += 1;
+                        period.believed_wrong += 1;
+                    }
                     if ct == 0 {
                         let e = pairs.entry(("adopt_worse_true", bn, a)).or_default();
                         e.0 += 1;
@@ -550,7 +561,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                         if y == x || !fills_payoff(y, j) {
                             continue;
                         }
-                        if let Some(mut ky) = force(&view, &tk, &b.known, j, y) {
+                        if let Some(mut ky) = force(&view, &tk, &b.known, j, y, &b.beliefs) {
                             refine_kit(&mut ky, &tk, &b.known);
                             let tv = true_value(&ky, &tk, &b.known);
                             if tv > best_t {
@@ -697,7 +708,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             let cv: Vec<String> = crate::world::Counters::NAMES.iter().zip(w.counters.values()).filter(|(n, _)| sk_counters.contains(*n)).map(|(_, v)| v.to_string()).collect();
             writeln!(
                 skcsv,
-                "{},{nb},{pop},{},{},{},{},{},{},{},{},NA,{},{},{},NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,{},{},{},{}",
+                "{},{nb},{pop},{},{},{},{},{},{},{},{},{},{},{},{},NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,{},{},{},{}",
                 tick / 4,
                 p.adopt_n,
                 p.adopt_forced,
@@ -707,6 +718,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
                 d(p.adopt_true[1], na),
                 d(p.adopt_own[0], na),
                 d(p.adopt_own[1], na),
+                d(p.believed_wrong, na),
                 p.held_n,
                 d(p.held_worse_true, p.held_n),
                 d(p.held_worse_food, p.held_n),
@@ -745,7 +757,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         let _ = nf;
         writeln!(
             f,
-            "{o},\"{}\",{:?},{:?},{},{inv},{trn},{},{},{:.4},{},{:.4},{},{},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.4},{:.4},{},{},{},{},{},{},{},{},NA,{},{:.4},{:.4},{:.4}",
+            "{o},\"{}\",{:?},{:?},{},{inv},{trn},{},{},{:.4},{},{:.4},{},{},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.4},{:.4},{},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{:.4}",
             item_name(o),
             form(o),
             mat(o),
@@ -794,6 +806,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
             a.adopt_true[1],
             a.adopt_own[0],
             a.adopt_own[1],
+            a.adopt_believed_wrong,
             a.held_n,
             d(a.held_worse_true as f64, a.held_n),
             d(a.held_worse_food as f64, a.held_n),
@@ -811,7 +824,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
     let sh = |x: u64, n: u64| if n > 0 { 100.0 * x as f64 / n as f64 } else { f64::NAN };
     let na = tot.adopt_n - tot.adopt_forced;
     println!(
-        "  skills split {tag}: adoptions {} (forced {}) | worse in true food {:.1}% (tie {:.1}%) | worse in true value {:.1}% (tie {:.1}%) | worse by own valuation {:.1}% (tie {:.1}%) | own (whole kit) {:.1}% (tie {:.1}%) | believed wrong NA | held band-years {} worse_held_share {:.1}% (food {:.1}%)",
+        "  skills split {tag}: adoptions {} (forced {}) | worse in true food {:.1}% (tie {:.1}%) | worse in true value {:.1}% (tie {:.1}%) | worse by own valuation {:.1}% (tie {:.1}%) | own (whole kit) {:.1}% (tie {:.1}%) | believed wrong {:.1}% | held band-years {} worse_held_share {:.1}% (food {:.1}%)",
         tot.adopt_n,
         tot.adopt_forced,
         sh(tot.adopt_food[0], na),
@@ -822,6 +835,7 @@ fn run_seed(seed: u64, years: u32, mw: usize, mh: usize, every: u32, out: &str) 
         sh(tot.adopt_own[1], na),
         sh(tot.adopt_own_kit[0], na),
         sh(tot.adopt_own_kit[1], na),
+        sh(tot.believed_wrong, na),
         tot.held_n,
         sh(tot.held_worse_true, tot.held_n),
         sh(tot.held_worse_food, tot.held_n)

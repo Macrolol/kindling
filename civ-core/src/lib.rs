@@ -2,6 +2,7 @@
 //! the web build. Deterministic per seed; no threads or clocks inside the step.
 pub mod analysis;
 pub mod band;
+pub mod beliefs;
 pub mod effects;
 pub mod archive;
 pub mod codec;

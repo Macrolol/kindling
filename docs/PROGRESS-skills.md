@@ -29,7 +29,7 @@ no population collapse.
 | 1 | Layer 1 and blade scoring | done |
 | 2 | User skill by form, save 16 | done on this branch |
 | 3 | Maker skill | not started |
-| 4 | Beliefs | not started |
+| 4 | Beliefs | done on this branch (CI pending) |
 | 5 | Layer 2: risk and trials | not started |
 | 6 | Layer 2: materials, fight need, fight beliefs, arms races | not started |
 | 7 | Calibration | not started |
@@ -333,3 +333,56 @@ Open problems:
   - Steel axe: copper and iron axes still win over the steel axe (top worse pairs in the probe).
     A pricing question for Michael; nothing changed.
   - Fix 3 is in as built; reverting or tuning it is Michael's call.
+
+## Step 4. Beliefs (done on this branch; CI pending)
+
+Code (passes by Grok Build). Branch `skills-step4`. No save-format bump. `FIXTURE_V10_HASH.0`
+stayed `0x1845e2690330d59`. `.1` is `0x4c41b83c2c81e1f5` (was `0xa2ec75a0910af1b0` after the
+testimony draw). Axe labour pricing, `KIT_UPKEEP`, the axe term, `MAKER_*` and labour pricing
+did not move. Fight beliefs stay 0 (step 6). Trials still fire at `KIT_TRIAL_P`; `BELIEF_ADOPT_N`
+only decides a full switch against that trial.
+
+- Belief table (5db6530): priors from visible terms and similar tools, Welford update, fade,
+  eviction at `BELIEF_CAP`, `learn_curve` blend. The season loop did not call it.
+- Founder and old-save fill (2b2edbe): one belief per occupied payoff slot. Founders
+  `n = BELIEF_NMAX` at user skill 0.7. An empty table on load gets `n = BELIEF_NMAX / 2` at
+  the loaded user skill. Nothing read the table yet, so hashes did not move.
+- Payout updates, yearly fade, counters (5eb93a5): the realised multiplier is the term the
+  economy applied. `belief_err` is overwritten each year (a gauge). `YearStats` gains
+  `beliefs_mean`, `belief_n_mean`, `learn_curve_mean`.
+- Inheritance and testimony (0ac3f8c): daughters copy a weaker, wider table; a close tie may
+  hear one item, and hearsay `n` stops at `TELL_NMAX`. The new draw moved `.1`.
+- The kit reads beliefs (9e2eaae): food slots rank by the belief mean turned back into food,
+  minus believed labour. No belief: the prior, not stored. Full switch only at
+  `n >= PRIOR_N + BELIEF_ADOPT_N`; otherwise the old trial. The choice does not call
+  `tool_effects`. Write-off and retry use two bits of the existing flags byte.
+- Probe (90735ff): `own_value` / the changed-slot score is `belief_slot_price`.
+  `adopt_believed_wrong` counts a pick worse in true value and better by that price.
+
+Local checks:
+- `cargo test --release --workspace`: 133 passed, 0 failed, 7 ignored, on 90735ff.
+  `cargo build --release -p kindling`: 0 warnings.
+- Bench, local, seed 5, default map, 300 y, 1 thread, back to back (noisy: other sessions
+  compile on this box). Step 4 binary against `/workspace/bots/build-bot/step3-logs/kindling-head`.
+  Step 4 150.2 s, pop 144312, bands 7345, farm food 8%. Head (`kindling-head`, same
+  command) 120.0 s, pop 104860, bands 6050, farm food 14%. Wall clock +25%. Bands are
+  +21%, so time per band is about +3%. The worlds differ because the kit now follows
+  beliefs, and other sessions were compiling on this box, so this is not a clean
+  overhead sample. The brief's +5% is against that noise.
+- Belief counters at Y300 (seed 5, default map). Run totals in `summary.json`, and that
+  year's `metrics.csv` row: `beliefs_mean` 13.96, `belief_n_mean` 6.98,
+  `learn_curve_mean` 0.988. Run totals: `beliefs_formed` 66017 (1045 that year),
+  `tools_written_off` 18535 (374), `tools_retried` 2645 (37), `beliefs_told` 168056
+  (2442), `beliefs_inherited` 125352 (1529), `beliefs_evicted` 3 (0 that year).
+  `belief_err` is 14 (the Y300 gauge, 1.4% mean relative error). The year-frame delta
+  is 0 because the gauge did not rise. Fight-belief counters stay 0.
+- A full diffusion probe was not re-run locally (the ignored `probe_diffusion` test).
+  The believed-wrong column is filled in code; Build Bot's CI probe is the run that
+  reports the share. `belief_slot_price` is pinned by
+  `belief_slot_price_follows_the_mean_and_leaves_the_true_score`.
+
+CI placeholder (Build Bot fills the run ids):
+- (a) 10 seeds x 500 y, 256x160: pending
+- (b) 10 seeds x 750 y, 800x800: pending
+- bench: pending
+- probe: pending
