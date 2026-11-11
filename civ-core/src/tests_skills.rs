@@ -1,11 +1,16 @@
 //! (skills step 1) The economy pays what `tool_effects` says, and a food slot is the item
 //! that maximises food minus the food its upkeep labour would have grown.
-use crate::band::{edge_q, Band, Kit, Partner};
+use crate::band::{edge_q, Band, Belief, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
+use crate::beliefs::{
+    belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, food_prior, material_term, observe, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
+    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, INFO_W, LC_RATE, PRIOR_CV,
+    PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, WRITE_OFF_SEASONS,
+};
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste,
+    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
     novice_factor, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
-    CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
+    CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, LC_PRIOR, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
     USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
 };
 use crate::knowledge::{closure, fill_chain, maker_skill, maker_tech_best, technique, Known, Recipe, Registry, Tech};
@@ -1942,4 +1947,257 @@ fn first_steel_smith_is_once_and_comes_from_the_log() {
     w2.year_stats();
     assert_eq!(n(&w2), 1);
     assert_eq!(w2.events.iter().find(|e| e.kind == EventKind::FirstSteelSmith as u8).unwrap().band, 999_999);
+}
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() <= 1e-5
+}
+
+/// Proposal table, so a later edit cannot drift one constant.
+#[test]
+fn belief_constants_match_the_proposal() {
+    assert_eq!(BELIEF_CAP, 24);
+    assert_eq!(BELIEF_NMAX.to_bits(), 8.0f32.to_bits());
+    assert_eq!(BELIEF_ADOPT_N.to_bits(), 1.0f32.to_bits());
+    assert_eq!(BELIEF_VAR_MIN.to_bits(), 0.0025f32.to_bits());
+    assert_eq!(BELIEF_FADE.to_bits(), 0.8f32.to_bits());
+    assert_eq!(BELIEF_DROP_N.to_bits(), 0.1f32.to_bits());
+    assert_eq!(BELIEF_INHERIT_N.to_bits(), 0.6f32.to_bits());
+    assert_eq!(BELIEF_WIDEN.to_bits(), 0.5f32.to_bits());
+    assert_eq!(BELIEF_TELL_P.to_bits(), 0.2f32.to_bits());
+    assert_eq!(TELL_W.to_bits(), 0.5f32.to_bits());
+    assert_eq!(TELL_NMAX.to_bits(), 1.0f32.to_bits());
+    assert_eq!(BELIEF_FAIL_N0.to_bits(), 2.0f32.to_bits());
+    assert_eq!(PRIOR_N.to_bits(), 0.5f32.to_bits());
+    assert_eq!(PRIOR_N0.to_bits(), 1.0f32.to_bits());
+    assert_eq!(PRIOR_CV.to_bits(), 0.25f32.to_bits());
+    assert_eq!(PRIOR_NOVEL.to_bits(), 2.0f32.to_bits());
+    assert_eq!(PRIOR_FAIL.to_bits(), 0.15f32.to_bits());
+    assert_eq!(LC_PRIOR.to_bits(), 1.3f32.to_bits());
+    assert_eq!(LC_RATE.to_bits(), 0.2f32.to_bits());
+    assert_eq!(INFO_W.to_bits(), 0.3f32.to_bits());
+    assert_eq!(WRITE_OFF_SEASONS, 4);
+}
+
+#[test]
+fn motion_cos_is_raw_and_material_term_follows_the_slot() {
+    let edge = Form::Edge as u8;
+    let bow = Form::Bow as u8;
+    let vessel = Form::Vessel as u8;
+    assert_eq!(motion_cos(edge, edge).to_bits(), 1.0f32.to_bits());
+    assert_eq!(motion_cos(edge, bow).to_bits(), 0.0f32.to_bits());
+    assert_eq!(motion_cos(vessel, vessel).to_bits(), 0.0f32.to_bits());
+    assert_eq!(motion_cos(vessel, edge).to_bits(), 0.0f32.to_bits());
+    let sp = motion_cos(Form::Spear as u8, Form::Point as u8);
+    assert!(sp > 0.5 && sp < 1.0, "spear and point share thrust and throw, cos {sp}");
+    // transfer_table scales the off-diagonal; the diagonal there is 1 even with no profile
+    let t = transfer_table();
+    assert_eq!(t[vessel as usize][vessel as usize].to_bits(), 1.0f32.to_bits());
+    assert!(t[edge as usize][Form::Axe as usize] > 0.0);
+
+    let iron = item(Form::Edge, Mat::Iron);
+    let steel = item(Form::Edge, Mat::Steel);
+    assert_eq!(material_term(1, iron).to_bits(), cut_q(Mat::Iron).to_bits());
+    assert!(material_term(1, steel) > material_term(1, iron));
+    assert!(material_term(1, item(Form::Edge, Mat::Flint)) > material_term(1, item(Form::Edge, Mat::Stone)));
+    let spear = item(Form::Spear, Mat::Flint);
+    assert_eq!(material_term(0, spear).to_bits(), (0.35 + 0.65 * cut_q(Mat::Flint)).to_bits());
+    assert_eq!(material_term(10, item(Form::Point, Mat::Bone)).to_bits(), 1.0f32.to_bits());
+    assert_eq!(material_term(14, item(Form::Bow, Mat::Wood)).to_bits(), (Mat::Wood.props().tough + 1.0).to_bits());
+    assert_eq!(material_term(1, NONE).to_bits(), 0.0f32.to_bits());
+}
+
+/// A band that has used iron knives rates a steel knife above iron, narrowly.
+/// A bow, with nothing like it, sits on the average ratio with the novelty widening.
+/// Visible terms order priors the same way as `cut_q`.
+#[test]
+fn priors_follow_similar_tools_and_visible_terms() {
+    let iron = item(Form::Edge, Mat::Iron);
+    let steel = item(Form::Edge, Mat::Steel);
+    let p_iron = cut_q(Mat::Iron);
+    let used = Belief {
+        item: iron,
+        slot: 1,
+        n: 8.0,
+        mean: p_iron * 1.1,
+        var: 0.01,
+        fail: 0.05,
+        ..Default::default()
+    };
+    let steel_p = food_prior(&[used.clone()], 1, steel, None, None);
+    assert!(near(steel_p.n, PRIOR_N));
+    assert!(near(steel_p.fail, PRIOR_FAIL));
+    assert!(near(steel_p.mean, cut_q(Mat::Steel) * 1.1), "steel mean {}", steel_p.mean);
+    assert!(steel_p.mean > used.mean, "steel is rated above the iron knife");
+    let narrow = (PRIOR_CV * steel_p.mean) * (PRIOR_CV * steel_p.mean);
+    assert!(near(steel_p.var, narrow), "s = 1 leaves no novelty, var {}", steel_p.var);
+
+    let bow = item(Form::Bow, Mat::Wood);
+    let bow_p = food_prior(&[used.clone()], 14, bow, None, None);
+    let p_bow = material_term(14, bow);
+    assert!(near(bow_p.mean / p_bow, 1.1), "wide prior stays on the average ratio");
+    let wide = narrow_of(bow_p.mean) * (1.0 + PRIOR_NOVEL);
+    assert!(near(bow_p.var, wide), "nothing like a bow widens the prior");
+    assert!(bow_p.var / (bow_p.mean * bow_p.mean) > 2.5 * (steel_p.var / (steel_p.mean * steel_p.mean)));
+
+    let bow_b = Belief { item: bow, slot: 14, n: 4.0, mean: p_bow * 0.5, ..Default::default() };
+    let mixed = food_prior(&[used.clone(), bow_b], 1, steel, None, None);
+    // iron rho 1.1 weight s*n = 8; bow s = 0; rho_all = (8*1.1 + 4*0.5) / 12
+    let rho_all = (8.0 * 1.1 + 4.0 * 0.5) / 12.0;
+    let rho = (8.0 * 1.1 + PRIOR_N0 * rho_all) / (8.0 + PRIOR_N0);
+    assert!(near(mixed.mean, cut_q(Mat::Steel) * rho), "mixed rho {}", mixed.mean / cut_q(Mat::Steel));
+    assert!(rho > 1.0 && rho < 1.1, "the dissimilar bow should pull rho down a little, got {rho}");
+
+    let mut terms = Vec::new();
+    for m in [Mat::Stone, Mat::Flint, Mat::Iron, Mat::Steel, Mat::Obsidian] {
+        let it = item(Form::Edge, m);
+        let p = food_prior(&[used.clone()], 1, it, Some(0.4), None);
+        assert!(near(p.fail, 0.4));
+        terms.push((material_term(1, it), p.mean));
+    }
+    for w in terms.windows(2) {
+        assert_eq!((w[0].0 < w[1].0), (w[0].1 < w[1].1), "prior order left the material order");
+    }
+
+    let empty = food_prior(&[], 1, steel, None, None);
+    assert!(near(empty.mean, cut_q(Mat::Steel)));
+    assert!(near(empty.var, narrow_of(empty.mean) * (1.0 + PRIOR_NOVEL)));
+    assert!(technique_fail(&[], |_| true).is_none());
+    let rated = technique_fail(&[used], |_| true).unwrap();
+    assert!(near(rated, 0.05));
+}
+
+fn narrow_of(mean: f32) -> f32 {
+    (PRIOR_CV * mean) * (PRIOR_CV * mean)
+}
+
+#[test]
+fn belief_update_moves_mean_var_fail_and_labour() {
+    let mut b = belief_from_prior(1, item(Form::Edge, Mat::Iron), FoodPrior { n: PRIOR_N, mean: 1.0, var: 0.04, fail: 0.15 });
+    b.labour = 0.2;
+    b.flags = FLAG_INHERITED;
+    b.fight_mean = 0.25;
+    assert!(!update_belief(&mut b, 1.6, 0.0, true, 0.5));
+    assert_eq!(b.n.to_bits(), PRIOR_N.to_bits(), "a zero weight must not touch n");
+    let crossed = update_belief(&mut b, 1.6, 1.0, true, 0.5);
+    assert!(!crossed, "0.5 + 1 stays under the cap");
+    assert!(near(b.n, 1.5));
+    assert!(near(b.mean, 1.4), "mean {}", b.mean);
+    // (1 - 2/3) * (0.04 + (2/3) * 0.36) = (1/3) * 0.28
+    assert!(near(b.var, 0.28 / 3.0), "var {}", b.var);
+    // strength 2.5, fail' = (0.15 * 2.5 + 1) / 3.5
+    assert!(near(b.fail, 1.375 / 3.5), "fail {}", b.fail);
+    assert!(near(b.labour, 0.4), "labour {}", b.labour);
+    assert_eq!(b.flags, FLAG_OWN | FLAG_INHERITED);
+    assert_eq!(b.fight_mean.to_bits(), 0.25f32.to_bits(), "fight fields stay put");
+
+    b.n = 7.5;
+    b.mean = 1.0;
+    b.var = 0.0;
+    assert!(update_belief(&mut b, 1.0, 1.0, false, 1.0));
+    assert_eq!(b.n.to_bits(), BELIEF_NMAX.to_bits());
+    assert!(near(b.var, BELIEF_VAR_MIN), "var floor {}", b.var);
+    assert!(!update_belief(&mut b, 1.0, 1.0, false, 1.0), "already at the cap");
+    assert_eq!(b.n.to_bits(), BELIEF_NMAX.to_bits());
+}
+
+/// Steady use pulls the mean to the true multiplier within a few percent by the
+/// time `n` reaches the cap, and `var/n` shrinks.
+#[test]
+fn belief_mean_converges_and_doubt_shrinks() {
+    let x = 1.2f32;
+    let mut b = Belief { item: item(Form::Edge, Mat::Flint), slot: 1, n: PRIOR_N, mean: 1.5 * x, var: narrow_of(1.5 * x), fail: PRIOR_FAIL, ..Default::default() };
+    let doubt0 = b.var / b.n;
+    for _ in 0..8 {
+        observe(&mut b, &mut LearnState::new(), x, 1.0, false, 0.1);
+    }
+    assert_eq!(b.n.to_bits(), BELIEF_NMAX.to_bits());
+    assert!((b.mean - x).abs() / x < 0.05, "mean {} after a cap of seasons", b.mean);
+    assert!(b.var / b.n < doubt0, "doubt {} vs {doubt0}", b.var / b.n);
+    let mut learn = LearnState::new();
+    let mut flat = Belief { n: PRIOR_N, mean: 1.0, var: 0.01, fail: PRIOR_FAIL, item: b.item, slot: 1, ..Default::default() };
+    for _ in 0..8 {
+        observe(&mut flat, &mut learn, 1.0, 1.0, false, 0.0);
+    }
+    assert!(near(learn.first_mean, 1.0));
+    let expect = LC_PRIOR + LC_RATE * (1.0 - LC_PRIOR);
+    assert!(near(learn.curve, expect), "flat tool pulls the curve toward 1, got {}", learn.curve);
+    assert!(near(blend_learn_curve(LC_PRIOR, 1.5, 1.0), LC_PRIOR + LC_RATE * (1.5 - LC_PRIOR)));
+    assert_eq!(blend_learn_curve(LC_PRIOR, 1.0, 0.0).to_bits(), LC_PRIOR.to_bits());
+}
+
+#[test]
+fn unused_beliefs_fade_toward_a_fresh_prior_and_tiny_ones_drop() {
+    let iron = item(Form::Edge, Mat::Iron);
+    let kept = Belief { item: iron, slot: 1, n: 1.0, mean: 2.0, var: 0.5, fail: 0.2, labour: 0.3, ..Default::default() };
+    // Alone, so the fresh prior is the face-value term (nothing else to learn from).
+    let prior = food_prior(&[], kept.slot, kept.item, None, None);
+    assert!(near(prior.mean, cut_q(Mat::Iron)));
+    let mut table = vec![kept];
+    fade_unused(&mut table, &[false]);
+    assert_eq!(table.len(), 1);
+    let got = &table[0];
+    assert!(near(got.n, BELIEF_FADE));
+    let lost = 1.0 - BELIEF_FADE;
+    assert!(near(got.mean, 2.0 + lost * (prior.mean - 2.0)), "mean {}", got.mean);
+    assert!(got.mean < 2.0, "the mean should move toward the prior");
+    assert!(near(got.var, 0.5 + lost * (prior.var - 0.5)), "var {}", got.var);
+    assert!(near(got.fail, 0.2), "fade does not touch fail");
+    assert!(near(got.labour, 0.3));
+
+    let tiny = Belief { item: item(Form::Edge, Mat::Stone), slot: 1, n: 0.12, mean: 1.0, var: 0.2, ..Default::default() };
+    let used = Belief { item: item(Form::Edge, Mat::Flint), slot: 1, n: 3.0, mean: 0.7, var: 0.05, flags: FLAG_OWN, ..Default::default() };
+    let used_n = used.n.to_bits();
+    let used_mean = used.mean.to_bits();
+    let mut pair = vec![tiny, used];
+    fade_unused(&mut pair, &[false, true]);
+    assert_eq!(pair.len(), 1, "n 0.12 fades under 0.1 and is dropped");
+    assert_eq!(pair[0].n.to_bits(), used_n);
+    assert_eq!(pair[0].mean.to_bits(), used_mean);
+}
+
+#[test]
+fn eviction_keeps_kit_items_and_the_table_stays_bounded() {
+    let knife = item(Form::Edge, Mat::Iron);
+    let mut table = Vec::new();
+    for i in 0..BELIEF_CAP {
+        let stored = remember(
+            &mut table,
+            Belief { item: knife, slot: i as u8, n: (i as f32) + 1.0, mean: 1.0, ..Default::default() },
+            |_| false,
+        );
+        assert!(stored.stored);
+        assert!(table.len() <= BELIEF_CAP);
+    }
+    assert_eq!(table.len(), BELIEF_CAP);
+    let again = remember(&mut table, Belief { item: knife, slot: 0, n: 9.0, ..Default::default() }, |_| false);
+    assert!(!again.stored && again.evicted.is_none(), "a duplicate does not evict");
+    assert_eq!(table.len(), BELIEF_CAP);
+
+    // slot 0 has the smallest n and is in the kit, so the next-smallest goes
+    let gone = remember(&mut table, Belief { item: knife, slot: 100, n: 0.4, mean: 1.0, ..Default::default() }, |b| b.slot == 0);
+    assert!(gone.stored);
+    let ev = gone.evicted.expect("a non-kit entry was dropped");
+    assert_eq!(ev.slot, 1, "smallest n outside the kit");
+    assert!(near(ev.n, 2.0));
+    assert!(table.iter().any(|b| b.slot == 0 && near(b.n, 1.0)));
+    assert_eq!(table.len(), BELIEF_CAP);
+
+    let mut full = (0..BELIEF_CAP)
+        .map(|i| Belief { item: knife, slot: i as u8, n: 1.0, ..Default::default() })
+        .collect::<Vec<_>>();
+    assert!(evict_smallest(&mut full, |_| true).is_none());
+    let blocked = remember(&mut full, Belief { item: knife, slot: 200, n: 0.1, ..Default::default() }, |_| true);
+    assert!(!blocked.stored && blocked.evicted.is_none());
+    assert_eq!(full.len(), BELIEF_CAP);
+
+    let mut many = Vec::new();
+    for i in 0..40 {
+        let r = remember(&mut many, Belief { item: item(Form::Edge, Mat::Flint), slot: i as u8, n: 0.2, ..Default::default() }, |_| false);
+        assert!(many.len() <= BELIEF_CAP);
+        if i >= BELIEF_CAP {
+            assert!(r.evicted.is_some());
+        }
+    }
+    assert_eq!(many.len(), BELIEF_CAP);
 }

@@ -182,6 +182,65 @@ pub(crate) fn transfer_table() -> &'static [[f32; NFORM]; NFORM] {
     })
 }
 
+/// Cosine of the motion profiles of forms `a` and `b`. 1 when both are the same
+/// profiled form, or the two profiles are the same vector. 0 when either form
+/// has no profile. Not scaled by `USE_TRANSFER` (that scale is only `transfer_table`).
+pub(crate) fn motion_cos(a: u8, b: u8) -> f32 {
+    if a as usize >= NFORM || b as usize >= NFORM {
+        return 0.0;
+    }
+    motion_cos_table()[a as usize][b as usize]
+}
+
+fn motion_cos_table() -> &'static [[f32; NFORM]; NFORM] {
+    static C: OnceLock<[[f32; NFORM]; NFORM]> = OnceLock::new();
+    C.get_or_init(|| {
+        let mut prof = [None; NFORM];
+        for row in MOTION_ROWS {
+            prof[row.form as usize] = Some(row.w);
+        }
+        let mut nrm = [0.0f32; NFORM];
+        for f in 0..NFORM {
+            if let Some(p) = prof[f] {
+                let mut s = 0.0;
+                for w in p {
+                    s += w * w;
+                }
+                nrm[f] = s.sqrt();
+            }
+        }
+        let mut t = [[0.0f32; NFORM]; NFORM];
+        for f in 0..NFORM {
+            if prof[f].is_some() {
+                t[f][f] = 1.0;
+            }
+            for g in (f + 1)..NFORM {
+                let v = match (prof[f], prof[g]) {
+                    (Some(pf), Some(pg)) if pf == pg => 1.0,
+                    (Some(pf), Some(pg)) => {
+                        let mut dot = 0.0;
+                        for i in 0..MOTION_N {
+                            dot += pf[i] * pg[i];
+                        }
+                        let mut c = dot / (nrm[f] * nrm[g]);
+                        if c > 1.0 {
+                            c = 1.0;
+                        }
+                        if c < 0.0 {
+                            c = 0.0;
+                        }
+                        c
+                    }
+                    _ => 0.0,
+                };
+                t[f][g] = v;
+                t[g][f] = v;
+            }
+        }
+        t
+    })
+}
+
 /// Effective skill with each form. An empty slice (a band not yet filled) is all 1.0.
 /// Any other length must be `NFORM`.
 pub(crate) fn u_eff(use_skill: &[f32]) -> [f32; NFORM] {
