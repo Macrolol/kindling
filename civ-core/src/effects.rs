@@ -10,7 +10,13 @@
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
 //! food. Non-food payoff slots keep the old `KIT_UPKEEP` ranking, with the user factor in
 //! place of the recipe-skill discount.
+//!
+//! (skills step 4) A non-empty belief table scores food slots from that table: the believed
+//! multiplier is the slot term, that slot's quality is forced off, and labour is the believed
+//! upkeep or the visible one. No entry is a prior and is not stored. An empty table keeps
+//! the old food score, bit for bit. `slot_score` stays the true-effects price.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
+use crate::beliefs::{food_prior, BELIEF_ADOPT_N, PRIOR_N};
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use crate::params::Params;
@@ -1254,6 +1260,185 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     write_choice(k, slot, best_it, best_cur, pot, second_it, record_trial);
 }
 
+struct Quote {
+    mean: f32,
+    fail: f32,
+    labour: f32,
+    n: f32,
+    known: bool,
+}
+
+/// Stored belief for `(it, slot)`, or a prior that is not stored. A prior cannot be adopted.
+fn quote_of(beliefs: &[crate::band::Belief], slot: usize, it: Item) -> Quote {
+    let s = slot as u8;
+    if let Some(b) = beliefs.iter().find(|e| e.item == it && e.slot == s && e.n > 0.0) {
+        return Quote { mean: b.mean, fail: b.fail, labour: b.labour, n: b.n, known: true };
+    }
+    let p = food_prior(beliefs, s, it, None, None);
+    Quote { mean: p.mean, fail: p.fail, labour: 0.0, n: p.n, known: false }
+}
+
+fn belief_adopt(q: &Quote) -> bool {
+    // Own-use weight is `n - PRIOR_N`. One season of own use is `BELIEF_ADOPT_N`.
+    // A founder or an old save sits well above that without `FLAG_OWN`.
+    // Hearsay stops at `TELL_NMAX` (1), short of `PRIOR_N + BELIEF_ADOPT_N` (1.5).
+    q.known && q.n >= PRIOR_N + BELIEF_ADOPT_N
+}
+
+/// Replace food-slot terms already in the kit with the belief or the prior.
+/// Quality on those slots is cleared: the mean already carries it. `skip` is
+/// the slot being chosen; `yargs_of` has emptied it.
+fn paint_belief_context(a: &mut YArgs, k: &Kit, skip: usize, beliefs: &[crate::band::Belief]) {
+    let mut put = |sl: usize, it: Item| {
+        if sl == skip || it == NONE {
+            return;
+        }
+        let q = quote_of(beliefs, sl, it);
+        let mean = if q.mean.is_finite() { q.mean } else { 0.0 };
+        match sl {
+            0 => {
+                a.hunt_q = mean;
+                a.q_hunt = 0.0;
+            }
+            1 => {
+                a.cut = mean;
+                a.q_cut = 0.0;
+            }
+            10 => a.point = mean,
+            4 => a.axe = mean,
+            12 => {
+                a.netq = mean;
+                a.q_net = 0.0;
+            }
+            13 => {
+                a.trapq = mean;
+                a.q_trap = 0.0;
+            }
+            _ => {}
+        }
+    };
+    put(0, k.hunt);
+    put(1, k.cut);
+    put(10, k.point);
+    put(4, k.axe);
+    put(12, k.net);
+    put(13, k.trap);
+}
+
+/// `mean` stands in for the slot term. That slot's quality field is forced off so the
+/// multiplier is not scaled a second time. Failure discounts the food. Maker skill is not read.
+fn food_from_mean(slot: usize, base: &YArgs, m0: &[f32; 5], w: &[f32; 5], mean: f32, fail: f32, bow: bool) -> f32 {
+    let mut a = *base;
+    let mean = if mean.is_finite() { mean } else { 0.0 };
+    match slot {
+        0 => {
+            a.hunt_q = mean;
+            a.q_hunt = 0.0;
+        }
+        1 => {
+            a.cut = mean;
+            a.q_cut = 0.0;
+        }
+        10 => {
+            a.point = mean;
+            a.bow = bow;
+        }
+        4 => a.axe = mean,
+        12 => {
+            a.netq = mean;
+            a.q_net = 0.0;
+        }
+        13 => {
+            a.trapq = mean;
+            a.q_trap = 0.0;
+        }
+        _ => {}
+    }
+    let food = food_acc(w, m0, &yields(&a));
+    let f = if fail.is_finite() { fail.clamp(0.0, 1.0) } else { 0.0 };
+    food * (1.0 - f)
+}
+
+/// Food-slot choice from beliefs. The best adoptable item (`n >= PRIOR_N + BELIEF_ADOPT_N`)
+/// is installed. A better item that is not adoptable is only the trial. Nothing adoptable:
+/// the best score is installed and the trial stays empty, so a first tool can be used.
+/// Each point has its own mean. Ties keep the earlier item.
+fn choose_food_belief<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool, beliefs: &[crate::band::Belief]) {
+    let mut best_cur = f32::NEG_INFINITY;
+    let mut best_it = NONE;
+    let mut second_cur = f32::NEG_INFINITY;
+    let mut second_it = NONE;
+    let mut best_ad_cur = f32::NEG_INFINITY;
+    let mut best_ad = NONE;
+    let mut second_ad_cur = f32::NEG_INFINITY;
+    let mut second_ad = NONE;
+    let mut best_new_cur = f32::NEG_INFINITY;
+    let mut best_new = NONE;
+    let n: usize = lists.iter().map(|l| l.len()).sum();
+    if n == 0 {
+        set_slot(k, slot, NONE);
+        k.fallback[trial_j(slot)] = NONE;
+        if record_trial {
+            k.trial[trial_j(slot)] = NONE;
+        }
+        return;
+    }
+    let mut base = yargs_of(k, slot, info, &view.user, &quiet);
+    // Other food slots contribute their believed term, not the true user-scaled
+    // one. The slot under choice stays empty (its candidate is applied below).
+    paint_belief_context(&mut base, k, slot, beliefs);
+    let m0 = yields(&base);
+    let pitch = pitch_in_use(k, view.wet);
+    let bow = k.bow != NONE;
+    for list in lists {
+        for c in *list {
+            let q = quote_of(beliefs, slot, c.it);
+            let food = food_from_mean(slot, &base, &m0, w, q.mean, q.fail, bow);
+            let labour = if q.known && q.labour > 0.0 {
+                q.labour
+            } else {
+                tool_upkeep(view.upkeep_rate, c.it, c.d, food_sealed(slot, c.it, k, pitch))
+            };
+            let cur = price_of(food, labour, view);
+            if cur > best_cur {
+                second_cur = best_cur;
+                second_it = best_it;
+                best_cur = cur;
+                best_it = c.it;
+            } else if c.it != best_it && cur > second_cur {
+                second_cur = cur;
+                second_it = c.it;
+            }
+            if belief_adopt(&q) {
+                if cur > best_ad_cur {
+                    second_ad_cur = best_ad_cur;
+                    second_ad = best_ad;
+                    best_ad_cur = cur;
+                    best_ad = c.it;
+                } else if c.it != best_ad && cur > second_ad_cur {
+                    second_ad_cur = cur;
+                    second_ad = c.it;
+                }
+            } else if cur > best_new_cur {
+                best_new_cur = cur;
+                best_new = c.it;
+            }
+        }
+    }
+    let (kit_it, kit_cur, fb) = if best_ad != NONE {
+        let fb = if second_ad != NONE { second_ad } else { best_new };
+        (best_ad, best_ad_cur, fb)
+    } else {
+        (best_it, best_cur, second_it)
+    };
+    let trial = if best_ad != NONE && best_new != NONE && best_new_cur > kit_cur { best_new } else { NONE };
+    set_slot(k, slot, kit_it);
+    k.fallback[trial_j(slot)] = if kit_it != NONE { fb } else { NONE };
+    if record_trial {
+        k.trial[trial_j(slot)] = if kit_it != NONE { trial } else { NONE };
+    }
+}
+
 struct Bucket {
     n: u8,
     v: [Cand; NMAT],
@@ -1288,7 +1473,19 @@ pub fn make_kit_with_view<F: Fn(Item) -> (f32, f32, u8)>(avail: &ItemSet, info: 
 
 /// `make_kit_with_view` with a per-item maker skill. Nominal callers pass `|_| 1.0`.
 /// The full side of each food score, and every non-food score, stay at maker skill 1.
+/// No belief table: the old food score, bit for bit.
 pub fn make_kit_scored<F, M>(avail: &ItemSet, info: &F, view: &BandView, m_of: &M) -> Kit
+where
+    F: Fn(Item) -> (f32, f32, u8),
+    M: Fn(Item) -> f32,
+{
+    make_kit_beliefs(avail, info, view, m_of, &[])
+}
+
+/// `make_kit_scored`, and when `beliefs` is not empty the food slots read that table.
+/// Non-food slots stay on the old ranking. Maker skill is still passed in and still
+/// ignored by the belief score.
+pub fn make_kit_beliefs<F, M>(avail: &ItemSet, info: &F, view: &BandView, m_of: &M, beliefs: &[crate::band::Belief]) -> Kit
 where
     F: Fn(Item) -> (f32, f32, u8),
     M: Fn(Item) -> f32,
@@ -1372,7 +1569,11 @@ where
             snap[i] = k;
             snap_pitch[i] = pitch_in_use(&k, view.wet);
             let lists = food_lists(slot);
-            choose_food(&mut k, slot, &lists, info, view, &w, true);
+            if beliefs.is_empty() {
+                choose_food(&mut k, slot, &lists, info, view, &w, true);
+            } else {
+                choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs);
+            }
         } else {
             let list = match slot {
                 11 => buckets[6].as_slice(),
@@ -1401,7 +1602,11 @@ where
         if !food_deps_changed(slot, &snap[i], &k, snap_pitch[i], pitch_now) {
             continue;
         }
-        choose_food(&mut k, slot, &lists, info, view, &w, true);
+        if beliefs.is_empty() {
+            choose_food(&mut k, slot, &lists, info, view, &w, true);
+        } else {
+            choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs);
+        }
     }
     apply_base(&mut k, &view.user);
     k

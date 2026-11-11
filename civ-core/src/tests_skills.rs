@@ -3,12 +3,12 @@
 use crate::band::{edge_q, Band, Belief, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::beliefs::{
-    accept_testimony, belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, fold_learn_curve, food_prior, inherit_beliefs, material_term, observe, pick_testimony, realised_multiplier, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
-    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, FLAG_TOLD, FLAG_YEAR, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
+    accept_testimony, belief_from_prior, blend_learn_curve, claim_fresh_writeoffs, evict_smallest, expected_multiplier, fade_unused, fold_learn_curve, food_prior, inherit_beliefs, mark_writeoffs, material_term, observe, pick_testimony, realised_multiplier, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
+    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, FLAG_TOLD, FLAG_WO_FRESH, FLAG_WROTE_OFF, FLAG_YEAR, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
     PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, TRIAL_SHARE, WRITE_OFF_SEASONS,
 };
 use crate::effects::{
-    food_mults, harvest_for, kit_yields, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
+    food_mults, harvest_for, kit_yields, make_kit_beliefs, make_kit_for, make_kit_scored, make_kit_with, make_kit_with_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, motion_cos,
     novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor, slot_score, slot_score_m, tool_effects, tool_upkeep, transfer_table, u_eff, user_factor, BandView, CHAIN_EPS,
     CHAIN_W_MIN, HARVEST_EPS, HARVEST_PRIOR, LABOUR_SHARE, LC_PRIOR, NOMINAL_MIX, NOVICE_SD, TECH_CARRY, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_NOVICE, USE_PRACTICE,
     USE_TEACH_SHARE, USE_TRANSFER, WORK_SHARE,
@@ -18,7 +18,7 @@ use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{band_user, inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{band_user, belief_err_x1000, inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -2343,8 +2343,6 @@ fn payout_forms_a_belief_and_the_year_fades_what_was_not_used() {
     }
     let y = w.history.last().unwrap();
     assert!(y.learn_curve_mean > 1.0, "learn_curve_mean {}", y.learn_curve_mean);
-    assert_eq!(w.counters.tools_written_off, 0);
-    assert_eq!(w.counters.tools_retried, 0);
 
     let mut b = std::mem::take(&mut w.bands[0]);
     b.beliefs.clear();
@@ -2520,4 +2518,225 @@ fn pass_belief_tells_only_what_the_listener_can_make() {
     assert_eq!(g.flags, FLAG_TOLD);
     assert_eq!(g.fight_n, 0.0);
     assert_eq!(dst.learn_curve.to_bits(), curve.to_bits());
+}
+
+fn two_knives() -> (Item, Item, ItemSet) {
+    let flint = item(Form::Edge, Mat::Flint);
+    let copper = item(Form::Edge, Mat::Copper);
+    let mut a = ItemSet::default();
+    a.add(flint);
+    a.add(copper);
+    (flint, copper, a)
+}
+
+fn cut_of(beliefs: &[Belief], avail: &ItemSet) -> Kit {
+    let info = |_: Item| (1.0f32, 0.0f32, 0u8);
+    make_kit_beliefs(avail, &info, &BandView::nominal(), &|_| 1.0, beliefs)
+}
+
+fn held(it: Item, n: f32, mean: f32, flags: u8) -> Belief {
+    Belief { item: it, slot: 1, n, mean, labour: 0.05, fail: 0.0, flags, ..Default::default() }
+}
+
+/// An empty table is the old score. A lucky own-use mean takes the slot; an unlucky one does not.
+#[test]
+fn luck_shifts_the_knife_and_an_empty_table_stays_put() {
+    let (flint, copper, avail) = two_knives();
+    let info = |_: Item| (1.0f32, 0.0f32, 0u8);
+    let view = BandView::nominal();
+    let old = make_kit_scored(&avail, &info, &view, &|_| 1.0);
+    let empty = make_kit_beliefs(&avail, &info, &view, &|_| 1.0, &[]);
+    assert_eq!(old.cut, empty.cut);
+    assert_eq!(old.hunt, empty.hunt);
+    assert_eq!(old.game_m.to_bits(), empty.game_m.to_bits());
+    assert_eq!(old.farm_m.to_bits(), empty.farm_m.to_bits());
+
+    let unlucky = cut_of(&[held(flint, 2.0, 1.0, FLAG_OWN), held(copper, 2.0, 0.2, FLAG_OWN)], &avail);
+    assert_eq!(unlucky.cut, flint, "a low copper mean keeps the flint knife");
+    let lucky = cut_of(&[held(flint, 2.0, 1.0, FLAG_OWN), held(copper, 2.0, 3.0, FLAG_OWN)], &avail);
+    assert_eq!(lucky.cut, copper, "the same copper, lucky, takes the slot");
+    assert_eq!(lucky.trial[1], NONE, "both are adoptable, so this is a switch not a trial");
+}
+
+/// A told belief cannot displace an adopted knife. An inherited one, with high n, can.
+#[test]
+fn told_belief_cannot_switch_and_an_inherited_one_can() {
+    let (flint, copper, avail) = two_knives();
+    let told = cut_of(&[held(flint, 4.0, 0.5, FLAG_OWN), held(copper, TELL_NMAX, 5.0, FLAG_TOLD)], &avail);
+    assert_eq!(told.cut, flint);
+    assert_eq!(told.trial[1], copper, "hearsay is only a trial");
+    let inherited = cut_of(&[held(flint, 4.0, 0.5, FLAG_OWN), held(copper, BELIEF_NMAX * BELIEF_INHERIT_N, 5.0, FLAG_INHERITED)], &avail);
+    assert_eq!(inherited.cut, copper, "inherited n stays above the adopt line");
+    assert_eq!(inherited.trial[1], NONE);
+}
+
+/// Maker skill and the quality of a knife the band has no belief for do not move the kit.
+/// The kit moves when the observed mean does.
+#[test]
+fn unseen_maker_skill_and_quality_do_not_move_the_kit() {
+    let (flint, copper, mut avail) = two_knives();
+    let stone = item(Form::Edge, Mat::Stone);
+    avail.add(stone);
+    let beliefs = vec![held(flint, 3.0, 1.2, FLAG_OWN), held(stone, 3.0, 0.4, FLAG_OWN)];
+    let view = BandView::nominal();
+    let info = |q: f32| {
+        move |it: Item| {
+            if it == copper { (1.0f32, q, 0u8) } else { (1.0, 0.0, 0) }
+        }
+    };
+    let base = make_kit_beliefs(&avail, &info(0.0), &view, &|_| 1.0, &beliefs);
+    let weak = make_kit_beliefs(&avail, &info(0.0), &view, &|it| if it == copper || it == stone { 0.0 } else { 1.0 }, &beliefs);
+    let fine = make_kit_beliefs(&avail, &info(0.9), &view, &|_| 1.0, &beliefs);
+    let mut novice = view.clone();
+    novice.user[Form::Edge as usize] = 0.05;
+    novice.user[Form::Spear as usize] = 0.02;
+    let shifted = make_kit_beliefs(&avail, &info(0.0), &novice, &|_| 1.0, &beliefs);
+    assert_eq!(base.cut, flint);
+    assert_eq!((weak.cut, weak.hunt, weak.trial), (base.cut, base.hunt, base.trial));
+    assert_eq!((fine.cut, fine.hunt, fine.trial), (base.cut, base.hunt, base.trial));
+    assert_eq!((shifted.cut, shifted.hunt, shifted.trial), (base.cut, base.hunt, base.trial), "user skill is not the belief");
+    let mut paid = beliefs.clone();
+    paid.iter_mut().find(|e| e.item == stone).unwrap().mean = 5.0;
+    let after = make_kit_beliefs(&avail, &info(0.0), &view, &|_| 1.0, &paid);
+    assert_eq!(after.cut, stone, "only the observed mean moves the knife");
+}
+
+/// The belief food choice does not name the true-effects account, nor maker waste or failure.
+#[test]
+fn belief_choice_does_not_call_tool_effects() {
+    let src = include_str!("effects.rs");
+    for name in ["fn choose_food_belief", "fn food_from_mean", "fn quote_of", "fn paint_belief_context", "fn make_kit_beliefs"] {
+        let body = fn_source(src, name);
+        assert!(!body.contains("tool_effects"), "{name}");
+        assert!(!body.contains("maker_p_fail"), "{name}");
+        assert!(!body.contains("maker_waste"), "{name}");
+    }
+}
+
+fn fn_source(src: &str, name: &str) -> String {
+    let start = src.find(name).unwrap_or_else(|| panic!("missing {name}"));
+    let mut out = String::new();
+    for (i, line) in src[start..].lines().enumerate() {
+        if i > 0 && (line.starts_with("fn ") || line.starts_with("pub fn ") || line.starts_with("pub(crate) fn ") || line.starts_with("struct ") || line.starts_with("impl ")) {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Below the adopt line a better knife is only the trial. Fade pulls a written-off one back there.
+#[test]
+fn fade_returns_a_writeoff_as_a_trial() {
+    // Obsidian's edge outranks stone on the visible term, so a stone belief pulls
+    // obsidian's prior above the stone mean. Fade walks the written-off mean there.
+    let stone = item(Form::Edge, Mat::Stone);
+    let glass = item(Form::Edge, Mat::Obsidian);
+    let mut avail = ItemSet::default();
+    avail.add(stone);
+    avail.add(glass);
+    let mut beliefs = vec![held(stone, BELIEF_NMAX, 0.4, FLAG_OWN), held(glass, PRIOR_N + BELIEF_ADOPT_N, 0.02, FLAG_OWN | FLAG_WROTE_OFF)];
+    let still = cut_of(&beliefs, &avail);
+    assert_eq!(still.cut, stone);
+    assert_ne!(still.trial[1], glass, "still adoptable, and worse, so not the trial");
+    let mut saw = false;
+    for _ in 0..8 {
+        fade_unused(&mut beliefs, &[true, false]);
+        let n_now = beliefs.iter().find(|e| e.item == glass).map(|e| e.n);
+        let Some(n_now) = n_now else { break };
+        if n_now >= PRIOR_N + BELIEF_ADOPT_N {
+            continue;
+        }
+        let k = cut_of(&beliefs, &avail);
+        if k.trial[1] == glass {
+            assert_eq!(k.cut, stone, "a faded write-off is trialled, not adopted");
+            saw = true;
+            break;
+        }
+    }
+    assert!(saw, "a few years of fade put the written-off knife back on trial");
+    assert_eq!(KIT_TRIAL_P, 0.2, "the trial still fires at the old chance");
+}
+
+/// Own use, inside the window, below the prior: a write-off. A founder flag, a late drop, and a
+/// good mean are not. The year counts the fresh bit once. A later trial clears the sticky bit.
+#[test]
+fn writeoff_window_and_a_later_trial() {
+    use crate::world::Econ;
+    let flint = item(Form::Edge, Mat::Flint);
+    let stone = item(Form::Edge, Mat::Stone);
+    let mut old = Kit::default();
+    old.cut = flint;
+    let mut new_k = Kit::default();
+    new_k.cut = stone;
+    let early = Belief { item: flint, slot: 1, n: PRIOR_N + 1.0, mean: 0.01, flags: FLAG_OWN, ..Default::default() };
+    let mut beliefs = vec![early];
+    mark_writeoffs(&mut beliefs, &old, &new_k);
+    assert_eq!(beliefs[0].flags & (FLAG_WROTE_OFF | FLAG_WO_FRESH), FLAG_WROTE_OFF | FLAG_WO_FRESH);
+    beliefs[0].flags &= !FLAG_WO_FRESH;
+    mark_writeoffs(&mut beliefs, &old, &new_k);
+    assert_eq!(beliefs[0].flags & FLAG_WO_FRESH, 0, "a second look does not count it again");
+
+    let mut late = vec![Belief { item: flint, slot: 1, n: PRIOR_N + WRITE_OFF_SEASONS as f32 + 1.0, mean: 0.01, flags: FLAG_OWN, ..Default::default() }];
+    mark_writeoffs(&mut late, &old, &new_k);
+    assert_eq!(late[0].flags & FLAG_WROTE_OFF, 0);
+    let mut founder = vec![Belief { item: flint, slot: 1, n: BELIEF_NMAX, mean: 0.01, flags: 0, ..Default::default() }];
+    mark_writeoffs(&mut founder, &old, &new_k);
+    assert_eq!(founder[0].flags, 0, "founder fill is not own use");
+    let prior = food_prior(&[], 1, flint, None, None);
+    let mut good = vec![Belief { item: flint, slot: 1, n: PRIOR_N + 1.0, mean: prior.mean + 1.0, flags: FLAG_OWN, ..Default::default() }];
+    mark_writeoffs(&mut good, &old, &new_k);
+    assert_eq!(good[0].flags & FLAG_WROTE_OFF, 0);
+
+    assert_eq!(claim_fresh_writeoffs(&mut beliefs), 0);
+    beliefs[0].flags |= FLAG_WO_FRESH;
+    assert_eq!(claim_fresh_writeoffs(&mut beliefs), 1);
+    assert_eq!(beliefs[0].flags & FLAG_WO_FRESH, 0);
+    assert_ne!(beliefs[0].flags & FLAG_WROTE_OFF, 0);
+
+    let mut w = world();
+    let mut b = std::mem::take(&mut w.bands[0]);
+    b.d.kit.cut = stone;
+    b.d.kit.trial[1] = flint;
+    b.beliefs = vec![
+        Belief { item: stone, slot: 1, n: 4.0, mean: 1.0, labour: 0.05, flags: FLAG_OWN, ..Default::default() },
+        Belief { item: flint, slot: 1, n: PRIOR_N + 1.0, mean: 0.2, labour: 0.05, flags: FLAG_OWN | FLAG_WROTE_OFF | FLAG_WO_FRESH, ..Default::default() },
+    ];
+    let mut fx = Fx::default();
+    let ec = Econ { used: vec![stone], trial_on: 1u16 << 1, ..Default::default() };
+    w.note_belief_payout(&mut b, &ec, &mut fx);
+    assert_eq!(fx.counters.tools_retried, 1);
+    let got = b.beliefs.iter().find(|e| e.item == flint).unwrap();
+    assert_eq!(got.flags & FLAG_WROTE_OFF, 0);
+    assert_eq!(got.flags & FLAG_WO_FRESH, FLAG_WO_FRESH);
+}
+
+/// The gauge shrinks as the mean walks toward the multiplier the economy would expect.
+#[test]
+fn belief_err_falls_as_n_grows() {
+    let mut w = world();
+    for b in &mut w.bands {
+        b.beliefs.clear();
+    }
+    let it = item(Form::Edge, Mat::Flint);
+    let b = &mut w.bands[0];
+    b.gen = 1;
+    b.use_skill = vec![1.0; NFORM];
+    b.d.kit.cut = it;
+    let user = band_user(b);
+    let (_, q, _) = recipe_info(&b.d.tk, &b.known, it);
+    let exp = expected_multiplier(1, it, user[Form::Edge as usize], q);
+    assert!(exp > 1e-6, "exp {exp}");
+    b.beliefs = vec![Belief { item: it, slot: 1, n: 1.0, mean: exp * 0.25, flags: FLAG_OWN, ..Default::default() }];
+    let e0 = belief_err_x1000(&w.bands);
+    {
+        let b = &mut w.bands[0];
+        for _ in 0..6 {
+            update_belief(&mut b.beliefs[0], exp, 1.0, false, 0.05);
+        }
+    }
+    let e1 = belief_err_x1000(&w.bands);
+    assert!(e0 > e1, "err {e0} -> {e1}");
+    assert!(e1 < e0 / 2, "err {e0} -> {e1}");
 }

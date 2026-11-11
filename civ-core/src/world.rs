@@ -7,11 +7,11 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::beliefs::{
-    accept_testimony, expected_multiplier, fade_unused, food_payoff, inherit_beliefs, material_term, note_payout, pick_testimony, realised_multiplier, starter_belief, technique_fail, PayoffStart,
-    BELIEF_NMAX, BELIEF_TELL_P, FLAG_YEAR, PAYOFF_SLOT, TELL_W, TRIAL_SHARE,
+    accept_testimony, claim_fresh_writeoffs, expected_multiplier, fade_unused, food_payoff, inherit_beliefs, mark_writeoffs, material_term, note_payout, pick_testimony, realised_multiplier, starter_belief, technique_fail, PayoffStart,
+    BELIEF_NMAX, BELIEF_TELL_P, FLAG_WROTE_OFF, FLAG_YEAR, PAYOFF_SLOT, TELL_W, TRIAL_SHARE,
 };
 use crate::effects::{
-    food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor,
+    food_mults, make_kit_beliefs, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor,
     tool_upkeep, u_eff, BandView, LC_PRIOR, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
@@ -1071,7 +1071,8 @@ impl World {
         b.d.tk = tk;
         b.d.kit = kit;
         b.d.tk_key = Some((raws, b.flame, b.d.known_ver));
-        // Starting state, not a peek: the kit is already chosen. Nothing reads it yet.
+        // Starting state, not a peek: the kit was chosen on an empty table.
+        // Later seasons read these beliefs. Fight fields stay 0.
         self.seed_beliefs(b, BELIEF_NMAX, true);
     }
 
@@ -1175,6 +1176,16 @@ impl World {
         let labour = tool_upkeep(rate, it, depth, sealed) * maker_waste(b.d.tk.chain_m(it));
         let noise = novice_factor_u(u, self.cfg.seed, b.id, self.tick, slot as usize);
         let x = realised_multiplier(slot as usize, it, u, quality, noise);
+        // A trial (weight under a full season) of a written-off item is one retry.
+        // The sticky bit clears. The fresh bit stays so this year still counts the write-off.
+        if w < 1.0 {
+            if let Some(e) = b.beliefs.iter_mut().find(|e| e.item == it && e.slot == slot) {
+                if e.flags & FLAG_WROTE_OFF != 0 {
+                    e.flags &= !FLAG_WROTE_OFF;
+                    fx.counters.tools_retried += 1;
+                }
+            }
+        }
         let fail_same = item_tech(&self.reg, b, it).and_then(|t| technique_fail(&b.beliefs, |e| item_tech(&self.reg, b, e.item) == Some(t)));
         let (formed, evicted) = note_payout(&mut b.beliefs, &mut b.learn_curve, slot, it, x, w, failed, labour, fail_same, in_kit);
         if formed {
@@ -1415,10 +1426,19 @@ impl World {
             // no harvest restores zeros, and the nominal mix is the right fallback.
             let harvest = b.d.harvest;
             let food = b.d.food;
+            let filling = b.beliefs.is_empty();
             self.refresh_toolkit(b);
             // Empty beliefs (a v16 save from before step 4, or v1–v15) are a starting
-            // state for the kit now in use. A save that already has beliefs is kept.
+            // state for the kit just chosen on the true score. A save that already
+            // has beliefs is kept. The kit is not saved, so a second load would
+            // rebuild it from the table. Rebuild once now, before the inspector's
+            // economy pass, so that load is the same world twice. Flags are still 0,
+            // so this reshuffle is not a write-off.
             self.seed_beliefs(b, BELIEF_NMAX * 0.5, false);
+            if filling && !b.beliefs.is_empty() {
+                b.d.kit_dirty = true;
+                self.refresh_toolkit(b);
+            }
             let ec = self.economy(b, s);
             ec.apply(&mut b.d);
             b.d.harvest = harvest;
@@ -1901,9 +1921,10 @@ impl World {
     }
 
     /// Rank the kit for this band's view, then apply recipe quality once.
+    /// An empty belief table keeps the old food score. A filled table scores food slots from it.
     fn fit_kit(&self, b: &Band, tk: &Toolkit) -> Kit {
         let view = self.decision_view(b);
-        let mut kit = make_kit_for_view(&view, tk, &b.known);
+        let mut kit = make_kit_beliefs(&tk.avail, &|it| recipe_info(tk, &b.known, it), &view, &|it| tk.chain_m(it), &b.beliefs);
         refine_kit(&mut kit, tk, &b.known);
         kit
     }
@@ -1922,6 +1943,7 @@ impl World {
             // (diffusion D3) the kit follows skill too, which moves every season
             if b.d.fin_dirty || b.d.kit_dirty {
                 let kit = self.fit_kit(b, &b.d.tk);
+                mark_writeoffs(&mut b.beliefs, &b.d.kit, &kit);
                 b.d.kit = kit;
                 b.d.fin_dirty = false;
                 b.d.kit_dirty = false;
@@ -1943,6 +1965,7 @@ impl World {
             self.ensure_chain(b);
             // (diffusion D3) the cached kit was chosen at older skills
             let kit = self.fit_kit(b, &b.d.tk);
+            mark_writeoffs(&mut b.beliefs, &b.d.kit, &kit);
             b.d.kit = kit;
             b.d.kit_dirty = false;
             return;
@@ -1957,6 +1980,7 @@ impl World {
             b.d.kit_dirty = false;
             let old_tk = std::mem::replace(&mut b.d.tk, tk);
             let old_kit = std::mem::replace(&mut b.d.kit, kit);
+            mark_writeoffs(&mut b.beliefs, &old_kit, &b.d.kit);
             b.d.tk_prev = match b.d.tk_key {
                 Some(k) if k.2 == b.d.known_ver => Some(Box::new((k, old_tk, old_kit))),
                 _ => None,
@@ -4716,6 +4740,11 @@ impl World {
         // last season's error, refreshed here so a daughter born this year is in it.
         let (beliefs_mean, belief_n_mean, learn_curve_mean) = self.belief_year_means();
         self.counters.belief_err = belief_err_x1000(&self.bands);
+        let mut wrote = 0u64;
+        for b in &mut self.bands {
+            wrote += claim_fresh_writeoffs(&mut b.beliefs);
+        }
+        self.counters.tools_written_off += wrote;
         self.fade_year_beliefs();
         if let Some((id, cell)) = steel_smith {
             let happened = self.events.iter().any(|e| e.kind == EventKind::FirstSteelSmith as u8);
@@ -5010,7 +5039,7 @@ fn item_tech(reg: &crate::knowledge::Registry, b: &Band, it: Item) -> Option<cra
 
 /// Mean absolute relative error of kit beliefs against the expected multiplier
 /// (no novice draw), times 1000. A gauge: the caller stores it, it does not sum.
-fn belief_err_x1000(bands: &[Band]) -> u64 {
+pub(crate) fn belief_err_x1000(bands: &[Band]) -> u64 {
     let mut n = 0u32;
     let mut acc = 0.0f64;
     for b in bands {

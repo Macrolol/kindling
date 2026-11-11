@@ -1121,7 +1121,7 @@ fn v10_fixture_loads_and_runs() {
     }
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
-const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0xa2ec75a0910af1b0); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower), skills step 1 pass 3 (harvest prior), skills step 2 pass 2, skills step 2 pass 3, skills step 3, skills step 3 kit choice, skills step 4 (testimony draw in the close-tie exchange)
+const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x4c41b83c2c81e1f5); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower), skills step 1 pass 3 (harvest prior), skills step 2 pass 2, skills step 2 pass 3, skills step 3, skills step 3 kit choice, skills step 4 (testimony draw in the close-tie exchange), skills step 4 (the kit reads beliefs)
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
 /// more open water than anyone before is a major event and sets the record; a shorter one does
@@ -2998,7 +2998,7 @@ fn probe_step13_pitch() {
 /// means. Step 3 fills `make_failures`, `make_scrap` and the four `maker_*`
 /// means. Step 4 fills the belief counters that payouts, eviction, testimony
 /// and inheritance already move (`belief_err` is a gauge). Write-off and retry
-/// stay 0 until the kit choice reads beliefs. Those are not required to be 0.
+/// move once the kit choice reads beliefs. Those are not required to be 0.
 #[test]
 fn skills_unfilled_fields_stay_zero() {
     use crate::world::Counters;
@@ -3009,7 +3009,7 @@ fn skills_unfilled_fields_stay_zero() {
     let names: Vec<&str> = Counters::NAMES.iter().copied().skip_while(|n| *n != "kit_switches").take_while(|n| *n != "max_fight_deaths").collect();
     assert_eq!(names.len(), 27);
     const LIVE: &[&str] = &[
-        "use_taught", "use_inherited_bands", "make_failures", "make_scrap", "beliefs_formed", "beliefs_evicted", "belief_err", "beliefs_told", "beliefs_inherited",
+        "use_taught", "use_inherited_bands", "make_failures", "make_scrap", "beliefs_formed", "beliefs_evicted", "belief_err", "beliefs_told", "beliefs_inherited", "tools_written_off", "tools_retried",
     ];
     for (n, v) in Counters::NAMES.iter().zip(w.counters.values()) {
         if names.contains(n) && !LIVE.contains(n) {

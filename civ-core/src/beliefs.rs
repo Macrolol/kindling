@@ -4,8 +4,9 @@
 //! an outcome the caller already observed. This module does not call
 //! `tool_effects`. Founders and a load of an empty table are filled once from
 //! the kit. The season loop records payouts, fades unused entries, copies
-//! them to a daughter at a split, and hears one belief from a close tie. It
-//! does not read beliefs when choosing a kit.
+//! them to a daughter at a split, and hears one belief from a close tie. The
+//! kit choice reads the table for food slots. This module does not call
+//! `tool_effects`, and neither does that choice.
 
 use crate::effects::{motion_cos, user_factor, NOVICE_SD};
 use crate::materials::{boat_q, cut_q, durability, form, mat, mesh_q, valid_item, Form, Item};
@@ -60,6 +61,12 @@ pub const FLAG_INHERITED: u8 = 2;
 pub const FLAG_TOLD: u8 = 4;
 pub const FLAG_SEEN: u8 = 8;
 pub const FLAG_YEAR: u8 = 16;
+/// Dropped within `WRITE_OFF_SEASONS` of first own use while the mean sat below
+/// a fresh prior. Stays until a later trial. A bit of the saved flags byte.
+pub const FLAG_WROTE_OFF: u8 = 32;
+/// Set with `FLAG_WROTE_OFF`, cleared when the year-end counter takes it. A
+/// retry the same year does not clear it, so the write-off is still counted.
+pub const FLAG_WO_FRESH: u8 = 64;
 
 /// Share of a slot a trial records. The economy still pays the incumbent in
 /// full (splitting the food is step 5); the tried tool is an extra observation
@@ -566,4 +573,51 @@ pub fn belief_from_prior(slot: u8, it: Item, p: FoodPrior) -> crate::band::Belie
         labour: 0.0,
         ..Default::default()
     }
+}
+
+/// The item in a payoff slot changed. An own-use belief dropped within
+/// `WRITE_OFF_SEASONS` of its first season (`0 < n - PRIOR_N <= WRITE_OFF_SEASONS`),
+/// while its mean is below a fresh prior, is a write-off. Founder fill is not
+/// own use (flags stay 0), so a later reshuffle of that kit does not count.
+/// The bits are not a new saved field. Already written off is left alone, so
+/// the fresh bit is counted once.
+pub fn mark_writeoffs(beliefs: &mut [crate::band::Belief], old: &crate::band::Kit, new: &crate::band::Kit) {
+    for j in 0..PAYOFF_SLOT.len() {
+        let prev = old.slot_item(j);
+        if prev == new.slot_item(j) || !valid_item(prev) {
+            continue;
+        }
+        let slot = PAYOFF_SLOT[j];
+        let Some(idx) = beliefs.iter().position(|e| e.item == prev && e.slot == slot) else {
+            continue;
+        };
+        let (flags, n, mean) = {
+            let e = &beliefs[idx];
+            (e.flags, e.n, e.mean)
+        };
+        if flags & FLAG_OWN == 0 || flags & FLAG_WROTE_OFF != 0 {
+            continue;
+        }
+        let own = n - PRIOR_N;
+        if !(own > 0.0 && own <= WRITE_OFF_SEASONS as f32) {
+            continue;
+        }
+        let prior = food_prior(beliefs, slot, prev, None, Some(idx));
+        if mean < prior.mean {
+            beliefs[idx].flags |= FLAG_WROTE_OFF | FLAG_WO_FRESH;
+        }
+    }
+}
+
+/// Take `FLAG_WO_FRESH` off every entry and return how many were set. The
+/// sticky write-off bit stays until a retry.
+pub fn claim_fresh_writeoffs(beliefs: &mut [crate::band::Belief]) -> u64 {
+    let mut n = 0u64;
+    for e in beliefs {
+        if e.flags & FLAG_WO_FRESH != 0 {
+            e.flags &= !FLAG_WO_FRESH;
+            n += 1;
+        }
+    }
+    n
 }
