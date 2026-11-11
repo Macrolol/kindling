@@ -3,8 +3,9 @@
 //! Priors use visible material terms and the band's own beliefs. Updates use
 //! an outcome the caller already observed. This module does not call
 //! `tool_effects`. Founders and a load of an empty table are filled once from
-//! the kit. The season loop records payouts and fades unused entries; it does
-//! not read beliefs when choosing a kit.
+//! the kit. The season loop records payouts, fades unused entries, copies
+//! them to a daughter at a split, and hears one belief from a close tie. It
+//! does not read beliefs when choosing a kit.
 
 use crate::effects::{motion_cos, user_factor, NOVICE_SD};
 use crate::materials::{boat_q, cut_q, durability, form, mat, mesh_q, valid_item, Form, Item};
@@ -396,6 +397,101 @@ pub fn fade_unused(beliefs: &mut Vec<crate::band::Belief>, used: &[bool]) {
         out.push(c);
     }
     *beliefs = out;
+}
+
+/// Copy `src` onto a daughter. `n` is multiplied by `BELIEF_INHERIT_N` and
+/// `var` by `1 + BELIEF_WIDEN` (then the variance floor). `FLAG_INHERITED` is
+/// set; the parent's other flags, including the year bit and the fight fields,
+/// are kept. `learn_curve` is copied, and a curve that was never set (0)
+/// becomes `LC_PRIOR`. Returns how many entries were copied.
+pub fn inherit_beliefs(dst: &mut Vec<crate::band::Belief>, curve: &mut f32, src: &[crate::band::Belief], src_curve: f32) -> u32 {
+    dst.clear();
+    for b in src {
+        let mut c = b.clone();
+        c.n *= BELIEF_INHERIT_N;
+        c.var *= 1.0 + BELIEF_WIDEN;
+        let floor = BELIEF_VAR_MIN * c.mean * c.mean;
+        if c.mean.is_finite() && c.var < floor {
+            c.var = floor;
+        }
+        c.flags |= FLAG_INHERITED;
+        dst.push(c);
+    }
+    *curve = if src_curve > 0.0 { src_curve } else { crate::effects::LC_PRIOR };
+    src.len() as u32
+}
+
+/// Partner entry the listener should hear, if any. The partner must have used
+/// it more (`n` strictly higher on the same item and slot), the visible term
+/// must be positive, and `can` must say the listener can make it or nearly
+/// make it. The greatest gap in `n` wins; a tie keeps the earlier entry.
+pub fn pick_testimony(src: &[crate::band::Belief], dst: &[crate::band::Belief], mut can: impl FnMut(Item) -> bool) -> Option<usize> {
+    let mut best: Option<(usize, f32)> = None;
+    for (i, e) in src.iter().enumerate() {
+        if !(e.n > 0.0) || !valid_item(e.item) || !(material_term(e.slot as usize, e.item) > 0.0) {
+            continue;
+        }
+        let have = dst.iter().find(|d| d.item == e.item && d.slot == e.slot).map(|d| d.n).unwrap_or(0.0);
+        if !(e.n > have) || !can(e.item) {
+            continue;
+        }
+        let adv = e.n - have;
+        if best.map_or(true, |(_, a)| adv > a) {
+            best = Some((i, adv));
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
+/// Fold `told` in as one pseudo-observation. No entry yet: start from nothing
+/// and let the weight land on the partner's numbers (not a fresh prior).
+/// Returns `(accepted, evicted)`. A full table of kit items accepts nothing.
+pub fn accept_testimony(
+    beliefs: &mut Vec<crate::band::Belief>,
+    told: &crate::band::Belief,
+    w: f32,
+    in_kit: impl Fn(&crate::band::Belief) -> bool,
+) -> (bool, bool) {
+    if !(w > 0.0) || !told.mean.is_finite() || !valid_item(told.item) {
+        return (false, false);
+    }
+    if let Some(i) = beliefs.iter().position(|e| e.item == told.item && e.slot == told.slot) {
+        apply_testimony(&mut beliefs[i], told, w);
+        return (true, false);
+    }
+    let mut bel = crate::band::Belief { item: told.item, slot: told.slot, ..Default::default() };
+    apply_testimony(&mut bel, told, w);
+    let rec = remember(beliefs, bel, in_kit);
+    (rec.stored, rec.evicted.is_some())
+}
+
+/// One told observation. Mean moves toward `told.mean` with weight `w`.
+/// Variance blends toward the partner's variance widened by `1 + BELIEF_WIDEN`.
+/// `n` grows by `w` but never past `TELL_NMAX`; an `n` already above that stays.
+/// Not own use: `FLAG_TOLD` only, and the caller does not touch `learn_curve`.
+fn apply_testimony(b: &mut crate::band::Belief, told: &crate::band::Belief, w: f32) {
+    let n = if b.n.is_finite() && b.n > 0.0 { b.n } else { 0.0 };
+    let k = w / (n + w);
+    let mean0 = if b.mean.is_finite() { b.mean } else { 0.0 };
+    let mean = mean0 + k * (told.mean - mean0);
+    b.mean = mean;
+    let widened = if told.var.is_finite() && told.var > 0.0 { told.var * (1.0 + BELIEF_WIDEN) } else { 0.0 };
+    let var0 = if b.var.is_finite() && b.var > 0.0 { b.var } else { 0.0 };
+    let var = (1.0 - k) * var0 + k * widened;
+    let floor = BELIEF_VAR_MIN * mean * mean;
+    b.var = if var.is_finite() && var > floor { var } else { floor };
+    if told.fail.is_finite() {
+        let f0 = if b.fail.is_finite() { b.fail } else { 0.0 };
+        b.fail = f0 + k * (told.fail - f0);
+    }
+    if told.labour.is_finite() {
+        let l0 = if b.labour.is_finite() { b.labour } else { 0.0 };
+        b.labour = l0 + k * (told.labour - l0);
+    }
+    if n < TELL_NMAX {
+        b.n = (n + w).min(TELL_NMAX);
+    }
+    b.flags |= FLAG_TOLD;
 }
 
 /// Chooser slot (`best[]` index) of each payoff slot, in `Kit::slot_item` order.

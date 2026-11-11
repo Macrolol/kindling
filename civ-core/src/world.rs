@@ -7,8 +7,8 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::beliefs::{
-    expected_multiplier, fade_unused, food_payoff, material_term, note_payout, realised_multiplier, starter_belief, technique_fail, PayoffStart, BELIEF_NMAX, FLAG_YEAR, PAYOFF_SLOT,
-    TRIAL_SHARE,
+    accept_testimony, expected_multiplier, fade_unused, food_payoff, inherit_beliefs, material_term, note_payout, pick_testimony, realised_multiplier, starter_belief, technique_fail, PayoffStart,
+    BELIEF_NMAX, BELIEF_TELL_P, FLAG_YEAR, PAYOFF_SLOT, TELL_W, TRIAL_SHARE,
 };
 use crate::effects::{
     food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, novice_factor_u, pitch_in_use, recipe_info, sealed_factor,
@@ -1224,6 +1224,61 @@ impl World {
                 e.flags &= !FLAG_YEAR;
             }
         }
+    }
+
+    /// (skills step 4) One belief from `src` to `dst`, already chosen to be told.
+    /// No rng here: the close-tie draw sits in `exchange`, with the other lessons.
+    pub(crate) fn pass_belief(&self, bands: &mut Pair, src: usize, dst: usize, fx: &mut Fx) {
+        let picked = {
+            let listener = &bands[dst];
+            pick_testimony(&bands[src].beliefs, &listener.beliefs, |it| self.can_make_or_nearly(listener, it))
+        };
+        let Some(i) = picked else {
+            return;
+        };
+        let told = bands[src].beliefs[i].clone();
+        let w = TELL_W * told.n / BELIEF_NMAX;
+        let kit = bands[dst].d.kit;
+        let in_kit = |e: &crate::band::Belief| (0..PAYOFF_SLOT.len()).any(|j| PAYOFF_SLOT[j] == e.slot && kit.slot_item(j) == e.item);
+        let (ok, evicted) = accept_testimony(&mut bands[dst].beliefs, &told, w, in_kit);
+        if ok {
+            fx.counters.beliefs_told += 1;
+        }
+        if evicted {
+            fx.counters.beliefs_evicted += 1;
+        }
+    }
+
+    /// Can make it now, or knows a recipe for it and is short at most one input.
+    fn can_make_or_nearly(&self, b: &Band, it: Item) -> bool {
+        if !valid_item(it) {
+            return false;
+        }
+        if b.d.tk.producible.has(it) {
+            return true;
+        }
+        for kn in &b.known {
+            if self.reg.retired(kn.recipe) {
+                continue;
+            }
+            let r = &self.reg.recipes[kn.recipe as usize];
+            if r.output != it {
+                continue;
+            }
+            let mut missing = 0u32;
+            for &inp in &r.inputs {
+                if inp != NONE && !b.d.tk.avail.has(inp) {
+                    missing += 1;
+                    if missing > 1 {
+                        break;
+                    }
+                }
+            }
+            if missing <= 1 {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn year(&self) -> f32 {
@@ -3339,6 +3394,8 @@ impl World {
         if inherit_use(&mut nb.use_skill, &b.use_skill) {
             fx.counters.use_inherited_bands += 1;
         }
+        let n_inh = inherit_beliefs(&mut nb.beliefs, &mut nb.learn_curve, &b.beliefs, b.learn_curve);
+        fx.counters.beliefs_inherited += n_inh as u64;
         nb.d.sailed_from = Some(b.cell(self.map.w) as u32);
         nb.d.sailed_sea = sea;
         nb.d.sailed_tech = TECH_ADRIFT;
@@ -4048,6 +4105,17 @@ impl World {
                 }
             }
         }
+        // (skills step 4) testimony, same close ties as the lesson above. One draw
+        // per exchange, taken even when nothing qualifies, so a miss still moves
+        // the meeting's stream. The draw is the first new one in the season loop.
+        {
+            let kin = bands[src].kinship(&bands[dst], self.tick) >= 0.2;
+            let src_id = bands[src].id;
+            let pstr = bands[dst].partner(src_id).map(|p| p.strength).unwrap_or(0.0);
+            if (kin || pstr >= CLOSE_TIE) && rng.chance(BELIEF_TELL_P) {
+                self.pass_belief(bands, src, dst, fx);
+            }
+        }
         // so can word of a land across the water - (v9) told with its age, and taken to heart
         // only by people who could hope to get there (within twice their boats' range);
         // (inventions step 3) a pilot tells the stepping stones, so word carries a little further
@@ -4241,6 +4309,7 @@ impl World {
             };
             d.start_skills();
             let inherited = inherit_use(&mut d.use_skill, &b.use_skill);
+            let n_inh = inherit_beliefs(&mut d.beliefs, &mut d.learn_curve, &b.beliefs, b.learn_curve);
             if let Some((sea, signs, aimed, expedition)) = sailed {
                 d.d.kit.boat = b.d.kit.boat; // remembered for the landfall record
                 d.d.kit.boat_q = b.d.kit.boat_q;
@@ -4294,6 +4363,7 @@ impl World {
             if inherited {
                 self.counters.use_inherited_bands += 1;
             }
+            self.counters.beliefs_inherited += n_inh as u64;
             bm.store *= 0.6;
             bm.bond(id, 0.5, 0.0, self.tick);
             self.counters.splits += 1;

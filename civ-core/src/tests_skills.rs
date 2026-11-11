@@ -3,8 +3,8 @@
 use crate::band::{edge_q, Band, Belief, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::beliefs::{
-    belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, fold_learn_curve, food_prior, material_term, observe, realised_multiplier, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
-    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, FLAG_YEAR, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
+    accept_testimony, belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, fold_learn_curve, food_prior, inherit_beliefs, material_term, observe, pick_testimony, realised_multiplier, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
+    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, FLAG_TOLD, FLAG_YEAR, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
     PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, TRIAL_SHARE, WRITE_OFF_SEASONS,
 };
 use crate::effects::{
@@ -2343,10 +2343,8 @@ fn payout_forms_a_belief_and_the_year_fades_what_was_not_used() {
     }
     let y = w.history.last().unwrap();
     assert!(y.learn_curve_mean > 1.0, "learn_curve_mean {}", y.learn_curve_mean);
-    assert_eq!(w.counters.beliefs_told, 0);
     assert_eq!(w.counters.tools_written_off, 0);
     assert_eq!(w.counters.tools_retried, 0);
-    assert_eq!(w.counters.beliefs_inherited, 0);
 
     let mut b = std::mem::take(&mut w.bands[0]);
     b.beliefs.clear();
@@ -2404,4 +2402,122 @@ fn payout_forms_a_belief_and_the_year_fades_what_was_not_used() {
     assert!(near(got.n, PRIOR_N + 2.0), "n {}", got.n);
     let expect_c = fold_learn_curve(curve0, mean0, got.mean, PRIOR_N + 1.0, PRIOR_N + 2.0);
     assert_eq!(b.learn_curve.to_bits(), expect_c.to_bits(), "curve {} vs {expect_c}", b.learn_curve);
+}
+
+/// A daughter keeps the parent's beliefs with a smaller `n`, a wider variance,
+/// the same fight fields and the parent's learning curve.
+#[test]
+fn daughter_inherits_weaker_wider_beliefs() {
+    let parent = Belief {
+        item: item(Form::Edge, Mat::Flint),
+        slot: 1,
+        flags: FLAG_OWN | FLAG_YEAR,
+        n: BELIEF_NMAX,
+        mean: 2.0,
+        var: 0.1,
+        fail: 0.05,
+        labour: 0.4,
+        fight_n: 1.5,
+        fight_mean: 0.7,
+        fight_var: 0.02,
+    };
+    let mut beliefs = Vec::new();
+    let mut curve = LC_PRIOR;
+    let n = inherit_beliefs(&mut beliefs, &mut curve, &[parent.clone()], 1.7);
+    assert_eq!(n, 1);
+    assert_eq!(curve.to_bits(), 1.7f32.to_bits());
+    let d = &beliefs[0];
+    assert!(near(d.n, BELIEF_NMAX * BELIEF_INHERIT_N), "n {}", d.n);
+    assert!(near(d.var, 0.1 * (1.0 + BELIEF_WIDEN)), "var {}", d.var);
+    assert_eq!(d.mean.to_bits(), 2.0f32.to_bits());
+    assert_eq!(d.flags, FLAG_OWN | FLAG_YEAR | FLAG_INHERITED);
+    assert_eq!((d.fight_n, d.fight_mean, d.fight_var), (1.5, 0.7, 0.02));
+    let mut empty = vec![parent];
+    let mut curve0 = 1.7;
+    assert_eq!(inherit_beliefs(&mut empty, &mut curve0, &[], 0.0), 0);
+    assert!(empty.is_empty());
+    assert_eq!(curve0.to_bits(), LC_PRIOR.to_bits());
+}
+
+/// Testimony pulls the mean toward the teller, widens the teller's variance,
+/// and never pushes `n` past `TELL_NMAX`. The weight is under one season.
+#[test]
+fn testimony_moves_the_mean_and_caps_n() {
+    let flint = item(Form::Edge, Mat::Flint);
+    let ship = item(Form::Ship, Mat::Iron);
+    let told = Belief { item: flint, slot: 1, n: BELIEF_NMAX, mean: 3.0, var: 0.04, fail: 0.2, labour: 0.3, fight_n: 4.0, ..Default::default() };
+    let w = TELL_W * told.n / BELIEF_NMAX;
+    assert!(w < 1.0 && w > 0.0, "hearsay weighs less than a season: {w}");
+    let mut beliefs = Vec::new();
+    let (ok, evicted) = accept_testimony(&mut beliefs, &told, w, |_| false);
+    assert!(ok && !evicted);
+    let g = &beliefs[0];
+    assert!(near(g.n, w), "n {}", g.n);
+    assert!(near(g.mean, 3.0), "mean {}", g.mean);
+    assert!(near(g.var, 0.04 * (1.0 + BELIEF_WIDEN)), "var {}", g.var);
+    assert!(near(g.fail, 0.2) && near(g.labour, 0.3));
+    assert_eq!(g.flags, FLAG_TOLD);
+    assert_eq!((g.fight_n, g.fight_mean, g.fight_var), (0.0, 0.0, 0.0), "a new hear does not copy fight fields");
+    let (ok2, _) = accept_testimony(&mut beliefs, &told, w, |_| false);
+    assert!(ok2);
+    assert!(near(beliefs[0].n, (w + w).min(TELL_NMAX)), "second hear {}", beliefs[0].n);
+    let (ok3, _) = accept_testimony(&mut beliefs, &told, w, |_| false);
+    assert!(ok3);
+    assert!(near(beliefs[0].n, TELL_NMAX), "capped {}", beliefs[0].n);
+    assert!(near(beliefs[0].mean, 3.0));
+
+    let mut owned = vec![Belief { item: flint, slot: 1, flags: FLAG_OWN, n: 4.0, mean: 1.0, var: 0.2, ..Default::default() }];
+    let k = w / (4.0 + w);
+    let expect = 1.0 + k * (3.0 - 1.0);
+    accept_testimony(&mut owned, &told, w, |_| false);
+    assert!(near(owned[0].mean, expect), "mean {} vs {expect}", owned[0].mean);
+    assert!(near(owned[0].n, 4.0), "own use stays above the hearsay cap");
+    assert_eq!(owned[0].flags, FLAG_OWN | FLAG_TOLD);
+
+    let louder = Belief { item: ship, slot: 22, n: 8.0, mean: 9.0, var: 0.1, ..Default::default() };
+    let src = vec![louder, told.clone()];
+    let picked = pick_testimony(&src, &[], |it| it == flint);
+    assert_eq!(picked, Some(1), "an item the listener cannot make is not told");
+    let used_more = vec![Belief { item: flint, slot: 1, n: BELIEF_NMAX, ..Default::default() }];
+    assert_eq!(pick_testimony(&[told.clone()], &used_more, |_| true), None, "the listener has already used it as much");
+    let tied = vec![
+        Belief { item: flint, slot: 1, n: 2.0, mean: 1.0, ..Default::default() },
+        Belief { item: item(Form::Edge, Mat::Stone), slot: 1, n: 2.0, mean: 1.0, ..Default::default() },
+    ];
+    assert_eq!(pick_testimony(&tied, &[], |_| true), Some(0), "an equal gap keeps the earlier entry");
+}
+
+/// The meeting hands over the item the listener can make, not the one it cannot,
+/// and does not move `learn_curve` or the fight fields.
+#[test]
+fn pass_belief_tells_only_what_the_listener_can_make() {
+    let mut w = world();
+    let it = item(Form::Edge, Mat::Flint);
+    w.bands[1].d.kit.cut = it;
+    w.bands[1].d.tk.producible.add(it);
+    assert!(material_term(1, it) > 0.0);
+    let ship = item(Form::Ship, Mat::Iron);
+    assert!(!w.bands[1].d.tk.producible.has(ship));
+    let curve = w.bands[1].learn_curve;
+    w.bands[0].beliefs = vec![
+        Belief { item: ship, slot: 22, n: 8.0, mean: 9.0, var: 0.1, ..Default::default() },
+        Belief { item: it, slot: 1, n: 4.0, mean: 3.0, var: 0.04, fail: 0.1, labour: 0.2, fight_n: 2.0, ..Default::default() },
+    ];
+    w.bands[1].beliefs.clear();
+    let mut src = std::mem::take(&mut w.bands[0]);
+    let mut dst = std::mem::take(&mut w.bands[1]);
+    let mut fx = Fx::default();
+    {
+        let mut pair = Pair(&mut src, &mut dst);
+        w.pass_belief(&mut pair, 0, 1, &mut fx);
+    }
+    assert_eq!(fx.counters.beliefs_told, 1);
+    assert!(dst.beliefs.iter().all(|e| e.item != ship));
+    let g = dst.beliefs.iter().find(|e| e.item == it).expect("the edge was told");
+    let wgt = TELL_W * 4.0 / BELIEF_NMAX;
+    assert!(near(g.n, wgt), "n {}", g.n);
+    assert!(near(g.mean, 3.0));
+    assert_eq!(g.flags, FLAG_TOLD);
+    assert_eq!(g.fight_n, 0.0);
+    assert_eq!(dst.learn_curve.to_bits(), curve.to_bits());
 }
