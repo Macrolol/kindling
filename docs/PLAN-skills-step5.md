@@ -55,7 +55,7 @@ From step 4's own plan for the box that is not written yet (E), which section 3.
 - A full switch only if own use has reached `BELIEF_ADOPT_N`. Until then the slot can only trial. Step 4 still rolls `KIT_TRIAL_P` for that trial. **Step 5 deletes that coin flip.**
 - The decision path does not call `tool_effects`. The economy still pays from layer 1 (invariant 1). A trial's food mix is economy code, so it may call `food_mults` / `yields`. The chooser may not.
 - A trial observation's weight is `TRIAL_SHARE` (proposal 3.5). Step 4 may have hardcoded `0.25` before the named constant exists. Step 5 defines `TRIAL_SHARE` and points that weight at it if step 4 left a literal. Do not change the update formula otherwise.
-- Own-use seasons. Prefer step 4's predicate if it has one. If it does not, use `(n - PRIOR_N) >= BELIEF_ADOPT_N` and `flags & FLAG_OWN != 0`. A prior alone (`n = PRIOR_N`, no `FLAG_OWN`) is not enough to adopt.
+- Own use, as box E writes it: a full switch only if `n >= BELIEF_ADOPT_N`. A prior from `belief_from_prior` has `n = PRIOR_N` (0.5), so it fails and can only be trialled. `starter_belief` leaves `flags` at 0 and sets `n` to `BELIEF_NMAX` for founders and `BELIEF_NMAX / 2` for an old-save fill, with real labour. Those kits already clear the line. Do **not** also require `FLAG_OWN`. That flag is set only by `update_belief` / `observe`, and requiring it would freeze every founded kit. If E lands with another predicate, keep E's. `(n - PRIOR_N) >= BELIEF_ADOPT_N` is not the assumption.
 
 `learn_curve` in the value of learning (proposal 3.6): while `n < BELIEF_NMAX`, the challenger's believed potential mean is `mean * learn_curve`. At the cap, potential is `mean`.
 
@@ -63,7 +63,7 @@ From step 4's own plan for the box that is not written yet (E), which section 3.
 
 - If the decision still ranks by `slot_score` / true effects, stop. Do not build a second valuation beside it. Wait for step 4's belief chooser, then add risk on top of that function.
 - If the belief-to-food conversion is inlined, extract it once as `belief_slot_food` without changing its arithmetic, and call it from both sites.
-- If step 4's adopt test uses raw `n >= BELIEF_ADOPT_N` rather than `n - PRIOR_N`, keep step 4's test. Do not "correct" it here.
+- If step 4's adopt test is not `n >= BELIEF_ADOPT_N`, keep step 4's test. Do not add a `FLAG_OWN` requirement step 4 did not write.
 - If `learn_curve` is not per band, use the constant `LC_PRIOR` and say so in the progress note. The explore term still runs.
 - If `INFO_W` moved module, use it where it lives. Do not copy the constant.
 - If step 4 moved `FIXTURE_V10_HASH.0`, stop. That hash is not step 5's to update.
@@ -77,10 +77,10 @@ From step 4's own plan for the box that is not written yet (E), which section 3.
 |---|---|
 | `civ-core/src/beliefs.rs` (step 4's module) | Pure functions: `phi`, `p_short`, `risk_penalty`, `explore_value`, `trial_chance`, `labour_price`. Constants from section 6 that are not already there. This module already must not call `tool_effects`. |
 | `civ-core/src/effects.rs` | The band's kit pass (`choose_food` ~1132, `make_kit_scored` ~1221, `write_choice` ~1104, `price_of` ~789). Nominal `make_kit` / `make_kit_with` stay on true food-minus-labour with no risk and no trial. |
-| `civ-core/src/world.rs` | `fit_kit` ~1686, `refresh_toolkit` ~1693, `decision_view` ~1661, `economy` trial roll ~1903–1919 and `food_mults` ~1970, `band_season` ~2077 (counters, same place as `make_failures` at 2205), `year_stats` ~4481. Invention line ~2237 and `attention` hunger ~2338 are **not edited**. |
+| `civ-core/src/world.rs` | `fit_kit` ~1686, `refresh_toolkit` ~1693, `decision_view` ~1661, `economy` trial roll ~1903–1919 and `food_mults` ~1970, `band_season` ~2077 (counters, same place as `make_failures` at 2205), `year_stats` ~4221. Invention line ~2237 and `attention` hunger ~2338 are **not edited**. The proposal's `world.rs:1915` for that lambda is a stale line number. |
 | `civ-core/src/band.rs` | Delete `KIT_TRIAL_P` (~736). Optional `trial_p` lives on `Derived`, not on `Kit`, so `Kit` literals do not break. `KIT_UPKEEP` (~734) stays. |
 | `civ-core/src/world/fx.rs` | One `f32` and two counters on `Fx`, applied in band order. Not a new event op. |
-| `civ-core/src/probe_diffusion.rs` | Fill the three `trial_rate_pshort_*` columns that are hardcoded `NA` (~698). `slot_own` (~226) must score the marginal the new pass ranks by, or "worse by own valuation" stops being ~0. Probe only. |
+| `civ-core/src/probe_diffusion.rs` | Fill the three `trial_rate_pshort_*` columns that are hardcoded `NA` in the format string at ~700. `slot_own` (~226) must score the marginal the new pass ranks by, or "worse by own valuation" stops being ~0. Probe only. |
 | `civ-core/src/tests_skills.rs` | New decision tests. `payout_invariant` (~127) reconstructs trial wear with `KIT_TRIAL_P` (~191); point it at `trial_p`. |
 | `civ-core/src/tests_diffusion.rs` | Rewrite `d3_trials_about_one_season_in_five` (~130). |
 | `civ-core/src/tests.rs` | `skills_unfilled_fields_stay_zero` (~3001): the step-5 counters and the three `YearStats` fields leave the "must be 0" list. `switches_conserve` and `switches_fight` stay 0. |
@@ -158,7 +158,7 @@ sigma^2 = (BASE_SD * mu)^2
 food_var = (df/dmean)^2 * (var + var/n) + fail*(1-fail)*(food - fallback_food)^2
 ```
 
-`var` and `n` and `fail` are the belief's. `n` is at least `PRIOR_N` for a prior, so `var/n` is finite. Floor `var` at 0. If `belief_slot_food` is linear in `mean`, `df/dmean = food/mean` when `mean` is not ~0; otherwise one finite difference, cached on the candidate. A trial slot uses the mix in section 3.5, with variances combined by the **share**, not the share squared (a wide prior must still be able to scare a hungry band; `TRIAL_SHARE^2 = 0.0625` would hide it). Same-season independent noise would use the square. That alternative is an open question, not the default.
+`var` and `n` and `fail` are the belief's. On step 4 those `mean` and `var` are multipliers (`expected_multiplier`, `novice_var`), not person-seasons, and `var/n` is doubt about that multiplier. The `(df/dmean)^2` term is what turns them into food. Do not add `var` to `mu` as if it were already food. `n` is at least `PRIOR_N` for a prior, so `var/n` is finite. Floor `var` at 0. If `belief_slot_food` is linear in `mean`, `df/dmean = food/mean` when `mean` is not ~0; otherwise one finite difference, cached on the candidate. A trial slot uses the mix in section 3.5, with variances combined by the **share**, not the share squared (a wide prior must still be able to scare a hungry band; `TRIAL_SHARE^2 = 0.0625` would hide it). Same-season independent noise would use the square. That alternative is an open question, not the default.
 
 `fallback_food` is the runner-up already stored on `Kit::fallback` (step 3), valued with its belief. No runner-up: the empty-slot food, so a failure drops the slot to nothing.
 
@@ -222,7 +222,7 @@ fn mix_term(inc: f32, ch: f32) -> f32 {
 
 Only on slots whose roll fired, and only for this season's `food_mults` inside `economy`. Do not write the mix into `Kit`'s stored `plants_m` / `game_m` / … (`apply_base` stays the adopted kit). Novice noise stays per slot (`novice_factor`); two materials of one form share a user skill and so share the draw.
 
-`trial_food_lost`: after `e_food` is chosen on the **mixed** multipliers, evaluate `food_of` once more at that same effort with the unmixed multipliers. Add `max(0, unmixed - mixed)` to the counter, times 1000, rounded like `make_scrap` (`world.rs:2181`). Not a second effort search. A trial that pays more adds 0.
+`trial_food_lost`: `e_food` is chosen on the **mixed** multipliers. `food_of` (`world.rs:1999`) is a closure over `harvest`, and `harvest` reads `ks`, which reads the multipliers. After that search, build the unmixed `ks`, call `harvest(e_food)` once, then the same `food_of`. Add `max(0, unmixed - mixed)` to the counter, times 1000, rounded like `make_scrap` (`world.rs:2181`). Not a second effort search. A trial that pays more adds 0.
 
 The belief update (step 4) sees the true payout and should weight it by `TRIAL_SHARE`. Step 5 does not reimplement the update. If step 4 reads "was this a trial?" off `Kit::trial` plus the roll, keep that. The stash in section 3.6 makes the fired set available without a second roll.
 
@@ -250,7 +250,7 @@ One pass, the pass that already exists (`CHOOSE_ORDER` in `make_kit_scored`, `ef
 
 1. Score at most `KIT_CANDIDATES` plus the current item, by `belief_slot_food`.
 2. `U` as in section 3.2–3.3, other slots fixed at the items chosen so far (same order as today, so shared food interactions are the ones `food_deps_changed` already re-scores).
-3. Adopt `it` only if own-use `>= BELIEF_ADOPT_N` **and** `U(it) > U(current) + switch_cost(it)`.
+3. Adopt `it` only if `n >= BELIEF_ADOPT_N` (section 2; not `FLAG_OWN`) **and** `U(it) > U(current) + switch_cost(it)`.
 4. Otherwise keep the current item. If `it` is the best challenger, store it on `k.trial[trial_j(slot)]` and store `trial_chance` for the economy. If nothing beats the incumbent even as a trial, `trial` is `NONE` and `trial_p` is 0.
 
 `switch_cost` for step 5 is one making's believed labour times `labour_price`. The material half of "believed labour and materials" waits for step 6's shadow price. A tool whose belief has `labour == 0` (a prior that has never been updated; `belief_from_prior` sets labour 0) pays no labour switch cost. Founders are filled with real upkeep (`starter_belief`), so they do pay it. That is enough to stop two founded tools flip-flopping. Do not invent a material price to paper over priors.
@@ -275,10 +275,11 @@ struct ChoiceNote {
 Plus `Derived::trial_p: [f32; 12]` (0 if no challenger) and `Derived::trial_fired: u16` (set by `economy`, read by the probe).
 
 - A switch counts when the previous slot item was not `NONE` and the new one differs. `NONE → item` is a first fill, including the rebuild in `after_load` (~1205), and is not a switch.
-- `after_load` does not increment world counters. The note sits until `band_season` drains it. Phase 1 and the harvest-phase refresh (`world.rs:1468`) both run before `band_season`; they add into the note. `band_season` adds the note to `fx.counters` once and zeroes it. A later refresh in `band_season` (~2236) records the kit the **next** season eats; the next `band_season` drains it. One change, one count.
+- `after_load` does not increment world counters. The note sits until `band_season` drains it, at the same site as the trial counters (~2205), which is **before** the refresh at ~2236. Phase 1 (`band_prep`, ~1505) and the harvest-phase refresh (~1468) both run before that drain. Switch counts **accumulate** across those fits (each real item change). `p_short`, `trial_p_sum` and `trial_n` are **replaced** by the latest fit, because they describe the kit the economy is about to eat, not a sum of every refresh. The refresh at ~2236 records the kit the **next** season eats; the next `band_season` drains it. One change, one count.
+- **Cache.** A same-key hit (`world.rs:1700`) keeps the existing kit and does not call `fit_kit` unless `fin_dirty` or `kit_dirty`. Leave `trial_p` and the note as the last `fit_kit` wrote them. Do not add the switches again. The two-entry swap (`1716`) still calls `fit_kit` (`1727`) on the restored toolkit, and that call writes the note, with the swapped-in kit as the incumbent. There is a second refresh in `band_season` after practice (`~2313`, where `kit_dirty` is set). Same drain rule: anything it writes waits until the next season's drain.
 - Trial rolls and `trial_food_lost` are written onto `Econ` inside `economy` (it already returns `make_failures`). `band_season` copies them next to line 2205.
 
-`YearStats` samples: `Fx` gains `p_short: f32`, `trial_p_sum: f32`, `trial_n: u32`. `apply_fx` (`world/fx.rs:104`) runs in band order and pushes `p_short` onto a `#[serde(skip)]` `Vec<f32>` on `World`, and adds the trial sums. `year_stats` (~4481) writes:
+`YearStats` samples: `Fx` gains `p_short: f32`, `trial_p_sum: f32`, `trial_n: u32`. `apply_fx` (`world/fx.rs:104`) runs in band order (`bands_season`, ~1397) and pushes `p_short` onto a `#[serde(skip)]` `Vec<f32>` on `World`, and adds the trial sums. `year_stats` (~4221) writes:
 
 - `trial_p_mean` = sum of `p` / number of challenger-slots (0 if none);
 - `p_short_mean` = mean of the vec;
@@ -350,7 +351,7 @@ These three are gauges for that year, not running sums. The counters are sums. S
 
 **Events.** None. Proposal section 4's optional kinds (`ToolWrittenOff`, `ArmedLikeVictors`, `ArmsRace`, `RaiderBand`) are other steps. `EventKind::COUNT` stays 43. `archive.rs` class lists stay. No per-band trial event: it would flood the log. The counters are the "why".
 
-**Probe** (`probe_diffusion.rs:698`, three `NA`s today). Fill, probe only, so headless hashes do not move:
+**Probe** (`probe_diffusion.rs:700`, three `NA`s in the skills-row format string today). Fill, probe only, so headless hashes do not move:
 
 - `trial_rate_pshort_lo`: fired / challenger-slots with incumbent `P_short < 0.10`
 - `trial_rate_pshort_mid`: `0.10 <= P_short < 0.30`
@@ -411,7 +412,7 @@ Unit tests, pure, no world, in `tests_skills.rs` unless the piece lives next to 
 - `trial_chance(0, need)` is the midpoint of min and max. A large negative `d` is about `TRIAL_MIN`. A large positive `d` is about `TRIAL_MAX`. Never outside `[TRIAL_MIN, TRIAL_MAX]`.
 - `explore_value` is 0 at `curiosity = 0`, rises with `var/n`, and rises with `gain`.
 - Switch cost: two tools, `U` differing by less than one making's labour price, incumbent stays across a second call. A tool that beats the cost switches once and then sits (the second call is not a flip back).
-- Own-use gate: `n` below the adopt line sets `trial` and does not change the slot item. At the line, it can adopt.
+- Own-use gate: `n` below the adopt line sets `trial` and does not change the slot item. At the line, it can adopt. A founder-shaped belief (`n = BELIEF_NMAX`, `flags = 0`, labour set) can adopt. A prior (`n = PRIOR_N`, labour 0) cannot.
 
 **Section 5 decision tests** (synthetic bands, not a 500-year world):
 
@@ -443,7 +444,7 @@ How:
 - Score `KIT_CANDIDATES + current`, not every material. Today `choose_food` walks every candidate in the bucket (`effects.rs:1162`). Three plus current is less work, not more, before `phi`.
 - Incumbent `mu`, `sigma`, `P_short`, and `labour_price` once per band per choice. Each candidate adjusts one slot.
 - `phi` is a short polynomial, not a crate and not a loop.
-- Trial food: one extra `yields` only for a slot that **fired**. `trial_p` ≤ 0.5 and usually near the floor, six food slots, so well under one extra yields per band per season. The counterfactual `food_of` is one more call per band that fired at least one trial, at the effort already chosen.
+- Trial food: one extra `yields` (`effects.rs:570`) only for a slot that **fired**. `trial_p` ≤ 0.5 and usually near the floor, six food slots, so well under one extra yields per band per season. The counterfactual is one more `harvest(e_food)` per band that fired at least one trial, at the effort already chosen.
 - No new scan of the map, no new chain fill, no call into `tool_effects` from the chooser, no per-band allocation in the steady state (the year's `P_short` vec is one `f32` per band-season, cleared at year end: ~800 KB on the 800×800 run, not per choice).
 - `refresh_toolkit`'s cache keys stay. The choice still runs when `kit_dirty` is set. Do not mark the kit dirty for risk; risk is an input to the choice that already runs.
 
