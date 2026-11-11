@@ -4,7 +4,7 @@ use crate::band::{edge_q, Band, Belief, Kit, Partner};
 use crate::band::{KIT_TRIAL_P, KIT_UPKEEP, QUALITY_YIELD};
 use crate::beliefs::{
     belief_from_prior, blend_learn_curve, evict_smallest, fade_unused, food_prior, material_term, observe, remember, technique_fail, update_belief, FoodPrior, LearnState, BELIEF_ADOPT_N,
-    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, INFO_W, LC_RATE, PRIOR_CV,
+    BELIEF_CAP, BELIEF_DROP_N, BELIEF_FAIL_N0, BELIEF_FADE, BELIEF_INHERIT_N, BELIEF_NMAX, BELIEF_TELL_P, BELIEF_VAR_MIN, BELIEF_WIDEN, FLAG_INHERITED, FLAG_OWN, INFO_W, LC_RATE, PAYOFF_SLOT, PRIOR_CV,
     PRIOR_FAIL, PRIOR_N, PRIOR_N0, PRIOR_NOVEL, TELL_NMAX, TELL_W, WRITE_OFF_SEASONS,
 };
 use crate::effects::{
@@ -18,7 +18,7 @@ use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{band_user, inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -805,8 +805,13 @@ fn v15_fixture_loads_fills_use_skill_and_runs() {
     assert_eq!(info.format_version, 15);
     assert_eq!(info.migrated_from, Some(15));
     assert!(w.bands.iter().all(|b| b.use_skill.len() == NFORM), "every band has one skill per form");
-    assert!(w.bands.iter().all(|b| b.learn_curve == LC_PRIOR && b.last_fight_switch == u32::MAX && b.beliefs.is_empty()));
+    assert!(w.bands.iter().all(|b| b.learn_curve == LC_PRIOR && b.last_fight_switch == u32::MAX));
     assert!(w.bands.iter().all(|b| b.fight_calib == [0.0; 2] && b.raid == [0.0; 4] && b.raid_share == 0.0));
+    let half = BELIEF_NMAX * 0.5;
+    assert!(w.bands.iter().any(|b| !b.beliefs.is_empty()), "an old save fills beliefs for the kit");
+    assert!(w.bands.iter().all(|b| b.beliefs.iter().all(|e| {
+        e.n.to_bits() == half.to_bits() && e.fight_n == 0.0 && e.fight_mean == 0.0 && e.fight_var == 0.0
+    })));
     let b = w
         .bands
         .iter()
@@ -866,7 +871,10 @@ fn same_skill_fields(a: &World, b: &World) {
         assert_eq!(x.raid_share.to_bits(), y.raid_share.to_bits());
         assert_eq!(x.year_food.to_bits(), y.year_food.to_bits());
         assert_eq!(x.year_raid_food.to_bits(), y.year_raid_food.to_bits());
-        assert_eq!(belief(&x.beliefs), belief(&y.beliefs));
+        // An empty table is filled on load. A table that was saved is kept as it was.
+        if !x.beliefs.is_empty() {
+            assert_eq!(belief(&x.beliefs), belief(&y.beliefs));
+        }
     }
 }
 
@@ -918,7 +926,6 @@ fn v16_fields_round_trip_continues_identically() {
         },
     ];
     assert_eq!(a.bands[0].beliefs.len(), 2);
-    assert!(a.bands[1].beliefs.is_empty(), "a second band keeps zero beliefs");
     assert_eq!(a.bands[1].use_skill.len(), NFORM);
     let bytes = a.save_bytes(None, "test", "now").unwrap();
     let js = a.save_json(None, "test", "now").unwrap();
@@ -929,8 +936,7 @@ fn v16_fields_round_trip_continues_identically() {
     same_skill_fields(&a, &bin);
     same_skill_fields(&a, &json);
     assert_eq!(bin.bands[0].beliefs.len(), 2);
-    assert!(bin.bands[1].beliefs.is_empty());
-    assert!(json.bands[1].beliefs.is_empty());
+    assert_eq!(json.bands[0].beliefs.len(), 2);
     for _ in 0..8 {
         a.step();
         bin.step();
@@ -940,6 +946,118 @@ fn v16_fields_round_trip_continues_identically() {
     assert_eq!(a.state_hash(), json.state_hash());
     same_skill_fields(&a, &bin);
     same_skill_fields(&a, &json);
+}
+
+fn spread_var(mean: f32, u: f32, slot: u8) -> f32 {
+    let floor = BELIEF_VAR_MIN * mean * mean;
+    if !matches!(slot, 0 | 1 | 10 | 4 | 12 | 13) {
+        return floor;
+    }
+    let s = NOVICE_SD * (1.0 - u) / 3.0f32.sqrt();
+    let spread = (mean * s) * (mean * s);
+    if spread > floor { spread } else { floor }
+}
+
+fn payoff_count(k: &Kit) -> usize {
+    (0..PAYOFF_SLOT.len())
+        .filter(|&j| valid_item(k.slot_item(j)) && material_term(PAYOFF_SLOT[j] as usize, k.slot_item(j)) > 0.0)
+        .count()
+}
+
+fn assert_starter(w: &World, b: &Band, n: f32, u_of: impl Fn(Item) -> f32) {
+    let pitch = pitch_in_use(&b.d.kit, w.near_water(b.cell(w.map.w)));
+    assert_eq!(b.beliefs.len(), payoff_count(&b.d.kit));
+    for bel in &b.beliefs {
+        let it = bel.item;
+        let u = u_of(it);
+        let term = material_term(bel.slot as usize, it);
+        let (_, q, depth) = recipe_info(&b.d.tk, &b.known, it);
+        let mean = term * user_factor(u) * (1.0 + QUALITY_YIELD * q);
+        let m = b.d.tk.chain_m(it);
+        let labour = tool_upkeep(w.params.upkeep, it, depth, sealed_factor(it, &b.d.kit, pitch)) * maker_waste(m);
+        assert!(term > 0.0);
+        assert_eq!(bel.n.to_bits(), n.to_bits());
+        assert_eq!(bel.mean.to_bits(), mean.to_bits(), "slot {}", bel.slot);
+        assert_eq!(bel.var.to_bits(), spread_var(mean, u, bel.slot).to_bits());
+        assert_eq!(bel.fail.to_bits(), maker_p_fail(m).to_bits());
+        assert_eq!(bel.labour.to_bits(), labour.to_bits());
+        assert_eq!(bel.flags, 0);
+        assert_eq!((bel.fight_n, bel.fight_mean, bel.fight_var), (0.0, 0.0, 0.0));
+    }
+}
+
+/// A founding kit of raw materials has no payoff slot, so the table stays empty.
+/// Once the kit holds payoff items, the fill uses skill 0.7 even if stored skill differs.
+#[test]
+fn founder_beliefs_match_the_kit_at_skill_0_7() {
+    let mut w = world();
+    for b in &w.bands {
+        assert_eq!(b.beliefs.len(), payoff_count(&b.d.kit));
+        assert_eq!(b.learn_curve.to_bits(), LC_PRIOR.to_bits());
+    }
+    let mut b = std::mem::take(&mut w.bands[0]);
+    b.beliefs.clear();
+    b.learn_curve = 0.0;
+    b.gen = 1;
+    b.use_skill[Form::Edge as usize] = 0.2;
+    b.d.kit = Kit::default();
+    b.d.kit.cut = item(Form::Edge, Mat::Flint);
+    b.d.kit.hunt = item(Form::Spear, Mat::Wood);
+    b.d.kit.point = item(Form::Point, Mat::Flint);
+    b.d.kit.boat = item(Form::Boat, Mat::Wood);
+    w.seed_beliefs(&mut b, BELIEF_NMAX, true);
+    assert_eq!(b.learn_curve.to_bits(), LC_PRIOR.to_bits());
+    assert_starter(&w, &b, BELIEF_NMAX, |_| USE_FOUNDER);
+    let edge = b.beliefs.iter().find(|e| e.slot == 1).unwrap();
+    let term = material_term(1, edge.item);
+    let at_stored = term * user_factor(0.2);
+    assert_ne!(edge.mean.to_bits(), at_stored.to_bits(), "founder fill uses 0.7, not the stored skill");
+    let boat = b.beliefs.iter().find(|e| e.slot == 11).unwrap();
+    assert_eq!(boat.var.to_bits(), (BELIEF_VAR_MIN * boat.mean * boat.mean).to_bits(), "a hull is not noised");
+    let n = b.beliefs.len();
+    w.seed_beliefs(&mut b, BELIEF_NMAX, true);
+    assert_eq!(b.beliefs.len(), n, "a second fill does not append");
+}
+
+/// An empty table is filled at half `n` from the loaded user skill. A table
+/// that already has an entry is not replaced. `learn_curve` of 0 becomes `LC_PRIOR`.
+#[test]
+fn empty_beliefs_fill_on_load_and_a_saved_table_stays() {
+    let bytes = include_bytes!("../tests/fixtures/v15_seed9_y150_64x40.civsave");
+    let (mut w, _, _) = World::load_bytes(bytes).expect("v15 save loads");
+    let with: Vec<usize> = w.bands.iter().enumerate().filter(|(_, b)| !b.beliefs.is_empty()).map(|(i, _)| i).take(2).collect();
+    assert!(with.len() >= 2, "the fixture has two bands with payoff tools");
+    let (keep_i, fill_i) = (with[0], with[1]);
+    let marker = Belief {
+        item: 7,
+        slot: 1,
+        flags: 1,
+        n: 1.25,
+        mean: 0.33,
+        var: 0.04,
+        fail: 0.1,
+        labour: 0.2,
+        fight_n: 0.5,
+        fight_mean: 0.6,
+        fight_var: 0.07,
+    };
+    w.bands[keep_i].beliefs = vec![marker.clone()];
+    w.bands[fill_i].beliefs.clear();
+    w.bands[fill_i].learn_curve = 0.0;
+    let again = w.save_bytes(None, "t", "t").unwrap();
+    let (loaded, _, _) = World::load_bytes(&again).unwrap();
+    assert_eq!(loaded.bands[keep_i].beliefs, vec![marker]);
+    let b = &loaded.bands[fill_i];
+    assert_eq!(b.learn_curve.to_bits(), LC_PRIOR.to_bits());
+    let user = band_user(b);
+    assert_starter(&loaded, b, BELIEF_NMAX * 0.5, |it| user[form(it) as usize]);
+    assert!(b.beliefs.iter().any(|e| {
+        let u = user[form(e.item) as usize];
+        let term = material_term(e.slot as usize, e.item);
+        let q = recipe_info(&b.d.tk, &b.known, e.item).1;
+        let at_founder = term * user_factor(USE_FOUNDER) * (1.0 + QUALITY_YIELD * q);
+        (u - USE_FOUNDER).abs() > 1e-4 && e.mean.to_bits() != at_founder.to_bits()
+    }), "at least one loaded belief uses the band's skill, not 0.7");
 }
 
 fn no_profile(f: Form) -> bool {

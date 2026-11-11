@@ -6,9 +6,10 @@
 //! deaths -> statistics.
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
+use crate::beliefs::{material_term, starter_belief, PayoffStart, BELIEF_NMAX, PAYOFF_SLOT};
 use crate::effects::{
     food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, pitch_in_use, recipe_info, sealed_factor,
-    tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
+    tool_upkeep, u_eff, BandView, LC_PRIOR, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
 use crate::knowledge::*;
 use crate::map::*;
@@ -1066,6 +1067,48 @@ impl World {
         b.d.tk = tk;
         b.d.kit = kit;
         b.d.tk_key = Some((raws, b.flame, b.d.known_ver));
+        // Starting state, not a peek: the kit is already chosen. Nothing reads it yet.
+        self.seed_beliefs(b, BELIEF_NMAX, true);
+    }
+
+    /// (skills step 4) One belief per occupied payoff slot, when the table is empty.
+    /// Founders: `n = BELIEF_NMAX`, user skill 0.7. A load: `n = BELIEF_NMAX / 2`,
+    /// user skill as `band_user` has it now. Mean is the expected multiplier
+    /// (`material_term * user_factor * (1 + QUALITY_YIELD * q)`). Variance is the
+    /// novice spread on a food slot, else the variance floor. `fail` is the true
+    /// make-failure chance. Labour is the economy's upkeep, waste included
+    /// (`maker_waste` is 1 at maker skill 1). Fight fields stay 0. A table that
+    /// already has entries is not touched, and `learn_curve` is set to `LC_PRIOR`
+    /// only when it was never set (0).
+    pub(crate) fn seed_beliefs(&self, b: &mut Band, n: f32, founder: bool) {
+        if !b.beliefs.is_empty() {
+            return;
+        }
+        if b.learn_curve == 0.0 {
+            b.learn_curve = LC_PRIOR;
+        }
+        let user = band_user(b);
+        let kit = b.d.kit;
+        let wet = self.near_water(b.cell(self.map.w));
+        let pitch = pitch_in_use(&kit, wet);
+        for j in 0..PAYOFF_SLOT.len() {
+            let it = kit.slot_item(j);
+            if !valid_item(it) {
+                continue;
+            }
+            let slot = PAYOFF_SLOT[j];
+            if !(material_term(slot as usize, it) > 0.0) {
+                continue;
+            }
+            let (_, quality, depth) = recipe_info(&b.d.tk, &b.known, it);
+            let u = if founder { USE_FOUNDER } else { user[form(it) as usize] };
+            let m = b.d.tk.chain_m(it);
+            let labour = tool_upkeep(self.params.upkeep, it, depth, sealed_factor(it, &kit, pitch)) * maker_waste(m);
+            b.beliefs.push(starter_belief(
+                n,
+                &PayoffStart { slot, item: it, u, quality, fail: maker_p_fail(m), labour },
+            ));
+        }
     }
 
     pub fn year(&self) -> f32 {
@@ -1203,6 +1246,9 @@ impl World {
             let harvest = b.d.harvest;
             let food = b.d.food;
             self.refresh_toolkit(b);
+            // Empty beliefs (a v16 save from before step 4, or v1–v15) are a starting
+            // state for the kit now in use. A save that already has beliefs is kept.
+            self.seed_beliefs(b, BELIEF_NMAX * 0.5, false);
             let ec = self.economy(b, s);
             ec.apply(&mut b.d);
             b.d.harvest = harvest;
@@ -1214,7 +1260,8 @@ impl World {
     /// (skills step 2) A save from before format 16 has an empty `use_skill`. Fill each
     /// form with the best `Known.skill` among this band's recipes whose output has that
     /// form (0 when none). `learn_curve` becomes `LC_PRIOR`, `last_fight_switch` becomes
-    /// never, and fight calibration, raid tallies and beliefs stay at 0 / empty.
+    /// never, and fight calibration and raid tallies stay at 0. Beliefs stay empty
+    /// here; `after_load` fills an empty table once the kit exists.
     /// Every band leaves here with `use_skill.len() == NFORM`.
     fn fill_use_skill(&mut self) {
         let outputs: Vec<Item> = self.reg.recipes.iter().map(|r| r.output).collect();

@@ -171,7 +171,8 @@ pub struct Band {
     /// recipe skill. Daughters start at zeros in this pass (inheritance is later).
     #[serde(with = "crate::codec::column")]
     pub use_skill: Vec<f32>,
-    /// Beliefs about tools. Empty until step 4.
+    /// Beliefs about tools. Founders and a load of an empty table get one per
+    /// payoff item in the kit (skills step 4). Fight fields stay 0 until step 6.
     #[serde(with = "crate::codec::column")]
     pub beliefs: Vec<Belief>,
     /// How fast beliefs move when a tool surprises the band. Starts at `LC_PRIOR`.

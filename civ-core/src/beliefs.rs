@@ -2,9 +2,10 @@
 //!
 //! Priors use visible material terms and the band's own beliefs. Updates use
 //! an outcome the caller already observed. This module does not call
-//! `tool_effects`. The season loop does not call it until a later sub-part.
+//! `tool_effects`. Founders and a load of an empty table are filled once from
+//! the kit. The season loop does not update or read beliefs until a later sub-part.
 
-use crate::effects::motion_cos;
+use crate::effects::{motion_cos, user_factor, NOVICE_SD};
 use crate::materials::{boat_q, cut_q, durability, form, mat, mesh_q, valid_item, Form, Item};
 
 /// Entries a band can hold.
@@ -316,6 +317,59 @@ pub fn fade_unused(beliefs: &mut Vec<crate::band::Belief>, used: &[bool]) {
         out.push(c);
     }
     *beliefs = out;
+}
+
+/// Chooser slot (`best[]` index) of each payoff slot, in `Kit::slot_item` order.
+pub const PAYOFF_SLOT: [u8; 12] = [0, 1, 10, 4, 11, 12, 13, 14, 15, 16, 18, 22];
+
+/// Food payoff slots. The economy's novice draw applies to these and not to a hull or a bow.
+pub fn food_payoff(slot: u8) -> bool {
+    matches!(slot, 0 | 1 | 10 | 4 | 12 | 13)
+}
+
+/// Expected multiplier of `it` in `slot`: visible term, user factor, recipe quality.
+/// The novice draw averages to 1, so it is not in the mean. Not a food total.
+pub fn expected_multiplier(slot: usize, it: Item, u: f32, quality: f32) -> f32 {
+    material_term(slot, it) * user_factor(u) * (1.0 + crate::band::QUALITY_YIELD * quality)
+}
+
+/// Variance of that multiplier. Food slots use the novice draw (`z` uniform on
+/// [-1, 1), sd `1/sqrt(3)`). Other slots are not noised, so only the floor remains.
+pub fn novice_var(mean: f32, u: f32, slot: u8) -> f32 {
+    let floor = BELIEF_VAR_MIN * mean * mean;
+    if !food_payoff(slot) || !mean.is_finite() {
+        return floor;
+    }
+    let s = NOVICE_SD * (1.0 - u) / 3.0f32.sqrt();
+    let spread = (mean * s) * (mean * s);
+    if spread > floor { spread } else { floor }
+}
+
+/// Numbers for one kit slot's starting belief. `u` is the user skill the mean uses.
+pub struct PayoffStart {
+    pub slot: u8,
+    pub item: Item,
+    pub u: f32,
+    pub quality: f32,
+    pub fail: f32,
+    pub labour: f32,
+}
+
+/// Starting belief for a founder or an old save. Flags and fight fields stay 0:
+/// this is the allowed starting state, not a season of observation.
+pub fn starter_belief(n: f32, s: &PayoffStart) -> crate::band::Belief {
+    let mean = expected_multiplier(s.slot as usize, s.item, s.u, s.quality);
+    crate::band::Belief {
+        item: s.item,
+        slot: s.slot,
+        flags: 0,
+        n,
+        mean,
+        var: novice_var(mean, s.u, s.slot),
+        fail: s.fail,
+        labour: s.labour,
+        ..Default::default()
+    }
 }
 
 /// A belief filled from a prior. Fight fields stay 0. Labour starts at 0 until an update.
