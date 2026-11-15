@@ -3693,39 +3693,54 @@ impl World {
         // partners keep visiting each other after they drift apart: a standing relationship
         // reaches further than chance meetings (much further by boat)
         let idx: crate::knowledge::FastMap<u32, usize> = bands.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+        // The filter does not roll. Bands run in parallel; survivors stay in band and
+        // partner-list order so the serial rolls below match the old single walk.
+        let screened: Vec<Vec<(usize, i32, f32, f32)>> = {
+            let world = &*self;
+            let bs = &*bands;
+            let idx = &idx;
+            fx::par_collect(bands.len(), |a| {
+                let b = &bs[a];
+                let mut out = Vec::new();
+                for pt in &b.partners {
+                    let Some(&c) = idx.get(&pt.id) else { continue };
+                    if b.id > pt.id && bs[c].partner(b.id).is_some() {
+                        continue; // the pair is visited from the other side
+                    }
+                    let o = &bs[c];
+                    let d = (b.x as i32 - o.x as i32).abs().max((b.y as i32 - o.y as i32).abs());
+                    if d <= r {
+                        continue;
+                    }
+                    let boat = b.d.kit.boat_q.max(o.d.kit.boat_q);
+                    let frame = b.d.kit.frame != NONE || o.d.kit.frame != NONE;
+                    let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat + if frame { 1.0 } else { 0.0 };
+                    let (ca, cc) = (b.cell(w as usize), o.cell(w as usize));
+                    let lm_a = world.map.landmass_of(ca);
+                    let lm_c = world.map.landmass_of(cc);
+                    // the effort of the trip: overland over the hills, along a shared river by
+                    // boat (twice as far for the effort), or by sea between coasts
+                    let mut eff = world.land_cost(ca, cc);
+                    if boat > 0.0 {
+                        if world.same_river(ca, cc) {
+                            eff = eff.min(terrain::RIVER_VISIT * d as f32);
+                        }
+                        if lm_a != lm_c || (world.coastal(ca) && world.coastal(cc)) {
+                            eff = eff.min(d as f32);
+                        }
+                    }
+                    if eff > reach || (lm_a != lm_c && boat <= 0.0) {
+                        continue;
+                    }
+                    out.push((c, d, eff, pt.strength));
+                }
+                out
+            })
+        };
         let mut far: Vec<(usize, usize, i32)> = Vec::new();
-        for (a, b) in bands.iter().enumerate() {
-            for pt in &b.partners {
-                let Some(&c) = idx.get(&pt.id) else { continue };
-                if b.id > pt.id && bands[c].partner(b.id).is_some() {
-                    continue; // the pair is visited from the other side
-                }
-                let o = &bands[c];
-                let d = (b.x as i32 - o.x as i32).abs().max((b.y as i32 - o.y as i32).abs());
-                if d <= r {
-                    continue;
-                }
-                let boat = b.d.kit.boat_q.max(o.d.kit.boat_q);
-                let frame = b.d.kit.frame != NONE || o.d.kit.frame != NONE;
-                let reach = 2.0 + 4.0 * pt.strength + 8.0 * boat + if frame { 1.0 } else { 0.0 };
-                let (ca, cc) = (b.cell(w as usize), o.cell(w as usize));
-                let lm_a = self.map.landmass_of(ca);
-                let lm_c = self.map.landmass_of(cc);
-                // the effort of the trip: overland over the hills, along a shared river by
-                // boat (twice as far for the effort), or by sea between coasts
-                let mut eff = self.land_cost(ca, cc);
-                if boat > 0.0 {
-                    if self.same_river(ca, cc) {
-                        eff = eff.min(terrain::RIVER_VISIT * d as f32);
-                    }
-                    if lm_a != lm_c || (self.coastal(ca) && self.coastal(cc)) {
-                        eff = eff.min(d as f32);
-                    }
-                }
-                if eff > reach || (lm_a != lm_c && boat <= 0.0) {
-                    continue;
-                }
-                if rng.chance(0.5 * pt.strength / (1.0 + 0.15 * eff)) {
+        for (a, part) in screened.into_iter().enumerate() {
+            for (c, d, eff, strength) in part {
+                if rng.chance(0.5 * strength / (1.0 + 0.15 * eff)) {
                     far.push((a, c, d));
                 }
             }

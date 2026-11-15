@@ -93,8 +93,8 @@ The uninstrumented partner-visits bucket, minus the far meetings, is the walk bu
 
 ## What will be applied
 
-1. **Partner phase: parallel pre-filter, serial roll.** Largest late-year wall bucket (~2.5 s/year). Everything before `rng.chance` is pure. Compute pass/fail and `eff` in parallel, then roll survivors in the original band/partner order. At 1 thread this cannot help; it must not regress. The gain is at 4 threads on the late world.
-2. **Cheap reach bound before `land_cost`.** Skip if 1 lands. `land_cost` is the smaller part of the walk (measured 1.4 s / 3 late years, and that measurement includes clock overhead). A bound only rejects a fraction of those calls. After the walk is parallel, the leftover is noise.
+1. **Partner phase: parallel pre-filter, serial roll.** Landed. The far-partner walk runs per band through `par_collect`; survivors are rolled in band and partner-list order. See the commit table.
+2. **Cheap reach bound before `land_cost`.** Skipped. The late 3-year sim fell from 40.8 s to 34.1 s, which is almost the whole uninstrumented walk (~7.6 s, meetings included in the old bucket). `land_cost` is inside that parallel walk. A bound that skips a fraction of it, then splits the rest by four threads, is under the noise.
 3. **Third closure slot.** Skip. A third per-band key would have hit 0.7% of late misses and 1.3% of seed-5 misses. An extra toolkit at ~72k bands is a large allocation for a fraction of a percent of rebuilds.
 4. **Incremental closure with a full-closure fallback** when the new item can feed an earlier recipe whose output is already producible. Closure is 2.4 s CPU per late year and 6.6 s on seed 5. Real, but only with the fallback. Not next.
 5. **Teach-list scan.** 5.6 s CPU over the late 3 years (inside parallel meetings) and 3.7 s on seed 5. Worth doing after the partner walk.
@@ -110,7 +110,10 @@ The `movement` bucket is large on the phase line and is not scheduled. It includ
 
 | commit | change | files | identity | s5 t1 | s5 t4 | late t4 |
 |---|---|---|---|---|---|---|
-| (this) | profile and this plan | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
+| 6cb1da8 | profile and this plan | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
+| (this) | parallel partner pre-filter, serial roll | `civ-core/src/world.rs` | yes, pa-idcheck threads 1 and 4 | 107.4 s → 105.9 s (−1.5 s) | 48.8 s → 41.3 s (−7.5 s) | 40.8 s → 34.1 s (−6.7 s) |
+
+Times are `pa-bench` sim seconds, one rep, A = skills-step4 binary, B = this commit. Late is the Y750 800×800 save plus 3 years at 4 threads. The 1-thread seed-5 delta is small; the 4-thread deltas are the walk.
 
 ## Not applied: changes results
 
