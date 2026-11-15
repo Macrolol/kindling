@@ -8,10 +8,10 @@
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
 //! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
-//! food. Under `durability-v2`, knife, hunt and point food use `working_edge_q` (fresh
-//! keenness times a keep factor from raw edge life) instead of bare `cut_q`, and a point's
-//! fish term is that quality rather than mere presence. The axe stays half keenness and
-//! half edge life. The default build does not. Non-food payoff slots keep the old
+//! food. Under `durability-v2`, knife, hunt and point food use `food_edge_q` (the combined
+//! working edge, or the split average cut) instead of bare `cut_q`, and a point's fish term
+//! is that quality rather than mere presence. The axe uses `axe_food_score`. The default
+//! build does not. Non-food payoff slots keep the old
 //! `KIT_UPKEEP` ranking, with the user factor in place of the recipe-skill discount.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
 use crate::knowledge::{Known, Toolkit};
@@ -531,12 +531,7 @@ fn point_food_scale(it: Item) -> f32 {
 }
 
 fn axe_term(it: Item) -> f32 {
-    if it == NONE {
-        0.0
-    } else {
-        let m = mat(it);
-        0.5 * cut_q(m) + 0.5 * score_durability(m)
-    }
+    if it == NONE { 0.0 } else { axe_food_score(mat(it)) }
 }
 
 fn mesh_term(it: Item) -> f32 {
@@ -694,14 +689,12 @@ struct Cand {
 
 fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
     let m = mat(it);
-    let dur = score_durability(m);
-    let cq = cut_q(m);
     let fq = food_edge_q(m);
     let (hunt_q, term) = match form(it) {
         Form::Spear => (0.35 + 0.65 * fq, 0.0),
         Form::Point => (0.35 * fq, 0.0),
         Form::Edge => (0.2 * fq, fq),
-        Form::Axe => (0.0, 0.5 * cq + 0.5 * dur),
+        Form::Axe => (0.0, axe_food_score(m)),
         Form::Net | Form::Trap => (0.0, mesh_q(m)),
         Form::Boat | Form::Outrigger | Form::Plank | Form::Ship => (0.0, boat_q(m)),
         Form::Bow | Form::Shield => (0.0, m.props().tough + 1.0),
@@ -875,7 +868,7 @@ fn fight_of(slot: usize, it: Item, kit: &Kit) -> f32 {
             }
         }
         1 => 0.0,
-        4 => 0.3 * (0.5 * cut_q(mat(it)) + 0.5 * score_durability(mat(it))),
+        4 => 0.3 * axe_food_score(mat(it)),
         // points already chosen: a bow without them does not keep anyone back
         14 => {
             if kit.point != NONE {
@@ -903,7 +896,7 @@ pub fn kit_yields<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, info: &F, user: &[f32;
 /// and protection stay unscaled; the axe inside protection is the material term, not `uf`.
 pub(crate) fn apply_base(k: &mut Kit, user: &[f32; NFORM]) {
     let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };
-    let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * score_durability(m));
+    let axe = q(k.axe, &axe_food_score);
     let hammer = if k.hammer == NONE { 0.0 } else { 1.0 };
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };

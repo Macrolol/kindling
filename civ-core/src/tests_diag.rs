@@ -357,7 +357,7 @@ fn diag_copper_over_steel_axe() {
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let copper = item(Form::Axe, Mat::Copper);
     let steel = item(Form::Axe, Mat::Steel);
-    let term = |m: Mat| 0.5 * cut_q(m) + 0.5 * score_durability(m);
+    let term = |m: Mat| axe_food_score(m);
     println!(
         "save {path} format v{} year {:.0} bands {} pop {}",
         info.format_version,

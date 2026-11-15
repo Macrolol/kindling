@@ -114,7 +114,10 @@ fn durability_v2_orders_edges_and_v1_formula_stays() {
     // The 15% gap is the raw formula. Compression keeps the order and shrinks it.
     assert!(raw(Mat::Steel) > raw(Mat::Iron) * 1.15, "raw steel is clearly ahead of iron, not a rounding");
     assert!(e(Mat::Steel) > e(Mat::Iron) + 0.04, "compressed steel is still clearly ahead of iron");
-    assert!((EDGE_LIFE_SPREAD - 0.50).abs() < 1e-6, "the sim's spread is the recommended one");
+    // 0.50 is the combined option's spread, kept so the comparison tables still match.
+    // The feature-on sim uses the split account, which does not compress.
+    assert!((EDGE_LIFE_SPREAD - 0.50).abs() < 1e-6, "combined spread stays 0.50 for the comparison");
+    assert!(matches!(WEAR_ACCOUNT, WearAccount::Split), "the feature-on sim uses the split account");
     assert!((edge_life_at(Mat::Steel, 1.0) - raw(Mat::Steel)).abs() < 1e-6);
     let wq = working_edge_q;
     assert!(wq(Mat::Steel) > wq(Mat::Iron) && wq(Mat::Iron) > wq(Mat::Flint), "working edge: steel > iron > flint");
@@ -161,50 +164,106 @@ fn durability_v2_orders_edges_and_v1_formula_stays() {
     }
     #[cfg(feature = "durability-v2")]
     {
-        assert_eq!(score_durability(Mat::Steel).to_bits(), class_durability(WearClass::Edge, Mat::Steel).to_bits());
+        assert_eq!(score_durability(Mat::Steel).to_bits(), edge_toughness(Mat::Steel).to_bits());
         let it = item(Form::Axe, Mat::Copper);
-        let expect = (1.15 - class_durability(WearClass::Edge, Mat::Copper)) * repair_factor(WearClass::Edge, Mat::Copper);
-        assert_eq!(upkeep_wear(it).to_bits(), expect.to_bits());
+        assert_eq!(upkeep_wear(it).to_bits(), split_edge_wear(Mat::Copper).to_bits());
+        // A cord is not an edge: the split account does not rewrite it.
+        let cord = item(Form::Cord, Mat::Flax);
+        let cord_wear = (1.15 - class_durability(WearClass::Cordage, Mat::Flax)) * repair_factor(WearClass::Cordage, Mat::Flax);
+        assert_eq!(upkeep_wear(cord).to_bits(), cord_wear.to_bits());
         assert_eq!(record_durability(Mat::Bone).to_bits(), class_durability(WearClass::Record, Mat::Bone).to_bits());
+        // Malleability does not add to the split edge. Copper is softer and more
+        // malleable than iron, and its retention is still shorter.
+        assert!(edge_retention(Mat::Copper) < edge_retention(Mat::Iron));
+        assert!(edge_toughness(Mat::Gold) < edge_toughness(Mat::Copper) || edge_retention(Mat::Gold) < edge_retention(Mat::Copper));
     }
 }
 
 /// Feature on: the priced working edge at chain depth 0, nominal band. A glass edge
 /// must not beat iron, bronze or steel. Flint still beats soft copper as a knife.
+/// Runs under both accounts. The live account is whichever `WEAR_ACCOUNT` selects;
+/// the wrappers force each one.
 #[cfg(feature = "durability-v2")]
-#[test]
-fn working_edge_orders_knife_axe_and_point() {
+fn assert_priced_edge_orders(label: &str) {
     let view = BandView::nominal();
     let info = |_: Item| (1.0f32, 0.0, 0u8);
     let price = |slot: usize, f: Form, m: Mat| {
         let it = item(f, m);
         slot_score(&view, &Kit::default(), slot, it, &info).0
     };
-    let order = |slot: usize, f: Form, mats: &[Mat], label: &str| {
+    let order = |slot: usize, f: Form, mats: &[Mat], what: &str| {
         let mut prev = f32::INFINITY;
         let mut prev_m = "";
         let mut shown = String::new();
         for &m in mats {
             let p = price(slot, f, m);
             shown.push_str(&format!(" {}={:.4}", m.name(), p));
-            assert!(p < prev, "{label}: {prev_m} {prev:.4} should beat {} {p:.4};{shown}", m.name());
+            assert!(p < prev, "{label} {what}: {prev_m} {prev:.4} should beat {} {p:.4};{shown}", m.name());
             prev = p;
             prev_m = m.name();
         }
     };
-    // Knife and point: keenness discounted by life. Flint stays ahead of soft copper.
     let cut = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Flint, Mat::Copper, Mat::Obsidian];
     order(1, Form::Edge, &cut, "knife");
     order(10, Form::Point, &cut, "point");
-    // Axe: half keenness, half compressed life, then repair. Copper is a working axe
-    // again; flint and obsidian chip. Stone (a ground celt) sits between copper and flint.
     let axe = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Copper, Mat::Stone, Mat::Flint, Mat::Obsidian];
     order(4, Form::Axe, &axe, "axe");
-    assert!(price(1, Form::Edge, Mat::Flint) > price(1, Form::Edge, Mat::Stone), "flint knife over stone");
-    assert!(price(1, Form::Edge, Mat::Copper) > price(1, Form::Edge, Mat::Obsidian), "copper knife over obsidian");
-    assert!(price(10, Form::Point, Mat::Copper) > price(10, Form::Point, Mat::Obsidian), "copper point over obsidian");
-    assert!(price(0, Form::Spear, Mat::Iron) > price(0, Form::Spear, Mat::Obsidian), "iron spear over obsidian");
-    assert!(price(0, Form::Spear, Mat::Steel) > price(0, Form::Spear, Mat::Iron), "steel spear over iron");
+    assert!(price(1, Form::Edge, Mat::Flint) > price(1, Form::Edge, Mat::Stone), "{label}: flint knife over stone");
+    assert!(price(1, Form::Edge, Mat::Copper) > price(1, Form::Edge, Mat::Obsidian), "{label}: copper knife over obsidian");
+    assert!(price(10, Form::Point, Mat::Copper) > price(10, Form::Point, Mat::Obsidian), "{label}: copper point over obsidian");
+    assert!(price(0, Form::Spear, Mat::Iron) > price(0, Form::Spear, Mat::Obsidian), "{label}: iron spear over obsidian");
+    assert!(price(0, Form::Spear, Mat::Steel) > price(0, Form::Spear, Mat::Iron), "{label}: steel spear over iron");
+}
+
+#[cfg(feature = "durability-v2")]
+#[test]
+fn working_edge_orders_knife_axe_and_point() {
+    with_durability_model(false, EDGE_LIFE_SPREAD, || assert_priced_edge_orders("combined"));
+    with_split_model(|| assert_priced_edge_orders("split"));
+}
+
+/// Split account, direct orders. Retention is hardness and acuity only.
+/// Malleability cheapens a hone and never lengthens the interval. A knapped
+/// edge's upkeep is mostly replacement. Copper's resharpen labour and its
+/// average cut both sit clearly the wrong side of iron.
+#[cfg(feature = "durability-v2")]
+#[test]
+fn split_model_orders_retention_break_and_price() {
+    let ret = edge_retention;
+    assert!(ret(Mat::Copper) < ret(Mat::Bronze) && ret(Mat::Bronze) < ret(Mat::Iron) && ret(Mat::Iron) < ret(Mat::Steel));
+    assert!(ret(Mat::Gold) < ret(Mat::Copper), "softer than copper, however malleable");
+    // Gold is more malleable than copper. Retention does not reward that.
+    assert!(Mat::Gold.props().malleable > Mat::Copper.props().malleable);
+    let resh = resharpen_labour;
+    assert!(resh(Mat::Copper) > resh(Mat::Iron) * 1.5, "copper is honed clearly more often than iron");
+    assert!(resh(Mat::Iron) > resh(Mat::Steel), "iron is honed more often than steel");
+    assert!(resh(Mat::Copper) > resh(Mat::Steel) * 2.0, "copper against steel is a larger hone gap");
+    assert!(split_working_cut(Mat::Copper) < cut_q(Mat::Copper) * 0.55, "copper's working cut is well below its fresh cut");
+    assert!(split_working_cut(Mat::Copper) < split_working_cut(Mat::Iron) * 0.7, "copper cuts clearly less than iron between hones");
+    assert!(split_working_cut(Mat::Iron) < split_working_cut(Mat::Steel));
+    assert!(split_working_cut(Mat::Flint) > split_working_cut(Mat::Copper), "flint stays keener than soft copper");
+    let br = break_labour;
+    assert!(br(Mat::Obsidian) > br(Mat::Flint) && br(Mat::Flint) > br(Mat::Stone) && br(Mat::Stone) > br(Mat::Copper));
+    assert!(br(Mat::Obsidian) > resh(Mat::Obsidian), "obsidian's cost is mostly replacement");
+    assert!(br(Mat::Flint) > resh(Mat::Flint), "flint's cost is mostly replacement");
+    assert!(resh(Mat::Copper) > br(Mat::Copper), "copper's cost is mostly the hone");
+    assert!(resh(Mat::Iron) > br(Mat::Iron));
+    assert!(split_edge_wear(Mat::Steel) < split_edge_wear(Mat::Iron));
+    assert!(split_edge_wear(Mat::Iron) < split_edge_wear(Mat::Bronze));
+    assert!(split_edge_wear(Mat::Bronze) < split_edge_wear(Mat::Copper));
+    assert!(split_edge_wear(Mat::Copper) < split_edge_wear(Mat::Stone));
+    assert!(split_edge_wear(Mat::Stone) < split_edge_wear(Mat::Flint));
+    assert!(split_edge_wear(Mat::Flint) < split_edge_wear(Mat::Obsidian));
+    // Repair still gets cheaper as malleability rises, and that is the only place it helps.
+    assert!(resharpen_cost(Mat::Copper) < resharpen_cost(Mat::Iron));
+    assert!(resharpen_cost(Mat::Iron) < resharpen_cost(Mat::Flint));
+    assert!((resharpen_cost(Mat::Obsidian) - 1.0).abs() < 1e-6, "a glass edge is replaced, not hammered");
+    for &m in &ALL_MATS {
+        assert!(split_edge_wear(m) >= 0.0, "{}", m.name());
+        assert!(split_working_cut(m) >= 0.0, "{}", m.name());
+        assert!(edge_retention(m) >= 0.0, "{}", m.name());
+    }
+    with_split_model(|| assert_priced_edge_orders("split-direct"));
 }
 
 fn axe_score(m: Mat, v2: bool) -> f32 {
@@ -322,6 +381,117 @@ fn diag_durability_table() {
             println!("    {:<10} life {:7.3} wear {:7.3} axe {:7.3} workQ {:7.3}", m.name(), life, wear, axe, working_edge_q(m));
         }
     }
+    print_accounts();
+}
+
+fn ratio(a: f32, b: f32) -> f32 {
+    if b.abs() < 1e-9 { f32::NAN } else { a / b }
+}
+
+fn print_ratio_row(label: &str, v: impl Fn(Mat) -> f32) {
+    let pairs = [
+        ("st/cu", Mat::Steel, Mat::Copper),
+        ("st/fe", Mat::Steel, Mat::Iron),
+        ("fe/br", Mat::Iron, Mat::Bronze),
+        ("br/cu", Mat::Bronze, Mat::Copper),
+        ("cu/sn", Mat::Copper, Mat::Stone),
+        ("fe/cu", Mat::Iron, Mat::Copper),
+        ("fl/ob", Mat::Flint, Mat::Obsidian),
+        ("st/sn", Mat::Steel, Mat::Stone),
+        ("br/sn", Mat::Bronze, Mat::Stone),
+    ];
+    print!("  {label:<16}");
+    for (name, a, b) in pairs {
+        print!(" {name} {:6.3}", ratio(v(a), v(b)));
+    }
+    println!();
+}
+
+/// Both accounts, every material, plus ratios for the tool edges.
+/// Pure functions, so the feature-off binary prints them too.
+fn print_accounts() {
+    println!("SPLIT every material. fresh=cut_q. work=split_working_cut. interval=resharpen_interval.");
+    println!("resh=resharpen_labour. brk=break_labour. wear=split_edge_wear. axe=split_axe_score. knife=work.");
+    println!("plants=0.1*axe (the plants coefficient). farm=0.2*axe.");
+    println!(
+        "{:<14} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "material", "fresh", "work", "interval", "resh", "brk", "wear", "axe", "knife", "plants", "farm"
+    );
+    for &m in &ALL_MATS {
+        let axe = split_axe_score(m);
+        let work = split_working_cut(m);
+        println!(
+            "{:<14} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3}",
+            m.name(),
+            cut_q(m),
+            work,
+            resharpen_interval(m),
+            resharpen_labour(m),
+            break_labour(m),
+            split_edge_wear(m),
+            axe,
+            work,
+            0.1 * axe,
+            0.2 * axe
+        );
+    }
+    println!("COMBINED tool edges at spread 0.50 and 1.00. workQ is raw (does not move with spread). wear=(1.15-life)*repair. axe=0.5*fresh+0.5*life. knife=workQ.");
+    for spread in [1.0f32, 0.50] {
+        println!("  combined spread {spread:.2}");
+        println!(
+            "  {:<10} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            "material", "fresh", "work", "life", "wear", "axe", "knife", "plants", "farm"
+        );
+        for m in [Mat::Obsidian, Mat::Flint, Mat::Stone, Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel, Mat::Bone, Mat::Gold] {
+            let life = edge_life_at(m, spread);
+            let wear = (1.15 - life) * repair_factor(WearClass::Edge, m);
+            let axe = 0.5 * cut_q(m) + 0.5 * life;
+            let work = working_edge_q(m);
+            println!(
+                "  {:<10} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3}",
+                m.name(), cut_q(m), work, life, wear, axe, work, 0.1 * axe, 0.2 * axe
+            );
+        }
+    }
+    println!("RATIOS a/b. before = today's formula (fresh cut, durability as the only 'life', wear=1.15-dur, axe=0.5*cut+0.5*dur, knife=fresh).");
+    println!("after-combined uses spread 0.50. after-split uses the split functions. plants and farm are 0.1*axe and 0.2*axe.");
+    let before_life = durability;
+    let before_wear = old_wear;
+    let before_axe = |m: Mat| 0.5 * cut_q(m) + 0.5 * durability(m);
+    let comb_life = |m: Mat| edge_life_at(m, 0.50);
+    let comb_wear = |m: Mat| (1.15 - comb_life(m)) * repair_factor(WearClass::Edge, m);
+    let comb_axe = |m: Mat| 0.5 * cut_q(m) + 0.5 * comb_life(m);
+    println!("fresh cut (unchanged: cut_q, before = after)");
+    print_ratio_row("fresh", cut_q);
+    println!("edge life / resharpen interval");
+    print_ratio_row("before-life", before_life);
+    print_ratio_row("comb-life", comb_life);
+    print_ratio_row("split-interval", resharpen_interval);
+    println!("toughness / break (before has no separate break; column is old wear, lower is better so the ratio flips)");
+    print_ratio_row("before-wear", before_wear);
+    print_ratio_row("comb-wear", comb_wear);
+    print_ratio_row("split-break", break_labour);
+    print_ratio_row("split-resh", resharpen_labour);
+    println!("working cut");
+    print_ratio_row("before-work", cut_q);
+    print_ratio_row("comb-work", working_edge_q);
+    print_ratio_row("split-work", split_working_cut);
+    println!("total upkeep (wear)");
+    print_ratio_row("before-upkeep", before_wear);
+    print_ratio_row("comb-upkeep", comb_wear);
+    print_ratio_row("split-upkeep", split_edge_wear);
+    println!("axe score and the food coefficients that multiply it");
+    print_ratio_row("before-axe", before_axe);
+    print_ratio_row("comb-axe", comb_axe);
+    print_ratio_row("split-axe", split_axe_score);
+    print_ratio_row("before-plants", |m| 0.1 * before_axe(m));
+    print_ratio_row("split-plants", |m| 0.1 * split_axe_score(m));
+    print_ratio_row("before-farm", |m| 0.2 * before_axe(m));
+    print_ratio_row("split-farm", |m| 0.2 * split_axe_score(m));
+    println!("knife score (the food term: fresh before, working_edge_q combined, split_working_cut split)");
+    print_ratio_row("before-knife", cut_q);
+    print_ratio_row("comb-knife", working_edge_q);
+    print_ratio_row("split-knife", split_working_cut);
 }
 
 fn print_ties(label: &str, life: impl Fn(Mat) -> f32) {
@@ -391,13 +561,13 @@ fn diag_durability_flips() {
         w.year(),
         w.bands.len(),
         w.total_pop(),
-        if live_v2() { "v2" } else { "v1" },
+        durability_account_name(),
         EDGE_LIFE_SPREAD
     );
-    // 0 = v1, 1 = spread 1, 2 = spread 0.50, 3 = spread 0.35
-    let labels = ["v1", "spread1.00", "spread0.50", "spread0.35"];
-    let mut flips: [BTreeMap<String, (u64, u64)>; 3] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
-    let mut axe_c: [BTreeMap<String, u64>; 4] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
+    // 0 = v1, 1 = combined spread 1, 2 = combined 0.50, 3 = combined 0.35, 4 = split
+    let labels = ["v1", "spread1.00", "spread0.50", "spread0.35", "split"];
+    let mut flips: [BTreeMap<String, (u64, u64)>; 4] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
+    let mut axe_c: [BTreeMap<String, u64>; 5] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
     let mut scorer_bad = 0u64;
     let mut scorer_n = 0u64;
     let mut kit_mismatch = 0u64;
@@ -416,7 +586,7 @@ fn diag_durability_flips() {
         let known = &b.known;
         let kit = &b.d.kit;
         for (j, &slot) in PAYOFF_SLOTS.iter().enumerate() {
-            let mut rows: [Vec<(Item, f32)>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            let mut rows: [Vec<(Item, f32)>; 5] = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
             for it in tk.avail.iter() {
                 if !fills_payoff(it, j) {
                     continue;
@@ -425,6 +595,8 @@ fn diag_durability_flips() {
                 #[cfg(feature = "durability-v2")]
                 let ps = {
                     let v1 = with_durability_model(true, 1.0, || score_item(&view, kit, tk, known, slot, it));
+                    // Non-edge wear does not use the spread or the split edge formula,
+                    // so the live score (split or combined) matches every combined spread.
                     let s1 = if spread_moves_food(slot) {
                         with_durability_model(false, 1.0, || score_item(&view, kit, tk, known, slot, it))
                     } else {
@@ -432,47 +604,62 @@ fn diag_durability_flips() {
                     };
                     let s50 = if spread_moves_food(slot) {
                         with_durability_model(false, 0.50, || score_item(&view, kit, tk, known, slot, it))
-                    } else if (EDGE_LIFE_SPREAD - 0.50).abs() < 1e-6 {
-                        live
                     } else {
-                        with_durability_model(false, 0.50, || score_item(&view, kit, tk, known, slot, it))
+                        live
                     };
                     let s35 = if spread_moves_food(slot) {
                         with_durability_model(false, 0.35, || score_item(&view, kit, tk, known, slot, it))
                     } else {
                         live
                     };
-                    [v1, s1, s50, s35]
+                    let sp = if spread_moves_food(slot) || !matches!(WEAR_ACCOUNT, WearAccount::Split) {
+                        with_split_model(|| score_item(&view, kit, tk, known, slot, it))
+                    } else {
+                        live
+                    };
+                    [v1, s1, s50, s35, sp]
                 };
                 #[cfg(not(feature = "durability-v2"))]
-                let ps = [live, live, live, live];
+                let ps = [live, live, live, live, live];
                 scorer_n += 1;
-                let expect = if live_v2() { ps[2] } else { ps[0] };
+                let expect = if !live_v2() {
+                    ps[0]
+                } else if matches!(WEAR_ACCOUNT, WearAccount::Split) {
+                    ps[4]
+                } else {
+                    ps[2]
+                };
                 if (live - expect).abs() > 1e-3 {
                     scorer_bad += 1;
                 }
-                for i in 0..4 {
+                for i in 0..5 {
                     rows[i].push((it, ps[i]));
                 }
             }
             if rows[0].is_empty() {
                 continue;
             }
-            let picks: [Item; 4] = [argmax(&rows[0]), argmax(&rows[1]), argmax(&rows[2]), argmax(&rows[3])];
+            let picks: [Item; 5] = [argmax(&rows[0]), argmax(&rows[1]), argmax(&rows[2]), argmax(&rows[3]), argmax(&rows[4])];
             kit_n += 1;
             let held = kit.slot_item(j);
-            let live_pick = if live_v2() { picks[2] } else { picks[0] };
+            let live_pick = if !live_v2() {
+                picks[0]
+            } else if matches!(WEAR_ACCOUNT, WearAccount::Split) {
+                picks[4]
+            } else {
+                picks[2]
+            };
             if live_pick != held {
                 kit_mismatch += 1;
             }
             if j == 3 {
-                for i in 0..4 {
+                for i in 0..5 {
                     *axe_c[i].entry(item_name(picks[i])).or_insert(0) += 1;
                 }
             }
             #[cfg(feature = "durability-v2")]
             {
-                for i in 0..3 {
+                for i in 0..4 {
                     if picks[0] != picks[i + 1] {
                         let key = format!("{} {} -> {}", SLOT_NAMES[j], item_name(picks[0]), item_name(picks[i + 1]));
                         bump(&mut flips[i], key, farm);
@@ -496,7 +683,7 @@ fn diag_durability_flips() {
                 let key = format!("mark {} -> {}", item_name(a), item_name(c));
                 #[cfg(feature = "durability-v2")]
                 {
-                    for i in 0..3 {
+                    for i in 0..4 {
                         bump(&mut flips[i], key.clone(), farm);
                     }
                 }
@@ -521,7 +708,7 @@ fn diag_durability_flips() {
     println!("feature off: v2 flip tables are not scored in this binary. Re-run with --features durability-v2.");
     #[cfg(feature = "durability-v2")]
     {
-        for (i, label) in ["spread1.00", "spread0.50", "spread0.35"].iter().enumerate() {
+        for (i, label) in ["spread1.00", "spread0.50", "spread0.35", "split"].iter().enumerate() {
             println!("FLIPS v1 -> {label}  (farm / forage).");
             if flips[i].is_empty() {
                 println!("  none");
@@ -531,7 +718,7 @@ fn diag_durability_flips() {
             }
         }
         println!("SUMMARY flip rows (not band totals):");
-        for (i, label) in ["spread1.00", "spread0.50", "spread0.35"].iter().enumerate() {
+        for (i, label) in ["spread1.00", "spread0.50", "spread0.35", "split"].iter().enumerate() {
             let mut bands = 0u64;
             for (farm, wild) in flips[i].values() {
                 bands += farm + wild;

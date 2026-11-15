@@ -605,14 +605,22 @@ pub fn class_durability(class: WearClass, m: Mat) -> f32 {
     }
 }
 
+/// Toughness left after the knap discount. Same expression the combined edge uses.
+/// Malleability is not in it. A high `fracture` spends toughness; it is not a
+/// brittleness column, and it is only applied here as "this edge was knapped".
+fn chip_tough(p: &Props) -> f32 {
+    p.tough * (1.0 - 0.50 * p.fracture / 10.0)
+}
+
 /// Kept edge, before compression. Hardness resists abrasion, `sharp` is the keenness
 /// the props record (steel's `hard` is only 6 against iron's 5.5; the comment on
 /// steel puts the kept edge in `sharp`). Malleability rolls a soft edge, so it
-/// divides. Toughness resists chipping, discounted when the edge fails by flaking.
+/// divides. It does not add. Toughness resists chipping, discounted when the edge
+/// fails by flaking.
 fn edge_life(p: &Props) -> f32 {
     let keep = 0.65 * p.hard + 0.35 * p.sharp;
     let roll = 1.0 + 0.09 * p.malleable;
-    let chip = p.tough * (1.0 - 0.50 * p.fracture / 10.0);
+    let chip = chip_tough(p);
     // The product alone ties pitch (hard 0.5, tough 2) with clay (hard 1, tough 1).
     // A small hardness term splits that pair. It does not reorder the working edges.
     (keep / roll) * chip / 45.0 + 0.004 * p.hard
@@ -631,8 +639,22 @@ pub const EDGE_LIFE_ANCHOR: f32 = 0.80;
 /// How far edge life sits from `EDGE_LIFE_ANCHOR`. 1.0 is the raw formula
 /// (obsidian about 0.14, steel about 0.97). Lower keeps the same order and
 /// shrinks the labour gap, so a copper edge is not three times a steel one.
-/// The sim uses this constant. Diagnostics also score 1.0.
+/// The combined account uses this. The split account does not compress.
+/// Diagnostics also score 1.0 and 0.35.
 pub const EDGE_LIFE_SPREAD: f32 = 0.50;
+
+/// How `durability-v2` prices an edge. The default build does not read it.
+/// Combined is one life per class (pass 1/2). Split prices resharpening and
+/// breakage as two labour terms. Both are pure functions of the material.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WearAccount {
+    Combined,
+    Split,
+}
+
+/// The account the feature-on sim uses. Diagnostics can score the other one
+/// without a second build. Off in the default build, because the feature is off.
+pub const WEAR_ACCOUNT: WearAccount = WearAccount::Split;
 
 /// `raw` pulled toward the anchor. Spread 1 returns `raw` bit-for-bit.
 /// Order is unchanged for any spread > 0.
@@ -653,22 +675,41 @@ pub fn edge_life_at(m: Mat, spread: f32) -> f32 {
 thread_local! {
     static DUR_SPREAD: Cell<f32> = Cell::new(-1.0);
     static DUR_V1: Cell<bool> = Cell::new(false);
+    /// 0 combined, 1 split, 255 = `WEAR_ACCOUNT`.
+    static DUR_ACCOUNT: Cell<u8> = Cell::new(255);
+}
+
+#[cfg(feature = "durability-v2")]
+fn with_model<T>(v1: bool, spread: f32, account: u8, f: impl FnOnce() -> T) -> T {
+    DUR_SPREAD.with(|s| {
+        DUR_V1.with(|v| {
+            DUR_ACCOUNT.with(|a| {
+                let old_s = s.replace(spread);
+                let old_v = v.replace(v1);
+                let old_a = a.replace(account);
+                let out = f();
+                s.set(old_s);
+                v.set(old_v);
+                a.set(old_a);
+                out
+            })
+        })
+    })
 }
 
 /// Diagnostic switch. The feature-on sim reads it; the default build does not
 /// have the function. `v1` forces the old durability and the old food terms.
+/// The account is combined, so a spread compare does not silently score the split.
 #[cfg(feature = "durability-v2")]
 pub fn with_durability_model<T>(v1: bool, spread: f32, f: impl FnOnce() -> T) -> T {
-    DUR_SPREAD.with(|s| {
-        DUR_V1.with(|v| {
-            let old_s = s.replace(spread);
-            let old_v = v.replace(v1);
-            let out = f();
-            s.set(old_s);
-            v.set(old_v);
-            out
-        })
-    })
+    with_model(v1, spread, 0, f)
+}
+
+/// Score the split account (resharpen labour and breakage apart). Spread is unused:
+/// retention is not compressed. The default build does not have the function.
+#[cfg(feature = "durability-v2")]
+pub fn with_split_model<T>(f: impl FnOnce() -> T) -> T {
+    with_model(false, 1.0, 1, f)
 }
 
 #[cfg(feature = "durability-v2")]
@@ -690,6 +731,47 @@ fn active_spread() -> f32 {
     }
 }
 
+/// 0 combined, 1 split. The default build never reads this on the hot path.
+#[cfg_attr(not(feature = "durability-v2"), allow(dead_code))]
+#[inline]
+fn active_account() -> u8 {
+    #[cfg(feature = "durability-v2")]
+    {
+        let a = DUR_ACCOUNT.with(|c| c.get());
+        if a == 255 {
+            match WEAR_ACCOUNT {
+                WearAccount::Split => 1,
+                WearAccount::Combined => 0,
+            }
+        } else {
+            a
+        }
+    }
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        0
+    }
+}
+
+/// Which account the feature-on sim is scoring. `"v1"` when a diagnostic forces
+/// the old formula. The default build always reports `"v1"`.
+pub fn durability_account_name() -> &'static str {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        "v1"
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        if dur_force_v1() {
+            "v1"
+        } else if active_account() == 1 {
+            "split"
+        } else {
+            "combined"
+        }
+    }
+}
+
 /// Share of fresh keenness a short-lived edge still gets. The rest scales with
 /// raw edge life (not the compressed life). Compression must not soften this:
 /// a gentle spread would otherwise let obsidian outrank iron again.
@@ -697,14 +779,103 @@ pub const EDGE_KEEP_FLOOR: f32 = 0.40;
 
 /// Keenness you still have after the edge's life is priced in.
 /// `cut_q * (floor + (1 - floor) * raw life)`. A life of 1 keeps the fresh edge.
-/// A life of 0 keeps `EDGE_KEEP_FLOOR` of it. Not what the default build pays.
+/// A life of 0 keeps `EDGE_KEEP_FLOOR` of it. Combined account only.
+/// Not what the default build pays.
 pub fn working_edge_q(m: Mat) -> f32 {
     let life = raw_edge_life(m);
     cut_q(m) * (EDGE_KEEP_FLOOR + (1.0 - EDGE_KEEP_FLOOR) * life)
 }
 
+/// Hardness and acuity, 0..1. Malleability is not read. Neither is toughness.
+fn keep_index(p: &Props) -> f32 {
+    (0.65 * p.hard + 0.35 * p.sharp) / 10.0
+}
+
+/// How long a working edge stays keen, as a 0..1 index. The square is Archard-shaped:
+/// the props hardness is a compressed rank, and a soft rank dulls much sooner than
+/// a linear reading of it. Malleability does not extend this. It does not enter it.
+pub fn edge_retention(m: Mat) -> f32 {
+    let k = keep_index(m.props());
+    k * k
+}
+
+/// Below this, resharpen labour would divide by zero. A material with no hardness
+/// and no acuity (brine) is not a tool; the floor only keeps the arithmetic finite.
+pub const SPLIT_INTERVAL_FLOOR: f32 = 0.02;
+
+/// Seasons of keenness relative to a perfect keep, before the use rate.
+/// Higher means you hone less often. Not compressed.
+pub fn resharpen_interval(m: Mat) -> f32 {
+    edge_retention(m).max(SPLIT_INTERVAL_FLOOR)
+}
+
+/// Share of toughness a chipped edge still contributes to the average cut.
+/// 0 would zero a knapped edge's food; flint would then lose to soft copper.
+pub const SPLIT_CHIP_FLOOR: f32 = 0.25;
+
+/// Toughness after the knap discount, 0..about 1. Breakage reads `1 - this`.
+/// Malleability is not in it.
+pub fn edge_toughness(m: Mat) -> f32 {
+    chip_tough(m.props()).max(0.0) / 10.0
+}
+
+/// Average cut between sharpenings. Fresh cut times how dull the edge gets
+/// (retention squared) times how much of that edge survives chipping.
+/// A soft edge spends the interval dull. A knapped edge spends it chipped.
+/// Malleability does not raise this.
+pub fn split_working_cut(m: Mat) -> f32 {
+    let chip = edge_toughness(m);
+    let body = SPLIT_CHIP_FLOOR + (1.0 - SPLIT_CHIP_FLOOR) * chip;
+    cut_q(m) * edge_retention(m) * body
+}
+
+/// Wear-scale of one resharpen per season at interval 1 and cost 1.
+/// `resharpen_labour = RESHARPEN_USE / interval * cost`. The existing upkeep
+/// rate is the "uses". There is no per-band sharpening loop.
+pub const RESHARPEN_USE: f32 = 0.07;
+
+/// Wear-scale of replacing the tool once a season. Times the break rate.
+/// Chain depth is the existing `(1 + 0.3 * depth)` outside this number, which
+/// is the sim's stand-in for the cost of a new tool.
+pub const BREAK_SCALE: f32 = 0.60;
+
+/// Cost of restoring the edge, 0.5..1. A hone scales down with malleability
+/// (`repair_factor`). A knapped edge is re-knapped, so the cost goes to 1
+/// (a new edge) as `fracture` goes to 10. Malleability does not buy a longer life.
+pub fn resharpen_cost(m: Mat) -> f32 {
+    let p = m.props();
+    let hone = 1.0 - (p.fracture / 10.0).clamp(0.0, 1.0);
+    let cheap = repair_factor(WearClass::Edge, m);
+    hone * cheap + (1.0 - hone) * 1.0
+}
+
+/// Resharpen labour in upkeep-wear units, for one season at the sim's use rate.
+pub fn resharpen_labour(m: Mat) -> f32 {
+    RESHARPEN_USE / resharpen_interval(m) * resharpen_cost(m)
+}
+
+/// Replacement labour in the same units. `1 - toughness`, times `BREAK_SCALE`.
+pub fn break_labour(m: Mat) -> f32 {
+    (1.0 - edge_toughness(m)).max(0.0) * BREAK_SCALE
+}
+
+/// Edge upkeep under the split account. Resharpen plus replacement. Not negative.
+/// Non-edge forms do not use this; they keep the combined class formula.
+pub fn split_edge_wear(m: Mat) -> f32 {
+    resharpen_labour(m) + break_labour(m)
+}
+
+/// Axe food term under the split account. Half the season's average cut, half
+/// the chance the head is still in one piece. Same 0.5/0.5 shape as the
+/// combined axe, so `+0.1 * axe` and `+0.2 * axe` still multiply a number on
+/// that scale. Malleability is in neither half.
+pub fn split_axe_score(m: Mat) -> f32 {
+    0.5 * split_working_cut(m) + 0.5 * edge_toughness(m)
+}
+
 /// Keenness a food slot pays. Feature off: `cut_q`, the same bits as before.
-/// Feature on: `working_edge_q`, unless a diagnostic forces the old model.
+/// Feature on, combined: `working_edge_q`. Feature on, split: `split_working_cut`.
+/// A diagnostic can force the old model.
 #[inline(always)]
 pub fn food_edge_q(m: Mat) -> f32 {
     #[cfg(not(feature = "durability-v2"))]
@@ -713,7 +884,35 @@ pub fn food_edge_q(m: Mat) -> f32 {
     }
     #[cfg(feature = "durability-v2")]
     {
-        if dur_force_v1() { cut_q(m) } else { working_edge_q(m) }
+        if dur_force_v1() {
+            cut_q(m)
+        } else if active_account() == 1 {
+            split_working_cut(m)
+        } else {
+            working_edge_q(m)
+        }
+    }
+}
+
+/// The number an axe contributes to food and to the fight blend.
+/// Feature off: `0.5 * cut_q + 0.5 * durability`, the same operations as the
+/// inlined expression this replaced. Feature on, combined: half fresh cut, half
+/// compressed edge life. Feature on, split: `split_axe_score`.
+#[inline(always)]
+pub fn axe_food_score(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        0.5 * cut_q(m) + 0.5 * durability(m)
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        if dur_force_v1() {
+            0.5 * cut_q(m) + 0.5 * durability(m)
+        } else if active_account() == 1 {
+            split_axe_score(m)
+        } else {
+            0.5 * cut_q(m) + 0.5 * class_durability(WearClass::Edge, m)
+        }
     }
 }
 
@@ -786,8 +985,10 @@ pub fn repair_factor(class: WearClass, m: Mat) -> f32 {
 }
 
 /// The `(1.15 - durability)` piece of upkeep. Feature off: that expression.
-/// Feature on: `(1.15 - class life) * repair_factor` for the item's form.
+/// Feature on, combined: `(1.15 - class life) * repair_factor` for the item's form.
 /// Edge life is the compressed one (`EDGE_LIFE_SPREAD`).
+/// Feature on, split, and the form is an edge: `split_edge_wear` (resharpen plus
+/// replacement). Other forms stay on the combined class formula. No per-use loop.
 #[inline]
 pub fn upkeep_wear(it: Item) -> f32 {
     #[cfg(not(feature = "durability-v2"))]
@@ -801,13 +1002,18 @@ pub fn upkeep_wear(it: Item) -> f32 {
         } else {
             let class = wear_class(form(it));
             let m = mat(it);
-            (1.15 - class_durability(class, m)) * repair_factor(class, m)
+            if class == WearClass::Edge && active_account() == 1 {
+                split_edge_wear(m)
+            } else {
+                (1.15 - class_durability(class, m)) * repair_factor(class, m)
+            }
         }
     }
 }
 
-/// Durability mixed into an edge's working score (axe term, `edge_q`, fight).
-/// Feature off: `durability`. Feature on: compressed edge life, not repair.
+/// Durability mixed into an edge's fight score (`edge_q`, and the old axe half).
+/// Feature off: `durability`. Feature on, combined: compressed edge life, not repair.
+/// Feature on, split: toughness after the knap discount. Malleability is not added.
 #[inline]
 pub fn score_durability(m: Mat) -> f32 {
     #[cfg(not(feature = "durability-v2"))]
@@ -816,7 +1022,13 @@ pub fn score_durability(m: Mat) -> f32 {
     }
     #[cfg(feature = "durability-v2")]
     {
-        if dur_force_v1() { durability(m) } else { class_durability(WearClass::Edge, m) }
+        if dur_force_v1() {
+            durability(m)
+        } else if active_account() == 1 {
+            edge_toughness(m)
+        } else {
+            class_durability(WearClass::Edge, m)
+        }
     }
 }
 

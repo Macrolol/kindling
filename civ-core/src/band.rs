@@ -713,7 +713,7 @@ pub fn weapon_q(k: &Kit) -> f32 {
             _ => 0.2 * edge_q(m),
         }
     };
-    let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * score_durability(mat(k.axe)) };
+    let axe = if k.axe == NONE { 0.0 } else { axe_food_score(mat(k.axe)) };
     hunt + 0.3 * axe
 }
 

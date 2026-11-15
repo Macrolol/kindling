@@ -410,14 +410,14 @@ fn report_save(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let steel_it = item(Form::Axe, Mat::Steel);
-    let term = |m: Mat| 0.5 * cut_q(m) + 0.5 * score_durability(m);
+    let term = |m: Mat| axe_food_score(m);
     println!(
         "=== {path} format v{} year {:.0} bands {} pop {} model {} ===",
         info.format_version,
         w.year(),
         w.bands.len(),
         w.total_pop(),
-        if cfg!(feature = "durability-v2") { "v2" } else { "v1" }
+        durability_account_name()
     );
     println!(
         "axe_term copper {:.3} bronze {:.3} iron {:.3} steel {:.3} | dur {:.3}/{:.3}/{:.3}/{:.3} | cut {:.3}/{:.3}/{:.3}/{:.3}",
@@ -531,8 +531,19 @@ fn report_save(path: &str) {
 #[ignore]
 fn diag_axe_breakeven() {
     let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| crate::tests_diag::DIAG_SAVE_DEFAULT.to_string());
+    #[cfg(feature = "durability-v2")]
+    {
+        println!("==== COMBINED spread {EDGE_LIFE_SPREAD:.2} (load refits the kit under this account) ====");
+        with_durability_model(false, EDGE_LIFE_SPREAD, || report_save(&path));
+        println!("==== SPLIT (retention and breakage are separate; load refits again) ====");
+        with_split_model(|| report_save(&path));
+    }
+    #[cfg(not(feature = "durability-v2"))]
     report_save(&path);
     if std::path::Path::new(FRESH_SAVE).is_file() {
+        #[cfg(feature = "durability-v2")]
+        with_durability_model(false, EDGE_LIFE_SPREAD, || report_save(FRESH_SAVE));
+        #[cfg(not(feature = "durability-v2"))]
         report_save(FRESH_SAVE);
     } else {
         println!("fresh save absent: {FRESH_SAVE}");
