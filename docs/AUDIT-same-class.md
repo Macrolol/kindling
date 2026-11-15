@@ -1,12 +1,14 @@
 # Audit: formulas that flatten or reverse a real-world ordering
 
-No simulation behaviour was changed. The only code added is an ignored diagnostic test (`civ-core/src/tests_audit.rs`). Golden hashes are untouched. A separate stream is fixing durability; that bug is listed here as the exemplar, not re-fixed.
+No simulation behaviour was changed. The only code added is ignored diagnostic tests in `civ-core/src/tests_audit.rs`. Golden hashes are untouched. A separate stream is fixing durability; that bug is listed here as the exemplar, not re-fixed. Material sizes are flagged for a later pass and are not retuned.
 
 ## Summary
 
-Seventeen findings. One is high, nine are medium, seven are low. The material findings from the first pass stand. This pass measured the other systems on one saved world, instead of judging their clamps from the formula alone.
+Twenty findings. Two are high, ten are medium, eight are low. The material findings from the first pass stand. One pass measured the other systems on one saved world, instead of judging their clamps from the formula alone. The latest pass measured the size of material steps, from the 0..10 property through to the food, fight and survival the sim applies.
 
 The high one is the bug Michael already found. `durability` puts copper, bronze and iron on the same ceiling of 1, and steel just under it (0.979), because the formula pays for malleability and then divides by 12. Wear is `1.15 - durability`, so those three metals all wear at 0.150 and steel wears faster, at 0.171. Fight order is not reversed: a steel spear is still the deadliest weapon in the table (weapon quality 0.915, then bronze 0.875, iron 0.871, copper 0.814, flint 0.707). What the cap does change is upkeep, and therefore which tool a band keeps when the food gain is small. On a nominal band, forcing every axe to chain depth 8 makes bronze's score 0.319 and steel's 0.318. The axe study already measured the larger effect, which is chain depth, not this gap. On the saved world the depth term is doing that job: a copper axe sits near chain depth 3.2 and a steel axe near 7.3, so steel's labour is about 1.6 times copper's before the wear reversal.
+
+The other high one is the size, not the order. Steel against copper is 2× on the hardness property and 1.63× on `cut_q`. Vickers hardness for those two is about 6–15× (copper roughly 40–100, a quenched steel edge roughly 600 and up), and felling trials put a steel axe several times ahead of a stone axe, not a tenth. The sim then multiplies the axe by 0.1 on plants and 0.2 on the farm. With a digging stick and a hammer already in the kit, a steel axe gathers 1.009× the plants of a copper axe, and 1.119× the farm yield. A steel spear makes a band 1.068× as strong. Chain depth 8 multiplies upkeep by 3.4 for every metal. On the nominal mix that depth swing is worth more food than swapping copper for steel. Iron against bronze stays inside 1%, which is fair for unsteeled iron and a good bronze, and should not be "fixed" into a large step. Section 18 has the pairs. Nothing was retuned.
 
 The other material findings are the same kind of mistake.
 
@@ -25,9 +27,9 @@ What the measurement adds, outside materials:
 - Farm warmth is full at 12°C, and 99.8% of farmers are there. Wetter than rain 0.5 does not help a field off a river (42% of farmer camps). Biome and the dry half of the rain range still rank land. Crop stocks sit near three quarters of field capacity (median 0.74), which is a real field, not a pile-up.
 - Wool in a cool land is refilled to 0.8 and then drains to 0.78, for all 11 such bands, while their herds vary about tenfold. Flax has the same refill and is not pinned, because flax is also grown and traded.
 
-What is not flattened, on this save. Harvest saturation is low: after one wild regrow, plants take 9% of the stock in reach, game 18%, fish 15%, farms 9%. A better tool still brings more food. The fight's casualty cap of 0.45 is never reached (the high end of a loss is about 0.28). Stress hits 1 for one band. The experiment cap of 6 is never reached. `food_ratio.min(1)` in a fight is idle, because food ratio is already capped at 1. The flat 0.02 in `marginal_mats` does not tie metal stocks (gold's median is 0.30, steel's 0.79, bronze's 0.39). `1 + 0.3 × depth` is not a flat rate.
+What is not flattened, on this save. Harvest saturation is low: after one wild regrow, plants take 9% of the stock in reach, game 18%, fish 15%, farms 9%. A better tool still brings more food. The grade of metal inside the tool is a separate, small factor (rank 2): saturation is not what hides it. The fight's casualty cap of 0.45 is never reached (the high end of a loss is about 0.28). Stress hits 1 for one band. The experiment cap of 6 is never reached. `food_ratio.min(1)` in a fight is idle, because food ratio is already capped at 1. The flat 0.02 in `marginal_mats` does not tie metal stocks (gold's median is 0.30, steel's 0.79, bronze's 0.39). `1 + 0.3 × depth` is not a flat rate.
 
-How much to trust this. It is one seed, the end of year 350, and almost everyone is well fed. A formula that binds here will bind wherever bands are this well fed and this well boated. It does not say what a hungry year does, and it does not say that every seed piles boats onto the outrigger the same way. Population growth here is not a picture of local abundance: net of the baseline death rate, the well-fed gain about 0.007 people per person per season before disease, and the food term cannot make that larger. The steep harvest curve is the important negative. Food technology still changes the take. Fight rankings are not crushed by the casualty cap. The results in hand are weakest where the question is which hull is safer, whether a crowded camp leaves, whether surplus food grows the band, how many neighbours a season can teach, and which of two similar materials is worn, knotted or displayed.
+How much to trust this. The save figures are one seed, the end of year 350, and almost everyone is well fed. A formula that binds here will bind wherever bands are this well fed and this well boated. It does not say what a hungry year does, and it does not say that every seed piles boats onto the outrigger the same way. Population growth here is not a picture of local abundance: net of the baseline death rate, the well-fed gain about 0.007 people per person per season before disease, and the food term cannot make that larger. The steep harvest curve is the important negative on that save. Harvest saturation is low, so a multiplier does reach the take. What the sizing pass adds is that the material multiplier itself is close to 1. Having a spear still changes the hunt. Which metal the spear is made of does not, by more than about 14% of game and 7% of fighting strength, steel against copper. That ratio does not depend on the save. It is the formula, at user skill 1 and recipe quality 0. Real-world comparisons are ranges (felling trials were not re-read for a single factor; hardness uses Michael's copper and steel anchors). Trust the sim ratios. Treat the "several-fold" felling claim as the direction and the order of magnitude, not as a target number to type in. The results in hand are weakest where the question is which hull is safer, whether a crowded camp leaves, whether surplus food grows the band, how many neighbours a season can teach, which of two similar materials is worn, knotted or displayed, and how large a steel edge should be beside a copper one.
 
 ## The class
 
@@ -122,9 +124,9 @@ Nominal `slot_score` (depth 0 / depth 8), empty kit, higher is better:
 | Boat | wood 0.890, hide 0.890, then fibre 0.589 | wood and hide |
 | Bow or shield term | copper = bronze = iron 9.991, steel 9.990, then stone, wood = hide 6.961, flax 5.454, wool 4.951 | the metal tie is not a makeable bow |
 
-Fire, open / stone lining / clay / ceramic: wood 650 / 810 / 970 / 1010; charcoal 950 / 1110 / 1270 / 1310. The charcoal advantage stays 300 degrees. Copper ore reduces at 1150, so a stone lining is not enough and a clay or ceramic one is. Iron ore reduces at 1400, which still needs the bellows (+250). That ordering is intact.
+Fire, open / stone lining / clay / ceramic: wood 650 / 810 / 970 / 1010; charcoal 950 / 1110 / 1270 / 1310. The charcoal advantage stays 300 degrees. Copper ore reduces at 1150, so a stone lining is not enough and a clay or ceramic one is. Iron ore reduces at 1400, which still needs the bellows (+250). That ordering is intact. The size of the gates, which is a separate question, is section 20: charcoal and stone miss copper by 40°C, and ceramic over clay is only +40°C.
 
-Section numbers under Findings keep the first pass's order. The rank column is the order after this measurement. The axe numbers already measured in the other worktree were not repeated.
+Section numbers under Findings keep the first pass's order. Sections 18–20 are the sizing pass. The rank column is the order after that pass. A "rank N" in a finding is this table, not the previous one. The axe numbers already measured in the other worktree were not repeated.
 
 ## Ranked findings
 
@@ -132,23 +134,26 @@ Severity. High: the formula reverses or flattens a core comparison widely. Mediu
 
 | Rank | Severity | Where | Issue | Impact | Proposed fix |
 |---|---|---|---|---|---|
-| 1 | High | `materials.rs:537`, `effects.rs:373` | Durability caps copper, bronze and iron at 1 and ranks steel lower, because it pays for malleability. Wear is `1.15 − durability`, so steel wears out first. | Every upkeep comparison among metals. Fight order stays steel first. Axe keep-or-switch moves, as the axe study measured. Depth still separates the metals (copper axes near depth 3.2, steel near 7.3). | Score edge life from toughness and hardness, not malleability, and do not let three metals share the ceiling. |
-| 2 | Medium | `materials.rs:553`, `effects.rs:873`, `world.rs:1804`, `world.rs:2761` | Dugout and skin boat both score 0.929. On the year-350 save, hull quality is at 1 and 98.8% have an outrigger, so 98.6% of boats, including novices, sit on the hazard floor of 0.3, and 3,296 of 3,333 share fish radius 3. | A plank does not fish further and does not keep a crew safer. Voyage distance still spreads (`sea_range` about 10 to 20). | Separate wood and hide. Do not round the radius. Do not floor survival so early, and do not let the outrigger pin every hull there. |
-| 3 | Medium | `world.rs:2207`, `world.rs:4851` | Births use `((food_ratio − 0.75) / 0.25).clamp(0, 1)`, and `food_ratio` is already capped at 1. On this save the food term is 1 for 98.78% and 0 for 0.42%. | Surplus food does not buy children. Spare and settlement still move the birth factor by about ±8% around the median. Store is not full. | Let births see the store, not only whether this season was eaten. |
-| 4 | Medium | `world.rs:2744` | `push_out` clamps stress, crowd and pressure to 1. Raw push is at least 1 for 46% (median 0.78, max 22). | A merely crowded camp and a camp with raw push 6–22 leave, split and scout at the same rate. Stress is not what drives it. | Soft-saturate, `1 − exp(−raw)`, so the tail still ranks. |
-| 5 | Medium | `effects.rs:892` | Protection caps at 0.92. With fire, warmth 1, a kiln and an axe the raw value is 0.95. 51% of bands are on the cap. | Half the world shares one cold-protection number. Extra garment quality cannot help them. A warmth fix that leaves the best garment at 1 is swallowed here. | Put the cap above a fully equipped good garment, or drop it. |
-| 6 | Medium | `materials.rs:563`, `effects.rs:1249` | Hide, wool and plant fibre all have warmth 1.0. Flax is special-cased to 0.55. The tie keeps hide. | Wool clothes are never worn once hide clothes exist. For the half of bands on rank 5, a split that stays near 1 would not change cold need either. | Rank warmth by loft: wool, then hide, then linen and bast, with no shared ceiling, and clear the protection cap. |
-| 7 | Medium | `world.rs:28`, `world.rs:3431` | Chance meetings stop at 4. Median neighbours inside the teach radius is 26. Partner visits are uncapped. | Denser country does not teach more, once a band is past 4 chance meetings. Not fully resimulated: 16% are over the cap from their own cell alone. | Let the cap grow with the band, for example `4 + pop / 40`, instead of a flat 4. |
-| 8 | Medium | `materials.rs:558`, `effects.rs:671` | Mesh quality ties fibre, hide and wool at 0.800. Wear then picks hide, then wool, then bast. | Until linen exists, the net and the snare are rawhide, not bast cord. | Make mesh a product of fibre and strength, so bast beats wool and rawhide. |
-| 9 | Medium | `effects.rs:1258` | Ornaments are ranked by hardness, plus 10 if the material is prized. | Obsidian beats bronze. Bone beats copper. Gold is fine. Prestige amount ignores hardness. | Rank show by prized and by being metal, not by scratch hardness. |
-| 10 | Medium | `effects.rs:500`, `materials.rs:532` | Hunt food uses `cut_q` and not toughness. Obsidian's edge outscores steel's at depth 0. | The edge ordering is wrong. On this save 3,255 hunts are steel (wood 22 and copper 45 are the only other materials above 20), so the usual keeper is still steel. | Put durability into the hunt food term, after finding 1, or stop letting sharpness alone outrank a metal. |
-| 11 | Low | `world.rs:3929`, `world.rs:163` | A relevant lesson is `skill × 0.8 × prestige_bias`, then `.min(0.95)`. The bias floor of 0.5 binds on 10% of partner edges; the ceiling of 2 binds on 0.67%. | 19% of teachable recipes (skill at least 0.25) would hit 0.95 if the lesson is relevant. Ordinary teachers, bias near 1, stay under it. Showing off never hits its 0.9 cap. | Let bias raise a chance that is already a probability, `1 − (1 − base)^bias`, so skill and prestige keep their order under 1. |
-| 12 | Low | `world.rs:3698` | A visit's lot is `(stock − 0.2).min(0.3 × frame)` once stock is at least 0.3. Worth is already 0 at stock 1.3. The stock cap of 1.5 almost never binds. | A band with 0.5 steel and one with 1.2 send the same bundle. Steel: 76% of holders with stock at least 0.3. Gold never. | If a richer pile should move more, let the cap grow with stock. A load limit is still reasonable, which is why this stays low. |
-| 13 | Low | `farming.rs:59`, `farming.rs:60` | Warmth is full at 12°C (99.8% of farmers). Off a river, water is full once rain is 0.5 (42% of farmer camps). | Hot and cool farmland share warmth 1. Biome, river, and the dry half of rain still rank land. Crop at field capacity is only 11% (median 0.74). | If hotter farmland should yield more, saturate warmth nearer 18°C than 12°C. Otherwise leave it: the niche is the usual shape. |
-| 14 | Low | `farming.rs:547` | Cool-land wool is `stock.max(0.8)`, then ordinary use drains it to about 0.78. | All 11 such bands sit there, while herd per person runs from 0.04 to 0.58. Flax has the same refill (`farming.rs:462`) and is not pinned. | Fill wool from the herd, `(stock + 0.15 × herd).min(1.5)`, instead of a constant. |
-| 15 | Low | `effects.rs:838` | A bow's fight bonus is a flat 0.3 whenever any point is carried. | Bone arrows and steel arrows fight the same once the bow exists. The spear still cares about material. | Scale the bow's fight term by the point's `edge_q`. |
-| 16 | Low | `world.rs:2008` | Food effort is at least 30% of labour. Upkeep alone exceeds 55% of labour for 3.64% of bands, which is the tail that hits that floor on tools alone. | Those bands cannot spend less time feeding themselves as the kit gets dearer. `1 + 0.3 × depth` still spreads (median 2.2, max 4.9). | Leave it if the floor is "you still have to eat". It is not a flat labour price. |
-| 17 | Low | `materials.rs:549` | `vessel_q` defaults to 0.3, so wood, stone, every metal, bone, pitch and meat are one vessel. | No recipe makes those vessels, so the 0.3 does not change play. | Default unknown vessels to 0. |
+| 1 | High | `materials.rs:537`, `effects.rs:373` | Durability caps copper, bronze and iron at 1 and ranks steel lower, because it pays for malleability. Wear is `1.15 − durability`, so steel wears out first. | Every upkeep comparison among metals. Fight order stays steel first. Axe keep-or-switch moves, as the axe study measured. Depth still separates the metals (copper axes near depth 3.2, steel near 7.3). Copper's upkeep is also 0.27× a stone axe's, which exaggerates copper against stone. | Score edge life from toughness and hardness, not malleability, and do not let three metals share the ceiling. |
+| 2 | High | `effects.rs:554`, `effects.rs:564`, `materials.rs:532`, `band.rs:701`, `world/conflict.rs:49` | Sub-type H. Steel/copper is 1.63× on `cut_q` and about 6–15× on Vickers. Plants then move by 1.009× (`0.1 × axe`), farm by 1.119×, spear strength by 1.068×. Depth 8 multiplies upkeep by 3.4, which on the nominal mix outweighs the metal. | The tech ladder barely changes food or a fight. Iron against bronze is already about 1, and that part is fair. Details in section 18. | Not now. Later: size axes and blades to sustained work, not to a 10% bump, and shrink the fight offsets. Re-price depth after. |
+| 3 | Medium | `materials.rs:553`, `effects.rs:873`, `world.rs:1804`, `world.rs:2761` | Dugout and skin boat both score 0.929. On the year-350 save, hull quality is at 1 and 98.8% have an outrigger, so 98.6% of boats, including novices, sit on the hazard floor of 0.3, and 3,296 of 3,333 share fish radius 3. | A plank does not fish further and does not keep a crew safer. Voyage distance still spreads (`sea_range` about 10 to 20). | Separate wood and hide. Do not round the radius. Do not floor survival so early, and do not let the outrigger pin every hull there. |
+| 4 | Medium | `effects.rs:872`, `world.rs:1804`, `world.rs:2760` | Sub-type H. A plank is only `boat_q + 0.25` (1.077× a dugout). Survival on a 10-cell hop is 1.013×, fish radius is the same 3, and the outrigger's +0.15 is larger than the hull gap. | Even after wood and hide are untied, a planked hull is not a different boat. Section 19. | Let hull class move load and hazard by more than 0.15. Do not retune now. |
+| 5 | Medium | `world.rs:2207`, `world.rs:4851` | Births use `((food_ratio − 0.75) / 0.25).clamp(0, 1)`, and `food_ratio` is already capped at 1. On this save the food term is 1 for 98.78% and 0 for 0.42%. | Surplus food does not buy children. Spare and settlement still move the birth factor by about ±8% around the median. Store is not full. | Let births see the store, not only whether this season was eaten. |
+| 6 | Medium | `world.rs:2744` | `push_out` clamps stress, crowd and pressure to 1. Raw push is at least 1 for 46% (median 0.78, max 22). | A merely crowded camp and a camp with raw push 6–22 leave, split and scout at the same rate. Stress is not what drives it. | Soft-saturate, `1 − exp(−raw)`, so the tail still ranks. |
+| 7 | Medium | `effects.rs:892` | Protection caps at 0.92. With fire, warmth 1, a kiln and an axe the raw value is 0.95. 51% of bands are on the cap. | Half the world shares one cold-protection number. Extra garment quality cannot help them. A warmth fix that leaves the best garment at 1 is swallowed here. | Put the cap above a fully equipped good garment, or drop it. |
+| 8 | Medium | `materials.rs:563`, `effects.rs:1249` | Hide, wool and plant fibre all have warmth 1.0. Flax is special-cased to 0.55. The tie keeps hide. Wool/hide cold need is exactly 1. | Wool clothes are never worn once hide clothes exist. For the half of bands on rank 7, a split that stays near 1 would not change cold need either. Linen at 0.55 is a plausible size. | Rank warmth by loft: wool, then hide, then linen and bast, with no shared ceiling, and clear the protection cap. |
+| 9 | Medium | `world.rs:28`, `world.rs:3431` | Chance meetings stop at 4. Median neighbours inside the teach radius is 26. Partner visits are uncapped. | Denser country does not teach more, once a band is past 4 chance meetings. Not fully resimulated: 16% are over the cap from their own cell alone. | Let the cap grow with the band, for example `4 + pop / 40`, instead of a flat 4. |
+| 10 | Medium | `materials.rs:558`, `effects.rs:671` | Mesh quality ties fibre, hide and wool at 0.800. Wear then picks hide, then wool, then bast. Flax/fibre mesh is 1.17× and fish from the net is only 1.07×. | Until linen exists, the net and the snare are rawhide, not bast cord. The tie, not the 0.9 coefficient, is what erases wool against bast. | Make mesh a product of fibre and strength, so bast beats wool and rawhide. |
+| 11 | Medium | `effects.rs:1258` | Ornaments are ranked by hardness, plus 10 if the material is prized. | Obsidian beats bronze. Bone beats copper. Gold is fine. Prestige amount ignores hardness. | Rank show by prized and by being metal, not by scratch hardness. |
+| 12 | Medium | `effects.rs:500`, `materials.rs:532` | Hunt food uses `cut_q` and not toughness. Obsidian's edge outscores steel's at depth 0. | The edge ordering is wrong. On this save 3,255 hunts are steel (wood 22 and copper 45 are the only other materials above 20), so the usual keeper is still steel. The size of steel against copper, once order is fixed, is rank 2. | Put durability into the hunt food term, after finding 1, or stop letting sharpness alone outrank a metal. |
+| 13 | Low | `world.rs:3929`, `world.rs:163` | A relevant lesson is `skill × 0.8 × prestige_bias`, then `.min(0.95)`. The bias floor of 0.5 binds on 10% of partner edges; the ceiling of 2 binds on 0.67%. | 19% of teachable recipes (skill at least 0.25) would hit 0.95 if the lesson is relevant. Ordinary teachers, bias near 1, stay under it. Showing off never hits its 0.9 cap. | Let bias raise a chance that is already a probability, `1 − (1 − base)^bias`, so skill and prestige keep their order under 1. |
+| 14 | Low | `world.rs:3698` | A visit's lot is `(stock − 0.2).min(0.3 × frame)` once stock is at least 0.3. Worth is already 0 at stock 1.3. The stock cap of 1.5 almost never binds. | A band with 0.5 steel and one with 1.2 send the same bundle. Steel: 76% of holders with stock at least 0.3. Gold never. | If a richer pile should move more, let the cap grow with stock. A load limit is still reasonable, which is why this stays low. |
+| 15 | Low | `farming.rs:59`, `farming.rs:60` | Warmth is full at 12°C (99.8% of farmers). Off a river, water is full once rain is 0.5 (42% of farmer camps). | Hot and cool farmland share warmth 1. Biome, river, and the dry half of rain still rank land. Crop at field capacity is only 11% (median 0.74). | If hotter farmland should yield more, saturate warmth nearer 18°C than 12°C. Otherwise leave it: the niche is the usual shape. |
+| 16 | Low | `farming.rs:547` | Cool-land wool is `stock.max(0.8)`, then ordinary use drains it to about 0.78. | All 11 such bands sit there, while herd per person runs from 0.04 to 0.58. Flax has the same refill (`farming.rs:462`) and is not pinned. | Fill wool from the herd, `(stock + 0.15 × herd).min(1.5)`, instead of a constant. |
+| 17 | Low | `effects.rs:838` | A bow's fight bonus is a flat 0.3 whenever any point is carried. | Bone arrows and steel arrows fight the same once the bow exists. The spear still cares about material. | Scale the bow's fight term by the point's `edge_q`. |
+| 18 | Low | `world.rs:2008` | Food effort is at least 30% of labour. Upkeep alone exceeds 55% of labour for 3.64% of bands, which is the tail that hits that floor on tools alone. | Those bands cannot spend less time feeding themselves as the kit gets dearer. `1 + 0.3 × depth` still spreads (median 2.2, max 4.9). | Leave it if the floor is "you still have to eat". It is not a flat labour price. |
+| 19 | Low | `materials.rs:549` | `vessel_q` defaults to 0.3, so wood, stone, every metal, bone, pitch and meat are one vessel. | No recipe makes those vessels, so the 0.3 does not change play. | Default unknown vessels to 0. |
+| 20 | Low | `materials.rs:571`, `physics.rs:476`, `materials.rs:197` | Sub-type H. Iron reduces at 1400°C, 90°C above charcoal in a ceramic kiln, so bellows are a switch. Ceramic over clay is only +40°C. Charcoal over wood (+300°C) is a fair step. | The ladder's order is right. The gate is a razor, and a good furnace cannot touch iron. Section 20. | Keep the order. If bellows should help iron rather than be required, lower 1400 into the usual bloomery range. Not now. |
 
 ## Findings
 
@@ -269,7 +274,7 @@ That is about flax 0.64, fibre 0.52, wool 0.51, hide 0.46. Bast then beats rawhi
 
 ### 4. Dugout and skin boat are the same boat, and rounding finishes the job
 
-Medium, rank 2. Sub-types A, C, D and E. The first pass called the survival floor a veteran effect. On the year-350 save it binds for almost every boat, including novices.
+Medium, rank 3. Sub-types A, C, D and E. The first pass called the survival floor a veteran effect. On the year-350 save it binds for almost every boat, including novices.
 
 ```553:555:civ-core/src/materials.rs
 pub fn boat_q(m: Mat) -> f32 {
@@ -390,7 +395,7 @@ Proposed fix, not applied. `0.3 * edge_q(mat(kit.point))` instead of 0.3, and le
 
 ### 8. The vessel default
 
-Low, rank 17. Sub-type G. The protection cap that used to sit in this section is rank 5, measured, and is written out below.
+Low, rank 19. Sub-type G. The protection cap that used to sit in this section is rank 7, measured, and is written out below.
 
 ```542:550:civ-core/src/materials.rs
 pub fn vessel_q(m: Mat) -> f32 {
@@ -411,7 +416,7 @@ Proposed fix, not applied. `_ => 0.0` in `vessel_q`, so an unexpected material i
 
 ### 9. Births do not see a surplus
 
-Medium, rank 3. Sub-types A and F.
+Medium, rank 5. Sub-types A and F.
 
 ```2207:2212:civ-core/src/world.rs
         let fed = ((food_ratio - 0.75) / 0.25).clamp(0.0, 1.0);
@@ -445,7 +450,7 @@ At food ratio 1 and an empty store, `fed` is 0.5. At a store of two seasons' nee
 
 ### 10. Crowded camps all leave at the same rate
 
-Medium, rank 4. Sub-type A.
+Medium, rank 6. Sub-type A.
 
 ```2740:2745:civ-core/src/world.rs
     /// How hard life at home pushes a band to look elsewhere: hunger, cold and crowding.
@@ -475,7 +480,7 @@ let raw = b.d.stress + 0.5 * crowd + b.pressed;
 
 ### 11. Protection piles half the world on 0.92
 
-Medium, rank 5. Sub-type A. Moved out of finding 8 because the first pass treated it as a corner.
+Medium, rank 7. Sub-type A. Moved out of finding 8 because the first pass treated it as a corner.
 
 ```891:892:civ-core/src/effects.rs
     let gq = q(k.garment, &garment_q);
@@ -496,7 +501,7 @@ Proposed fix, not applied. Drop the `.min(0.92)`, or set it above the best equip
 
 ### 12. Four meetings, in a country with twenty-six neighbours
 
-Medium, rank 7. Sub-type A. The draw itself was not resimulated. The numbers are the neighbourhood and the same-cell lower bound.
+Medium, rank 9. Sub-type A. The draw itself was not resimulated. The numbers are the neighbourhood and the same-cell lower bound.
 
 ```28:28:civ-core/src/world.rs
 const MAX_MEETINGS: u8 = 4;
@@ -514,7 +519,7 @@ Proposed fix, not applied. Grow the cap with the band instead of a flat 4, for e
 
 ### 13. Lessons pile up only at the top, and the prestige floor does not
 
-Low, rank 11. Sub-type A. The first pass left prestige's 0.5..2 clamp as a social saturation. The floor binds more often than the ceiling. Neither is a material reversal.
+Low, rank 13. Sub-type A. The first pass left prestige's 0.5..2 clamp as a social saturation. The floor binds more often than the ceiling. Neither is a material reversal.
 
 ```162:164:civ-core/src/world.rs
 pub fn prestige_bias(src: &Band, dst: &Band) -> f32 {
@@ -543,7 +548,7 @@ Bias and skill both still move `pl`, and `pl` stays at most 1. Widening the pres
 
 ### 14. A visit carries the same lot from a small pile and a large one
 
-Low, rank 12. Sub-type A, and the cap is close to a physical load, which is why it is low.
+Low, rank 14. Sub-type A, and the cap is close to a physical load, which is why it is low.
 
 ```3696:3698:civ-core/src/world.rs
                 // (v8) a carrying frame takes a bigger load, more for a better basket
@@ -563,7 +568,7 @@ Proposed fix, not applied, and only if a richer pile should move more than one b
 
 ### 15. Farm warmth is full at 12°C
 
-Low, rank 13. Sub-type A. Other terms still rank the land, which is why it is not medium.
+Low, rank 15. Sub-type A. Other terms still rank the land, which is why it is not medium.
 
 ```57:61:civ-core/src/world/farming.rs
     // a marked dry or cold season suits annual grasses; the ever-wet tropics less so
@@ -585,7 +590,7 @@ Proposed fix, not applied, and only if hotter land should yield more. `((temp �
 
 ### 16. Wool is refilled to one number, whatever the flock
 
-Low, rank 14. Sub-type E. Eleven bands.
+Low, rank 16. Sub-type E. Eleven bands.
 
 ```544:548:civ-core/src/world/farming.rs
             // fleece: tame sheep and goats in cool lands grow wool worth spinning
@@ -613,7 +618,7 @@ A herd of 0.2 then adds 0.03 a season. A herd of 0.6 adds 0.09. The 1.5 cap is t
 
 ### 17. The food-effort floor hits the expensive tail only
 
-Low, rank 16. Sub-type A, small population. Not a flat labour price.
+Low, rank 18. Sub-type A, small population. Not a flat labour price.
 
 ```2008:2008:civ-core/src/world.rs
         let max_e = (labour * 0.85 - upkeep_l).max(labour * 0.3);
@@ -759,7 +764,7 @@ Most of the 96 clamps are limits that should bind, or that nothing reaches. Grou
 
 **Skill stored in 0..1.** `effects.rs:330`, `knowledge.rs:596` and the following lines. On this save, 257,703 recipes, none outside 0..1, and 29.63% have skill at least 0.99. That is the practice asymptote `skill × (1 − skill)`, a real "fully practised" limit, not a clamp that moves a stored skill onto the bound. Quality within 0.01 of skill is only 5.35% of 236,375 recipes, so quality is not stuck on skill. `use_skill`: 107,328, none outside 0..1, 44.68% at least 0.99. `chain_m` on payoff tools: 31,774, the floor 0.05 binds for 0.00%, and 26.96% are at least 0.999. Maker waste and failure ride that chain. The floor never binds. The top is practised chains, the same shape as skill.
 
-**Qualities whose clamp never moves a real input.** `cut_q` max is 0.820. `boat_q` max is 0.929. `mesh_q` max is 0.933. `fire_temp` is not clamped, and charcoal stays 300 degrees above wood under every lining (open 950 against 650, ceramic kiln 1310 against 1010). Kiln rank by refractory is ceramic 9, clay 8, stone 4. Charcoal plus stone is 1110, under copper ore's 1150. Charcoal plus clay is 1270 and plus ceramic is 1310, both over it. Iron ore at 1400 still needs bellows. That ladder is right.
+**Qualities whose clamp never moves a real input.** `cut_q` max is 0.820. `boat_q` max is 0.929. `mesh_q` max is 0.933. `fire_temp` is not clamped, and charcoal stays 300 degrees above wood under every lining (open 950 against 650, ceramic kiln 1310 against 1010). Kiln rank by refractory is ceramic 9, clay 8, stone 4. Charcoal plus stone is 1110, under copper ore's 1150. Charcoal plus clay is 1270 and plus ceramic is 1310, both over it. Iron ore at 1400 still needs bellows. That ladder is right. The size of the steps is not "fine": section 20. Charcoal and stone miss the copper gate by 40°C, and ceramic over clay is +40°C.
 
 **Sails, among sails that exist.** The score is toughness, plus 10 if the cloth is not plant-fibre matting (`effects.rs:1255`). Makeable sails are linen 14.5, wool 14, mat 3. Linen over wool over matting is the right order. The +10 is large and would also prefer a hide sail, but hide is not a sail recipe.
 
@@ -793,3 +798,9 @@ Most of the 96 clamps are limits that should bind, or that nothing reaches. Grou
 8. The meeting cap is 4 and the median band has 26 neighbours within two cells. Partner visits are already uncapped. Is 4 a short season on purpose, or should denser country teach more? The wider draw was not resimulated; 16% are over the cap from their own cell alone.
 9. `push_out` is 1 for 46% of bands, from crowding, with raw values up to 22. Should a more crowded camp be more eager to leave than one that is merely crowded?
 10. Farm warmth is full at 12°C, and 99.8% of farmers are there. Should hotter farmland yield more, or do biome and rain carry that?
+11. A steel axe against a copper one is 1.009× plants and 1.119× farm yield, and a steel spear is 1.068× the fighting strength. Felling trials are several-fold, not a tenth. Should the deep dive aim at that sustained-work gap, or is a small calorie step the intended abstraction? The 0.1 and 0.2 coefficients cannot express a several-fold gap even if `cut_q` is rewritten. Vickers (about 6–15×) should not be pasted onto food.
+12. Iron against bronze is inside 1% on the axe, the farm and the fight. Leave them that close? Unsteeled iron and a good bronze really are close. Steel is the step that is missing.
+13. Depth 8 multiplies upkeep by 3.4. On the nominal mix that costs more than the whole steel-for-copper upgrade. Should a long chain stay that expensive once the food gap is widened, or was the depth price set against "a tool" rather than against "a better metal"?
+14. A plank is 1.077× a dugout, and about 1% safer on a 10-cell hop, with the same fish radius. The outrigger's +0.15 is larger than that hull gap. Should a planked hull be a different class of boat in load and safety, or is 8% the intended step?
+15. Wool and hide are the same warmth, so cold need does not move. If hide is a fur, is 1 the right size? If hide is leather, wool should be warmer, and by how much? Linen at 0.55 of the capped wool score looks plausible either way.
+16. Iron reduces at 1400°C, 90°C above charcoal in a ceramic kiln, so bellows are required, and a stone lining misses copper by 40°C. Is that razor intended, or should a good furnace be able to touch iron without the blast?
