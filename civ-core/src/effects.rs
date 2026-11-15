@@ -359,7 +359,8 @@ pub fn sealed_factor(it: Item, kit: &Kit, pitch: bool) -> f32 {
 
 /// One item's upkeep in the economy's units (a fraction of the labour pool, before
 /// `* LABOUR_SHARE * pop`). Ornaments are kept for show. A fire or a cooked meal is the
-/// flat 0.01. Anything else is `sealed * rate * (1.15 - durability) * (1 + 0.3 * depth)`.
+/// flat 0.01. Anything else is `sealed * rate * upkeep_wear(it) * (1 + 0.3 * depth)`.
+/// `upkeep_wear` is `1.15 - durability` unless `durability-v2` is on.
 ///
 /// Trials call this with `sealed = 1`. They never got the pitch discount, and a given kit's
 /// trial wear stays what it was.
@@ -370,7 +371,7 @@ pub fn tool_upkeep(rate: f32, it: Item, depth: u8, sealed: f32) -> f32 {
     if matches!(form(it), Form::Fire | Form::Cooked) {
         return 0.01;
     }
-    sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32)
+    sealed * rate * upkeep_wear(it) * (1.0 + 0.3 * depth as f32)
 }
 
 fn is_food_slot(slot: usize) -> bool {
@@ -513,7 +514,7 @@ fn axe_term(it: Item) -> f32 {
         0.0
     } else {
         let m = mat(it);
-        0.5 * cut_q(m) + 0.5 * durability(m)
+        0.5 * cut_q(m) + 0.5 * score_durability(m)
     }
 }
 
@@ -661,7 +662,7 @@ struct Cand {
 
 fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
     let m = mat(it);
-    let dur = durability(m);
+    let dur = score_durability(m);
     let cq = cut_q(m);
     let (hunt_q, term) = match form(it) {
         Form::Spear => (0.35 + 0.65 * cq, 0.0),
@@ -673,7 +674,7 @@ fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
         Form::Bow | Form::Shield => (0.0, m.props().tough + 1.0),
         _ => (0.0, 0.0),
     };
-    Cand { it, d, sk, ql, hunt_q, term, dur_term: 1.15 - dur, depth_f: 1.0 + 0.3 * d as f32, m: maker }
+    Cand { it, d, sk, ql, hunt_q, term, dur_term: upkeep_wear(it), depth_f: 1.0 + 0.3 * d as f32, m: maker }
 }
 
 #[inline(always)]
@@ -833,7 +834,7 @@ fn fight_of(slot: usize, it: Item, kit: &Kit) -> f32 {
             }
         }
         1 => 0.0,
-        4 => 0.3 * (0.5 * cut_q(mat(it)) + 0.5 * durability(mat(it))),
+        4 => 0.3 * (0.5 * cut_q(mat(it)) + 0.5 * score_durability(mat(it))),
         // points already chosen: a bow without them does not keep anyone back
         14 => {
             if kit.point != NONE {
@@ -861,7 +862,7 @@ pub fn kit_yields<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, info: &F, user: &[f32;
 /// and protection stay unscaled; the axe inside protection is the material term, not `uf`.
 pub(crate) fn apply_base(k: &mut Kit, user: &[f32; NFORM]) {
     let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };
-    let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * durability(m));
+    let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * score_durability(m));
     let hammer = if k.hammer == NONE { 0.0 } else { 1.0 };
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
@@ -1047,7 +1048,7 @@ fn nonfood_qv(slot: usize, m: Mat) -> f32 {
 /// Not the real upkeep (a hull is not ranked by caulking).
 fn nonfood_scores(slot: usize, it: Item, u_eff: f32, ql: f32, d: u8) -> (f32, f32) {
     let m = mat(it);
-    nonfood_from(nonfood_qv(slot, m), u_eff, ql, 1.15 - durability(m), 1.0 + 0.3 * d as f32)
+    nonfood_from(nonfood_qv(slot, m), u_eff, ql, upkeep_wear(it), 1.0 + 0.3 * d as f32)
 }
 
 fn nonfood_from(term: f32, u_eff: f32, ql: f32, dur_term: f32, depth_f: f32) -> (f32, f32) {
@@ -1260,7 +1261,7 @@ where
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
             // the mark that lasts: fired token, bone, stick, raw clay
-            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
+            Form::Mark => upd(23, record_durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,

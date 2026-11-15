@@ -9,6 +9,9 @@ publish = false
 [features]
 default = []
 parallel = ["dep:rayon"]
+# Proposal only. Off by default, so the sim and its golden hashes stay as they are.
+# See docs/PROPOSAL-durability.md.
+durability-v2 = []
 
 [dependencies]
 rayon = { version = "1.10", optional = true }

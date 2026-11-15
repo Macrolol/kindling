@@ -712,7 +712,7 @@ pub fn weapon_q(k: &Kit) -> f32 {
             _ => 0.2 * edge_q(m),
         }
     };
-    let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * durability(mat(k.axe)) };
+    let axe = if k.axe == NONE { 0.0 } else { 0.5 * cut_q(mat(k.axe)) + 0.5 * score_durability(mat(k.axe)) };
     hunt + 0.3 * axe
 }
 
@@ -738,7 +738,7 @@ pub const KIT_TRIAL_P: f32 = 0.2;
 /// (v8) a blade's worth in a fight: sharp and lasting. Not used for food (skills step 1);
 /// only `weapon_q` and `Effects.fight` read it.
 pub fn edge_q(m: Mat) -> f32 {
-    0.55 * cut_q(m) + 0.45 * durability(m)
+    0.55 * cut_q(m) + 0.45 * score_durability(m)
 }
 
 /// Choose the best item for each task from what a band can produce, as if every recipe were

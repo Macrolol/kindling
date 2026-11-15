@@ -75,7 +75,14 @@ fn wear(rate: f32, it: Item, depth: u8, sealed: f32) -> f32 {
     if matches!(form(it), Form::Fire | Form::Cooked) {
         return 0.01;
     }
-    sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32)
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        return sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        sealed * rate * upkeep_wear(it) * (1.0 + 0.3 * depth as f32)
+    }
 }
 
 /// Which payoff slot already holds `it`, so `tool_effects` does not move it.
@@ -497,7 +504,7 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         }
     } else {
         let m = mat(it);
-        let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
+        let up = KIT_UPKEEP * upkeep_wear(it) * (1.0 + 0.3 * d as f32);
         let qv = match slot {
             11 | 16 | 18 | 22 => boat_q(m),
             14 | 15 => m.props().tough + 1.0,
@@ -564,7 +571,7 @@ where
             Form::Ornament => upd(20, m.props().hard + 1.0 + 10.0 * m.props().prized, &mut k.ornament),
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
-            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
+            Form::Mark => upd(23, record_durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,

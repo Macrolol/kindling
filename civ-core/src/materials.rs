@@ -534,9 +534,197 @@ pub fn cut_q(m: Mat) -> f32 {
     ((0.6 * p.sharp + 0.4 * p.hard) / 10.0).clamp(0.0, 1.0)
 }
 /// Durability 0..1: tough or re-sharpenable (malleable) materials last longer.
+///
+/// Default build. The `/ 12` then `.clamp(0.05, 1.0)` puts copper, bronze and
+/// iron on the same cap, and steel (less malleable) just under it, so a steel
+/// edge wears faster than a copper one. `durability-v2` does not change this
+/// function. The sim calls `score_durability` / `upkeep_wear` / `record_durability`,
+/// which are this function when the feature is off.
 pub fn durability(m: Mat) -> f32 {
     let p = m.props();
     ((p.tough + 0.5 * p.malleable) / 12.0).clamp(0.05, 1.0)
+}
+
+/// What is wearing. Proposal (`durability-v2`); the default build does not read it.
+/// Malleability is not a bonus here. It is `repair_factor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WearClass {
+    /// Knife, axe, adze, sickle, spear, point: dulling and chipping.
+    Edge,
+    /// Hammer, and a shield face: impact. Toughness dominates; a brittle face shatters.
+    Impact,
+    /// Pot, basket, bag, jar, frame, bellows.
+    Vessel,
+    /// Cord, net, snare, garment, bowstring, sail, cloth.
+    Cordage,
+    /// Boat, outrigger, plank hull, ship.
+    Hull,
+    /// Kiln lining, mould, and the clay body of a crucible.
+    Thermal,
+    /// A tally or token: weathering, not an edge.
+    Record,
+    /// Shaft, loom: it breaks, it does not dull.
+    Structure,
+    /// Raw stock, bloom, and forms whose upkeep is not this model (fire, cooked, ornament).
+    Stock,
+}
+
+/// Which wear formula an item's form uses. Ornaments, fires and cooked meals never
+/// reach it: `tool_upkeep` returns before the wear term.
+pub fn wear_class(f: Form) -> WearClass {
+    match f {
+        Form::Edge | Form::Point | Form::Spear | Form::Axe => WearClass::Edge,
+        Form::Hammer | Form::Shield => WearClass::Impact,
+        Form::Vessel | Form::Jar | Form::Frame | Form::Bellows => WearClass::Vessel,
+        Form::Cord | Form::Net | Form::Trap | Form::Garment | Form::Bow | Form::Sail | Form::Cloth => WearClass::Cordage,
+        Form::Boat | Form::Outrigger | Form::Plank | Form::Ship => WearClass::Hull,
+        Form::Kiln | Form::Mould | Form::Crucible => WearClass::Thermal,
+        Form::Mark => WearClass::Record,
+        Form::Shaft | Form::Loom => WearClass::Structure,
+        Form::Raw | Form::Bloom | Form::Cooked | Form::Fire | Form::Ornament => WearClass::Stock,
+    }
+}
+
+/// PROPOSAL (`durability-v2`). Working life of `m` used as `class`. Higher lasts
+/// longer. No shared cap: a result is equal only when the properties this class
+/// reads are equal. Inputs are the existing 0..10 props. Nothing here is saved.
+pub fn class_durability(class: WearClass, m: Mat) -> f32 {
+    let p = m.props();
+    match class {
+        WearClass::Edge => edge_life(p),
+        WearClass::Impact => impact_life(p),
+        WearClass::Vessel => vessel_life(p),
+        WearClass::Cordage => cord_life(p),
+        WearClass::Hull => hull_life(p),
+        WearClass::Thermal => thermal_life(p),
+        WearClass::Record => record_life(p),
+        WearClass::Structure => structure_life(p),
+        WearClass::Stock => p.tough / 12.0,
+    }
+}
+
+/// Kept edge. Hardness resists abrasion, `sharp` is the keenness the props record
+/// (steel's `hard` is only 6 against iron's 5.5; the comment on steel puts the
+/// kept edge in `sharp`). Malleability rolls a soft edge, so it divides. Toughness
+/// resists chipping, discounted when the edge fails by conchoidal flaking.
+fn edge_life(p: &Props) -> f32 {
+    let keep = 0.65 * p.hard + 0.35 * p.sharp;
+    let roll = 1.0 + 0.09 * p.malleable;
+    let chip = p.tough * (1.0 - 0.50 * p.fracture / 10.0);
+    // The product alone ties pitch (hard 0.5, tough 2) with clay (hard 1, tough 1).
+    // A small hardness term splits that pair. It does not reorder the working edges.
+    (keep / roll) * chip / 45.0 + 0.004 * p.hard
+}
+
+/// A striking face. Toughness is the life; flaking shatters it. Hardness keeps
+/// the face from dishing, malleability mushrooms it.
+fn impact_life(p: &Props) -> f32 {
+    let face = p.tough * (1.0 - 0.65 * p.fracture / 10.0);
+    let dish = p.hard / (p.hard + 0.30 * p.malleable + 0.5);
+    (face / 10.0) * (0.45 + 0.55 * dish)
+}
+
+/// A wall. Fibre is a basket (rot and fray, from toughness and fibrousness).
+/// Anything else is a pot: it cracks (low toughness, flaking) and abrades.
+fn vessel_life(p: &Props) -> f32 {
+    let organic = p.fibrous / 10.0;
+    let crack = (p.tough / 10.0) * (1.0 - 0.55 * p.fracture / 10.0);
+    let abrasion = p.hard / (p.hard + 2.0);
+    let pot = crack * (0.35 + 0.65 * abrasion);
+    let fibre = (p.tough / 12.0) * (0.35 + 0.65 * organic);
+    fibre * organic + pot * (1.0 - organic)
+}
+
+/// Cord, cloth, net, clothing, a bowstring. Fibre toughness. There is no rot
+/// property; nothing here is immortal because tough and fibrous are not 10.
+fn cord_life(p: &Props) -> f32 {
+    (0.55 * p.tough + 0.45 * p.fibrous) / 12.0
+}
+
+/// A hull breaking up. Float and seal are `boat_q`, not life. Hardness separates
+/// a dugout from a skin boat that the old formula tied (both tough 6).
+fn hull_life(p: &Props) -> f32 {
+    (p.tough / 10.0) * (0.55 + 0.45 * p.hard / (p.hard + 3.0))
+}
+
+/// Heat. A kiln or a mould uses its own refractory and toughness. A crucible's
+/// material is the metal charge, whose refractory is 0; the body is fired clay
+/// (refractory 9, tough 2), stressed by how hot that charge has to be.
+fn thermal_life(p: &Props) -> f32 {
+    let (refr, tough, shock) = if p.refractory > 0.0 {
+        (p.refractory, p.tough, 1.0)
+    } else if p.melt > 0.0 {
+        (9.0, 2.0, 1.0 - 0.35 * (p.melt / 2000.0))
+    } else {
+        (0.0, p.tough, 1.0)
+    };
+    ((0.65 * refr + 0.35 * tough) / 12.0) * shock
+}
+
+/// Weathering of a mark. Not an edge. The ceramic +1 stays in the kit choice.
+fn record_life(p: &Props) -> f32 {
+    (0.55 * p.hard + 0.45 * p.tough) / 10.0
+}
+
+/// A shaft or a loom. Toughness, helped a little by hardness, hurt by flaking.
+fn structure_life(p: &Props) -> f32 {
+    let chip = p.tough * (1.0 - 0.40 * p.fracture / 10.0);
+    (chip / 10.0) * (0.60 + 0.40 * p.hard / (p.hard + 2.0))
+}
+
+/// Labour per unit of wear. 1 when `malleable` is 0 (knap another edge, or
+/// throw it out). Copper (9) is about 0.60; steel (5.5) about 0.75. A crucible's
+/// charge is not the body that cracks, so it does not get the metal's discount.
+/// Malleable is at most 10 on these props, so this stays above 0.5 with no clamp.
+pub fn repair_factor(class: WearClass, m: Mat) -> f32 {
+    let p = m.props();
+    if class == WearClass::Thermal && p.refractory <= 0.0 {
+        return 1.0;
+    }
+    1.0 - 0.045 * p.malleable
+}
+
+/// The `(1.15 - durability)` piece of upkeep. Feature off: that expression.
+/// Feature on: `(1.15 - class life) * repair_factor` for the item's form.
+#[inline]
+pub fn upkeep_wear(it: Item) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        1.15 - durability(mat(it))
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        let class = wear_class(form(it));
+        let m = mat(it);
+        (1.15 - class_durability(class, m)) * repair_factor(class, m)
+    }
+}
+
+/// Durability mixed into an edge's working score (axe term, `edge_q`, fight).
+/// Feature off: `durability`. Feature on: edge life, not repair.
+#[inline]
+pub fn score_durability(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        durability(m)
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        class_durability(WearClass::Edge, m)
+    }
+}
+
+/// Durability the mark slot ranks by. Feature off: `durability`.
+#[inline]
+pub fn record_durability(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        durability(m)
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        class_durability(WearClass::Record, m)
+    }
 }
 /// Container quality (storage / carrying) by material.
 pub fn vessel_q(m: Mat) -> f32 {

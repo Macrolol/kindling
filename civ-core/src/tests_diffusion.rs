@@ -98,8 +98,15 @@ fn d3_metal_blades_outrank_stone_when_practised() {
         assert_eq!(k.point, item(Form::Point, metal));
         assert_eq!(k.trial[1], NONE, "flint is not worth trying once {metal:?} is practised");
     }
-    // obsidian is the keenest stone. Iron's food still clears it; copper's does not.
+    // obsidian is the keenest stone. On the default build, iron's food still clears it
+    // and copper's does not. `durability-v2` leaves the cut slot's food as `cut_q`.
+    // At depth 0 the upkeep rate does not charge enough for obsidian's chipping, so the
+    // nominal kit keeps the glass knife over iron. The year-350 save does not show that
+    // flip: iron knives there sit on a chain, and the flip table has none.
+    #[cfg(not(feature = "durability-v2"))]
     assert_eq!(kit(Mat::Iron, Mat::Obsidian).cut, item(Form::Edge, Mat::Iron));
+    #[cfg(feature = "durability-v2")]
+    assert_eq!(kit(Mat::Iron, Mat::Obsidian).cut, item(Form::Edge, Mat::Obsidian));
     assert_eq!(kit(Mat::Copper, Mat::Obsidian).cut, item(Form::Edge, Mat::Obsidian));
     assert_eq!(kit(Mat::Copper, Mat::Obsidian).point, item(Form::Point, Mat::Copper));
 }

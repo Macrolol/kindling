@@ -17,11 +17,11 @@ use crate::World;
 
 /// Seed 6, 256x160, year 350, main `f8d80dd`. Replaced only if that snapshot
 /// has too few copper-axe-over-steel bands to measure.
-const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
+pub(crate) const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
 
 /// Probe tie and fight weight, copied from `probe_diffusion` so this test does
 /// not reach into that module. A gap within `PROBE_TIE` is a tie there.
-const PROBE_TIE: f32 = 0.02;
+pub(crate) const PROBE_TIE: f32 = 0.02;
 const PROBE_FIGHT_W: f32 = 0.1;
 
 /// Axe is best[] slot 4 (`CHOOSE_ORDER`), payoff index 3.
@@ -182,23 +182,23 @@ fn pct(k: u64, n: u64) -> f64 {
 /// times the worst food-slot keep `1 - p_fail`. `upkeep` is `KIT_UPKEEP` times
 /// `maker_waste` at each distinct payoff tool's chain skill. At chain skill 1
 /// both factors are 1. `other` is boat soundness plus fine work.
-struct Tv {
-    food: f32,
-    plants: f32,
-    farm: f32,
-    protect: f32,
-    other: f32,
-    upkeep: f32,
-    fight: f32,
+pub(crate) struct Tv {
+    pub(crate) food: f32,
+    pub(crate) plants: f32,
+    pub(crate) farm: f32,
+    pub(crate) protect: f32,
+    pub(crate) other: f32,
+    pub(crate) upkeep: f32,
+    pub(crate) fight: f32,
 }
 
 impl Tv {
-    fn value(&self) -> f32 {
+    pub(crate) fn value(&self) -> f32 {
         self.food + self.protect + self.other - self.upkeep + self.fight
     }
 }
 
-fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
+pub(crate) fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     let mut up = 0.0;
     let mut seen: [Item; 12] = [NONE; 12];
     let mut keep = 1.0;
@@ -219,7 +219,7 @@ fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
         }
         seen[j] = it;
         let d = recipe_info(tk, known, it).2;
-        let base = KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32);
+        let base = KIT_UPKEEP * upkeep_wear(it) * (1.0 + 0.3 * d as f32);
         up += base * maker_waste(tk.chain_m(it));
     }
     let mults = k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m;
@@ -235,7 +235,7 @@ fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     }
 }
 
-fn with_axe(k: &Kit, axe: Item) -> Kit {
+pub(crate) fn with_axe(k: &Kit, axe: Item) -> Kit {
     let mut c = *k;
     c.axe = axe;
     c
@@ -357,7 +357,7 @@ fn diag_copper_over_steel_axe() {
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let copper = item(Form::Axe, Mat::Copper);
     let steel = item(Form::Axe, Mat::Steel);
-    let term = |m: Mat| 0.5 * cut_q(m) + 0.5 * durability(m);
+    let term = |m: Mat| 0.5 * cut_q(m) + 0.5 * score_durability(m);
     println!(
         "save {path} format v{} year {:.0} bands {} pop {}",
         info.format_version,
@@ -368,10 +368,10 @@ fn diag_copper_over_steel_axe() {
     println!(
         "copper cut_q {:.3} dur {:.3} axe_term {:.3} | steel cut_q {:.3} dur {:.3} axe_term {:.3}",
         cut_q(Mat::Copper),
-        durability(Mat::Copper),
+        score_durability(Mat::Copper),
         term(Mat::Copper),
         cut_q(Mat::Steel),
-        durability(Mat::Steel),
+        score_durability(Mat::Steel),
         term(Mat::Steel)
     );
     println!(
