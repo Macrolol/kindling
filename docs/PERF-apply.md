@@ -116,6 +116,7 @@ The `movement` bucket is large on the phase line and is not scheduled. It includ
 | d46fce9 | record the teach-scan and year-stats skips | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
 | 5c42e62 | record the incremental-closure miss | `docs/PERF-apply.md` | n/a, code reverted | n/a | n/a | n/a |
 | c94c041 | skip the technique walk on a stored payout | `civ-core/src/world.rs` | yes, pa-idcheck threads 1 and 4 | 120.0 s → 115.3 s (−4.7 s) | 46.5 s → 43.7 s (−2.8 s) | 34.8 s → 35.3 s (+0.5 s) |
+| 7588fe8 | record payout, the via skip, and what's left | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
 
 Times are `pa-bench` sim seconds, one rep. Late is the Y750 800×800 save plus 3 years at 4 threads. The d663810 row was measured on the previous toolchain, A = skills-step4. The kit row is rustc 1.100.0, A = the rebuilt d663810 binary (`kindling-partner`), B = that commit. The payout row is the same toolchain, A = `kindling-kit`, B = `c94c041`. Rows are not all on the same clock. The kit chooser and the payout walk sit inside the parallel season, so most of their one-thread seconds show up at `s5 t1`. The late payout move (+0.5 s) is inside ±3%.
 
