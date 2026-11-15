@@ -12,7 +12,6 @@ use crate::effects::{fills_payoff, recipe_info, slot_score_m, BandView, PAYOFF_S
 #[cfg(feature = "durability-v2")]
 use crate::effects::slot_score;
 use crate::materials::*;
-use crate::tests_diag::DIAG_SAVE_DEFAULT;
 use crate::World;
 use std::collections::BTreeMap;
 
@@ -481,7 +480,9 @@ fn score_item(view: &BandView, kit: &crate::band::Kit, tk: &crate::knowledge::To
 #[test]
 #[ignore]
 fn diag_durability_flips() {
-    let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| DIAG_SAVE_DEFAULT.to_string());
+    let Some(path) = crate::tests_diag::diag_save_or_skip() else {
+        return;
+    };
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     println!(

@@ -4,7 +4,10 @@
 //! holds a copper axe while a steel axe is makeable. Numbers only — the test
 //! does not assert a ranking.
 //!
-//! `DIAG_SAVE` is the snapshot path. If it is unset, `DIAG_SAVE_DEFAULT` is used.
+//! `DIAG_SAVE` is the snapshot path. If it is unset or empty, the diagnostic
+//! prints a skip line and returns. There is no default path. The snapshot
+//! these notes were measured on was made from main `f8d80dd`, seed 6, 350
+//! years, map 256x160.
 
 use crate::band::{loss_guard, weapon_q, Kit, KIT_UPKEEP};
 use crate::effects::{
@@ -15,9 +18,19 @@ use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use crate::World;
 
-/// Seed 6, 256x160, year 350, main `f8d80dd`. Replaced only if that snapshot
-/// has too few copper-axe-over-steel bands to measure.
-pub(crate) const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
+/// `DIAG_SAVE`, or `None` after printing why the diagnostic is skipping.
+/// The measured snapshot was main `f8d80dd`, seed 6, 350 years, 256x160.
+pub(crate) fn diag_save_or_skip() -> Option<String> {
+    match std::env::var("DIAG_SAVE") {
+        Ok(path) if !path.is_empty() => Some(path),
+        _ => {
+            println!(
+                "DIAG_SAVE is unset; skipping this diagnostic. Set DIAG_SAVE to a .civsave. The measured snapshot was main f8d80dd, seed 6, 350 years, 256x160."
+            );
+            None
+        }
+    }
+}
 
 /// Probe tie and fight weight, copied from `probe_diffusion` so this test does
 /// not reach into that module. A gap within `PROBE_TIE` is a tie there.
@@ -352,7 +365,9 @@ fn print_agg(name: &str, a: &Agg) {
 #[test]
 #[ignore]
 fn diag_copper_over_steel_axe() {
-    let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| DIAG_SAVE_DEFAULT.to_string());
+    let Some(path) = diag_save_or_skip() else {
+        return;
+    };
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let copper = item(Form::Axe, Mat::Copper);

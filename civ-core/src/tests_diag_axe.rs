@@ -12,9 +12,9 @@
 //! charged (base upkeep, maker waste, failure), and how far that gap is from
 //! a tie. It does not assert a ranking and it does not change a hash.
 //!
-//! `DIAG_SAVE` is the snapshot (the step-2 seed-6 year-350 save, refit on load
-//! by the step-3 kit choice). If `/tmp/axe-seed5-y300.civsave` exists, that
-//! world is reported too.
+//! `DIAG_SAVE` is the snapshot (main `f8d80dd`, seed 6, 350 years, 256x160,
+//! refit on load by the step-3 kit choice). If it is unset, the test prints
+//! a skip line and returns. There is no default path.
 
 use crate::effects::{
     harvest_for, kit_yields, maker_p_fail, maker_waste, recipe_info, slot_score, slot_score_m, tool_effects, tool_effects_m, BandView,
@@ -29,7 +29,6 @@ use crate::World;
 const AXE_SLOT: usize = 4;
 /// Step 5's `LAB_FLOOR`: labour price with every hand spare, as a share of the full price.
 const LAB_FLOOR: f32 = 0.2;
-const FRESH_SAVE: &str = "/tmp/axe-seed5-y300.civsave";
 
 const TAGS: [&str; 9] = ["none", "flint", "stone", "obsidian", "bone", "copper", "bronze", "iron", "steel"];
 
@@ -530,12 +529,9 @@ fn report_save(path: &str) {
 #[test]
 #[ignore]
 fn diag_axe_breakeven() {
-    let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| crate::tests_diag::DIAG_SAVE_DEFAULT.to_string());
+    let Some(path) = crate::tests_diag::diag_save_or_skip() else {
+        return;
+    };
     println!("==== live model {} (load refits the kit) ====", durability_account_name());
     report_save(&path);
-    if std::path::Path::new(FRESH_SAVE).is_file() {
-        report_save(FRESH_SAVE);
-    } else {
-        println!("fresh save absent: {FRESH_SAVE}");
-    }
 }

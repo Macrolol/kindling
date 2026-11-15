@@ -431,6 +431,8 @@ Durability is not saved. `save.rs` does not mention it. It is derived from the m
 
 The kit is saved. `after_load` (`world.rs:1114`) rebuilds toolkits and calls `refresh_toolkit` (`world.rs:1695`), which calls `fit_kit` (`world.rs:1688`) when the toolkit cache misses or the kit is marked dirty. `fit_kit` calls `make_kit_for_view`. Measured on this save: with the feature off, the loaded kit matches the default scorer and the held axes are the file's own (copper 772 among steel-capable bands, and the full-census v1 argmax is copper 806, iron 264, steel 2209, stone 24). With the feature on at spread 0.50, the same bytes load, the kit is re-chosen, and the steel-capable census is copper 81, iron 3, steel 3150. No format version change. A save written under one model loads under the other. The kit may change on load when the feature differs from the build that wrote the file. The bytes do not.
 
+The diagnostics do not bake in a path. They read `DIAG_SAVE` only. If that variable is unset or empty they print a skip line and return. The snapshot measured here was made from main `f8d80dd`, seed 6, 350 years, map 256x160. Regenerate it from that commit with those settings and point `DIAG_SAVE` at the new file. There is no default path in the tests.
+
 ## Resharpening as its own cost
 
 Two accounts, both behind the feature, selected by `WEAR_ACCOUNT`. The sim uses `Split`. A diagnostic can score `Combined` without a second build (`with_durability_model` / `with_split_model`). Neither account adds a per-band, per-tick loop. Both are pure functions of the material, called from the upkeep and food paths that already existed.
@@ -791,4 +793,4 @@ cargo test --release -p civ-core --features durability-v2 diag_durability -- --i
 cargo test --release -p civ-core --features durability-v2 diag_axe_breakeven -- --ignored --nocapture
 ```
 
-`DIAG_SAVE` selects the snapshot. One feature-on `diag_durability_flips` prints v1, the three combined spreads, and the split account. One feature-on `diag_axe_breakeven` reloads under combined (spread 0.50) and under split. The feature-off runs print the v1 census only. The ordering tests `durability_v2_orders_edges_and_v1_formula_stays` and, with the feature on, `working_edge_orders_knife_axe_and_point` and `split_model_orders_retention_break_and_price` are not ignored and run in the normal suite.
+`DIAG_SAVE` selects the snapshot. If it is unset or empty the diagnostic prints a skip line and returns. There is no default path. The snapshot these notes were measured on was made from main `f8d80dd`, seed 6, 350 years, map 256x160. Feature-on `diag_durability_flips` prints the v1 census and the split census. The feature-off runs print the v1 census only. The ordering tests `durability_v2_orders_edges_and_v1_formula_stays` and, with the feature on, `working_edge_orders_knife_axe_and_point` and `split_model_orders_retention_break_and_price` are not ignored and run in the normal suite.
