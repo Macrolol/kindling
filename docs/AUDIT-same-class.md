@@ -31,7 +31,7 @@ How much to trust this. It is one seed, the end of year 350, and almost everyone
 
 ## The class
 
-A formula whose structure flattens or reverses a real-world ordering, or erases a difference that should change a choice. A clamp that no input reaches, or a bound that is meant to be a biological or physical limit, is not in the class.
+A formula whose structure flattens or reverses a real-world ordering, erases a difference that should change a choice, or sizes a real difference far too small or far too large. A clamp that no input reaches, or a bound that is meant to be a biological or physical limit, is not in the class.
 
 Sub-types:
 
@@ -42,6 +42,7 @@ Sub-types:
 - **E.** A constant that dominates the term, so the property barely moves the result. `1.15 - x` with `x` near 1 is the example. A large fixed offset can do the same.
 - **F.** A divisor chosen so that real inputs already sit on top of each other, or past 1, before the clamp.
 - **G.** A match with a default (`_ => 0.3`) that gives unrelated materials the same value, or ranks a real article wrongly.
+- **H.** A difference between materials or techs that is compressed or exaggerated relative to the real world, even when the order is right. A small coefficient in front of a quality (`0.1 × axe`, `0.2 × axe`), a 0..10 property scale standing in for a much wider measured ratio, or an additive offset that shrinks a ratio toward 1, are the examples. Flagged for a later sizing pass. Not retuned here.
 
 ## Method and coverage
 
@@ -78,6 +79,14 @@ The second ignored test, `audit_bounds_in_play`, loads the save in `DIAG_SAVE`. 
 ```text
 cargo test --release -p civ-core audit_bounds -- --ignored --nocapture
 ```
+
+The third ignored test, `audit_material_ratios`, prints the size of a gap at three layers: the 0..10 property, the quality score, and the food, fight or survival figure the sim applies. It builds one kit per material, calls `kit_yields`, `weapon_q`, `tool_upkeep`, `slot_score`, `World::sea_survival_x`, `World::sea_range` and `fire_temp`, with user skill 1 and recipe quality 0. Nothing is asserted. It does not load a save.
+
+```text
+cargo test --release -p civ-core audit_material_ratios -- --ignored --nocapture
+```
+
+The run passed. Every sim ratio in the sizing section is that output.
 
 ### Qualities of the materials that can actually be tools
 
@@ -619,6 +628,99 @@ Measured. Upkeep as a fraction of labour: minimum 0.084, 10th percentile 0.280, 
 Impact. The floor erases food-effort differences for a few percent of bands, the ones whose tools are already the dearest. It does not flatten copper against steel. Left low. If the floor is "someone still has to gather", it is a biological bound and the 3.6% is the population that actually lives on it. No change is proposed unless those bands should be allowed to spend under 30% of labour on food when the kit is that expensive.
 
 Spare's own clamp, `((labour − e_food − upkeep) / labour).clamp(0, 1)` (`world.rs:2049`), does not bind: spare is 0 for 0.03% and 1 for 0.00% (median 0.278, maximum 0.600). That one stays in the fine list.
+
+## Wrongly sized material differences
+
+Sub-type H. Nothing here is retuned. Michael asked for the size of the step, not only the order, and plans a separate deep dive. This section flags candidates.
+
+A ratio is first ÷ second, from `audit_material_ratios`. Three layers. The property is the 0..10 number in `PROPS`. The quality is `cut_q`, `durability`, `boat_q` and the rest. The applied figure is what a band actually gets: a yield multiplier from `kit_yields`, fighting strength `1 + 1.5 × weapon_q`, the casualty factor `0.6 + weapon_q`, cold-season need, sea survival, or upkeep. User skill is 1 and recipe quality is 0, so the gap is the material alone.
+
+The applied layer is the one that matters. A 1.6× cutting score that becomes a 1% plant yield is compressed even if the score looked reasonable. An order that is already wrong (steel wearing out before copper, wool tied with hide) is still listed where the size is also wrong.
+
+Real-world numbers below are ranges, with a confidence, not a cell copied out of one table. Where a study was not re-read for this pass, the text says so. The deep dive should check the pages. Do not paste a hardness ratio onto calories: wood is soft, and once an edge stops rolling, more hardness does not cut the first stroke many times faster. The large real gap on an axe is sustained work, including the time lost to a crumpled edge. That sustained gap is still several-fold. It is not 10%.
+
+### Sources
+
+Hardness. The comment on `Props` says the 0..10 figures are loosely Mohs-like. Copper at 3 and flint at 7 match Mohs. Vickers hardness is the measured scale for metals. Michael's anchors are used as stated: copper about 40–100 HV, a quenched steel edge about 600 HV and up. That is about 6× at the narrow end (hard copper against the low end of quenched steel) to about 15× (soft copper). Cold-worked tin bronze is often around 150–250 HV and bloomery iron around 100–180 HV, so bronze against copper is about 2–3× and unsteeled iron against a good bronze is about 1, give or take (Scott, *Metallography and Microstructure of Ancient and Historic Metals*, Getty, 1991). Confidence high on the copper and quenched-steel anchors, medium on bronze and iron, because the alloy and the hammering move them.
+
+Felling. Saraydar and Shimada, *American Antiquity* 36 (1971), measured a steel axe removing wood several times faster than a ground-stone axe. Mathieu and Meyer, *Journal of Field Archaeology* 24 (1997), kept the order stone, then bronze, then steel, with a gap at each step. Jørgensen's flint-axe trials in Draved Wood (1985; surveyed with the other axe trials in Coles, *Experimental Archaeology*, 1979) are the usual Neolithic comparison: a fraction of an hour with flint against a few minutes with a modern steel axe. This pass did not re-read those tables, so no single factor is claimed. Confidence medium on the factor, high that it is not a 10–20% gap.
+
+Boats. McGrail, *Boats of the World* (2001), and the Ferriby and Dover plank boats: cargo of a sewn-plank hull is discussed in tonnes, a one-log dugout often in a few hundred kilograms. Confidence medium that load and freeboard differ several-fold, low on a survival probability. A skin boat and a small dugout can be peers. The tie is not, by itself, a size error. The plank step is.
+
+Nets and cloth. European nets were hemp, flax or nettle, not wool. Wool stretches and weakens when wet; bast holds. No clean ratio was found. Confidence medium that wool should lose to bast by more than a tie, low on a number. Linen against bast at a small step is plausible. A linen garment is often around half as warm as a wool one of similar cut. Confidence medium. Fur against wool depends on whether `Hide` still has the hair. Confidence low until that is answered.
+
+Fire. A wood fire's hot zone is commonly 600–800°C; 650 is fair. Charcoal runs hotter by a few hundred degrees; +300 is fair. Bloomery iron is widely put around 1100–1300°C rather than a hard gate at 1400 (Tylecote, *A History of Metallurgy*; Pleiner, *Iron in Archaeology*). Confidence medium. A miss of 40°C is sharper than a real furnace, where the draught matters more than a few tens of degrees. Confidence medium.
+
+Pots. Boiling starch raises what the body gets out of it. The extra over dry cooking is real and not an order of magnitude. Confidence low on the percent. Meat that is already roasted does not need the pot. The sim agrees, which may be right.
+
+### Sizing table
+
+Promoted rows are also in the main ranked table (ranks 2, 4 and 20). The others stay here so the deep dive can see them without a second finding.
+
+| S | Where | Sim ratio | Real-world ratio | Way | Impact | Later |
+|---|---|---|---|---|---|---|
+| 1 | `effects.rs:554` `0.1 × axe`, `effects.rs:564` `0.2 × axe`, `materials.rs:532` `cut_q` | Steel/copper plants 1.009 (dig, hammer and axe) and 1.013 (axe alone). Farm, with a digging stick and a knife of the same metal, 1.119. Steel/stone farm 1.192, plants 1.025. Bronze/copper farm 1.069, plants 1.006. | Sustained felling, steel against stone or copper: several-fold (Saraydar and Shimada 1971; Mathieu and Meyer 1997; Draved). Not ~1.1–1.2. | Compressed | The metal inside an axe barely changes food. Having the axe at all is only +6% plants (1.45 with dig and hammer, 1.538 with a steel axe). A farmer feels the knife and the axe more (farm 1.249 steel against 1.116 copper) and it is still about a fifth, not a different tool. | Widen the axe's share of clearing, or widen the quality itself, until a steel axe and a copper axe differ by a sustained-work factor. Do not copy Vickers onto the calorie multiplier. |
+| 2 | `materials.rs:101`, copper `materials.rs:191`, steel `materials.rs:204` | Hardness steel/copper 2.00, sharp 1.50, `cut_q` 1.625. Steel/iron hard 1.09, `cut_q` 1.219. Bronze/copper hard 1.67, `cut_q` 1.354. | Vickers, quenched steel against copper, about 6–15×. Worked bronze against copper about 2–3×. | Compressed | This is the scale under row 1. A Mohs-like 0..10 number cannot hold a sixfold hardness gap, and `cut_q` then averages it with sharpness and divides by 10. Steel's whole cutting advantage over copper is 63% before any food coefficient. | If the deep dive keeps a property table, store a per-job performance (felling, butchery, edge life), not a linear Mohs number asked to do every job. |
+| 3 | `band.rs:701`, `band.rs:740`, `world/conflict.rs:49`, `world/conflict.rs:138` | Steel/copper spear `weapon_q` 1.124, strength `1 + 1.5 × weapon_q` 1.068, deaths `0.6 + weapon_q` 1.072. Spear and axe together: strength 1.084. Steel/iron strength 1.029. Steel/stone strength 1.183 (spear) and 1.241 (spear and axe). | A steel spear against a copper one is a different weapon in use. Edge life differs by the hardness gap above, not by 7%. No casualty table is cited; the claim is the direction. Confidence medium. | Compressed | Offsets do it. A spear is `0.35 + 0.65 × edge_q`, then strength adds 1 and casualties add 0.6. The metal moves a number that is mostly a constant. Flint against obsidian goes the other way by 2% of strength (1.020), which is durability, and is small enough to leave. | Shrink the additive floors, or let edge life scale the fight, so the metal is visible. The casualty cap of 0.45 is not what flattens this: the high end of a loss on the save was about 0.28. |
+| 4 | `effects.rs:366`, `band.rs:734` `KIT_UPKEEP = 0.06` | Depth 8 multiplies every upkeep by 3.40, steel and copper alike. Nominal axe score, empty kit: steel 0.559 at depth 0, 0.318 at depth 8. Copper 0.467 and 0.255. The depth swing on steel (0.241) is 2.6× the steel-copper gap (0.092). Crop view (harvest all crops, then the 0.5 prior): steel 4.627 against copper 3.889 at depth 0, and steel still leads at depth 8 (4.386 against 3.678). `KIT_UPKEEP × wear` at depth 0 is 0.010 for steel and 0.009 for copper. | A long chain should cost labour. The question is the cost beside the food the better metal creates. | Out of scale | On the nominal mix, which has no crops, chain depth prices more food than the best metal upgrade earns. On a farm the metal still wins the score, and the yield itself is only the 1.12 of row 1. `KIT_UPKEEP` was set as upkeep 0.02 over the 0.35 a unit of game quality adds. That prices "a tool" against "no tool". It does not price steel against copper. | When the food coefficients move, re-price depth against the new gap. Do not flatten depth. The save already separates the metals by depth (copper axes near 3.2, steel near 7.3). |
+| 5 | `materials.rs:537` wear, copper against stone | Upkeep copper/stone 0.265. A stone axe costs 3.8× the labour of a copper axe. Axe quality copper/stone is 1.48, and plants only 1.016. | A ground stone edge holds against wood. Worked copper mushrooms and has to be hammered back. Stone is not four times as hungry for labour as copper. Confidence medium. | Exaggerated | Finding 1's malleability term, seen from the stone side. Copper is capped at durability 1 because it is easy to reshape. Stone (tough 7, malleable 0) sits at 0.58. The food side of the same pair is row 1, compressed. | Edge life from hardness and toughness, as finding 1 already asks, shrinks this exaggeration and should be checked against stone as well as against steel. |
+| 6 | `effects.rs:872` plank `+0.25`, `world.rs:1804` radius, `world.rs:1824` fish cap, `world.rs:2760` survival | Plank/dugout quality 1.077, `sea_range` at no experience 1.063, survival on a 10-cell hop 1.013 (0.969 against 0.957), fish-weight cap 1.050, fish radius 1.000 (both 3). Hide/dugout quality 1.000. An outrigger adds 0.15 of safety: dugout 0.929 becomes 1.079, plank becomes 1.150 and sits on the hazard floor 0.3. Ship quality equals the plank. Sail ×1.6 and ship ×1.25 are separate and do move range. | Planked cargo against a one-log dugout: several-fold (McGrail 2001). A skin boat can match a dugout. | Compressed | The hull upgrade is smaller than the outrigger bonus, and smaller than one fish-radius bin (radius 4 would need quality 1.25, past the cap of 1). A 10-cell crossing is about 1% safer in a plank boat. With an outrigger both hulls are on the floor, which is finding 4; the `+0.25` was already too small before that floor. | Let hull class move load and hazard by more than the outrigger does. Leave the sail's 1.6 alone unless a voyage trial says otherwise. |
+| 7 | `materials.rs:563` `garment_q` | Wool/hide warmth 1.000. Cold need at −6°C, with a fire, 1.150 for both. Flax/wool warmth 0.550, and need 1.375 against 1.150 (1.196). Full kit (fire, kiln, axe) puts both wool and hide on the 0.92 cap, need 1.080. | Linen around half of wool: the 0.55 is plausible. Wool against leather, if hide has no hair, perhaps 1.5–2× loft. Wool against fur can be about 1. | Erased, if hide is leather | The ceiling is why the size cannot appear. Section 2 already keeps the hide. A loft table that stays near 1 is then eaten by the protection cap in section 11. | Same direction as the warmth finding. Decide what hide is before picking a ratio. |
+| 8 | `materials.rs:558` `mesh_q`, `effects.rs:556` `0.9 × net` | Flax/fibre mesh 1.167, fish from a net alone 1.070, trap 1.131. Wool/hide mesh 1.000, fish 1.000. | Linen against bast: a small step is fair. Wool against bast: wool is the wrong wet fibre, by more than a tie. | Fair for flax/fibre. Compressed for wool | The 0.9 coefficient keeps more of a mesh gap than the axe's 0.1 does. The tie is the problem, and it is already a finding. A mesh of 2× would still be about 1.5× fish, `(1 + 1.8) / (1 + 0.9)`. | Product of fibre and strength, as that finding says. Do not also inflate the 0.9 unless nets should dominate the catch. |
+| 9 | `materials.rs:542` `vessel_q`, `effects.rs:554` `0.3 × vessel`, `effects.rs:887` digest | Ceramic/hide quality 1.667. Plants from the pot alone 1.102. Cooked grain 1.450 against 1.300 (1.115). Cooked meat 1.200 for both: the pot does not touch it. | Boiling against dry cooking of grain: a real step, low tens of percent, not twofold. Confidence low. Meat unchanged is plausible. | Mild, if anything compressed for grain | Not promoted. The binary ceramic flag is the cooking effect. The 0.3 storage term is a tenth more plants. | Leave it unless the deep dive wants porridge to matter more than about a tenth. |
+| 10 | `materials.rs:571` `fire_temp`, `physics.rs:476` bellows +250, iron ore `materials.rs:197` at 1400, copper ore `materials.rs:185` at 1150 | Charcoal/wood in the open 1.462 (+300°C). Ceramic/stone refractory 2.25, but charcoal temperature only 1.180 (1310 against 1110), because the fuel is most of the number. Ceramic against clay is +40°C. Charcoal and stone miss copper by 40°C (1110 against 1150). Charcoal and ceramic miss iron by 90°C (1310 against 1400). Bellows then overshoot iron by 160°C (1560). | Open wood and the charcoal step: fair. Bloomery practice is often 1100–1300°C, so 1400 is a bit high. A 40°C cliff is sharper than a draught-driven furnace. | Temperatures mostly fair. The cliff is exaggerated. The ceramic-over-clay bonus is tiny. | Order of the ladder stays right: stone does not smelt copper, clay does, iron wants bellows. The gate is a razor. | If iron should sometimes reduce in a good furnace without bellows, lower 1400 toward the bloomery range, or stop treating refractory as +40°C per point of "more ceramic than clay". Do not reorder the fuels. |
+
+### Not a sizing error
+
+Iron against bronze is about 1 on purpose, almost. `cut_q` 0.985, axe term 0.994, farm 0.996, spear strength 0.998. Unsteeled bloomery iron and a good tin bronze really are that close. The deep dive should not pull them apart to make the tech tree feel like progress. Steel is the step, and row 1 is why that step does not arrive in the food.
+
+Flint against obsidian: `cut_q` 0.927 (obsidian sharper by 8%), game from a spear 0.976, strength 1.020 the other way. Obsidian can be many times keener in edge radius. Both butcher meat. An 8% food gap is a fair functional step and a compressed acuity. Not promoted. The fight's 2% is durability, which is the right property and a modest size.
+
+Linen's 0.55 against a wool cloak at 1 is a plausible warmth ratio. The bug is the shared ceiling with hide, not the flax special case.
+
+### 18. The metal in the tool barely changes food or a fight
+
+High. Rank 2. Sub-type H, with E (the offsets) and F (the 0..10 divisor). Rows 1–4 of the sizing table, and row 5 for the exaggeration on the stone side. Not applied.
+
+What it does. `cut_q` is `(0.6 × sharp + 0.4 × hard) / 10`. A spear's hunt term is `0.35 + 0.65 × cut_q`, and game is `1 + 1.4 ×` that, times a knife term. Plants add `0.1 × axe`. Farm adds `0.2 × axe` and `0.35 × cut`. Fight uses `edge_q`, then adds 0.35 inside the spear, 1 inside strength and 0.6 inside the death rate. Upkeep multiplies by `1 + 0.3 × depth` and does not know which metal was worth the chain.
+
+The order it should respect. Steel cuts and keeps an edge better than iron, iron roughly matches a good bronze, bronze beats copper, and any of them that hold an edge beat a ground stone or a soft copper edge over a long job. The order in `cut_q` is already steel, obsidian, flint, bronze, iron, copper, stone, except iron a hair under bronze. The size is the failure.
+
+Why it is wrong. Steel against copper is 2× on the hardness property, 1.63× on `cut_q`, 1.19× on the axe term, 1.009× on plants once a digging stick and a hammer are in the kit, 1.12× on farm yield, 1.14× on game from a spear, and 1.07× on fighting strength. Steel against stone, the pair the felling trials actually measured, is 1.19× farm yield and 1.18× spear strength. Experimental felling is several-fold. Vickers is 6–15× and should not be the calorie target, but the sim is also far below the sustained-work target. The same formulas exaggerate copper against stone on labour: upkeep 0.265×, because copper's malleability is scored as durability and then clamped.
+
+Depth makes the small food gap the one that loses. On a nominal band the steel axe is worth 0.559 at depth 0 and 0.318 at depth 8. Copper is 0.467 and 0.255. Moving a steel axe from a new chain to depth 8 costs 0.241 of that score. Switching copper for steel, at the same depth, gains 0.092. The chain is the larger term. At depth 8, bronze's score is 0.319 and steel's is 0.318, which is finding 1's wear reversal sitting on top of a food gap too small to cover it. A crop-heavy band still prefers steel (4.386 against bronze's 4.134 at depth 8). The yield ratios do not change with that view. Only the weight of farm against wild food does.
+
+Impact. The tech ladder in the story is stone, copper, bronze, iron, steel. In the food and in a fight, stone to steel is a fifth or less, and copper to steel is a few percent of plants and about 7% of strength. Bands keep the tool they can maintain. They do not live differently because the edge is steel. `1 + 0.3 × depth` remains a real spread. It is simply priced against a material gain that cannot pay it.
+
+Proposed direction, not applied. Calibrate the axe and the blade to sustained work, including resharpening, not to Vickers and not to a 10% farm bump. The 0.1 and 0.2 coefficients cannot express a several-fold gap no matter how `cut_q` is rewritten: the whole axe term is at most 0.1 on plants (1.45 against 1.55 if the axe ran from 0 to 1). Either the coefficient grows, or clearing is its own term that can move by more than a tenth. Fight offsets should shrink so a copper spear and a steel spear are not within 7%. Re-price depth after that, so a long chain is expensive and a better edge is still worth making. Iron and bronze should stay within a few percent of each other.
+
+### 19. A plank boat is eight percent more boat
+
+Medium. Rank 4. Sub-type H, on top of the tie and the floor in the boat finding (rank 3). Not applied.
+
+What it does. A plank or a ship takes `boat_q + 0.25`, then stops at 1. Wood's `boat_q` is 0.929, so the plank is 1.000. Hide is the same 0.929 as wood. Survival, range and the fish square all read that one number. An outrigger adds 0.15 of safety on top, and the hazard then floors at 0.3.
+
+The order it should respect. A skin boat and a dugout are both small boats. A sewn or pegged plank hull carries more and stands higher in a sea than a one-log dugout. A ship is that hull, larger, which the sim already says ("no sounder, only bigger") and then implements as the same quality plus a 1.25× range when a sail is set.
+
+Why it is wrong. Plank against dugout is 1.077 in quality, 1.063 in range with no experience, 1.013 in survival on a 10-cell crossing, 1.050 in the fish-weight cap, and 1.000 in fish radius. The outrigger's +0.15 is twice the hull's +0.071, and with it the plank's hazard is the floor (0.300) while the dugout's is 0.321. The radius cannot move: radius 4 needs quality 1.25, and nothing exceeds 1. The sail's 1.6× and the ship's 1.25× do create a range gap. The timber of the hull does not.
+
+Impact. Once a band has any sound boat and an outrigger, a plank does not keep the crew safer and does not fish a wider square. Voyage distance still moves, mostly from the sail and from skill, not from the hull class. That matches the year-350 save, where almost every boat was already on the floor. The size error is why a fix that only unties wood and hide, and leaves `+0.25`, still will not make a planked hull a different machine.
+
+Proposed direction, not applied. Give the plank and the ship a seaworthiness and a capacity that can exceed the outrigger's 0.15, and that can change the fish square without relying on `round`. Leave hide against wood close if hide means a real skin boat. Do not start from the Vickers habit of a tenfold gap: boats are not edges. Several-fold cargo, and a clearly safer hull in open water, is the scale to check against McGrail and the reconstructions.
+
+### 20. The furnace gate is a few tens of degrees
+
+Low. Rank 20. Sub-type H. The order of the ladder was already judged intact. This is the size of the steps. Not applied.
+
+What it does. `fire_temp` is the fuel's `fuel_t` plus `40 × refractory` of the lining. Bellows add 250°C, and only in a closed charcoal fire. Copper ore reduces at 1150, iron ore at 1400.
+
+The order it should respect. Wood fire, then charcoal, then a clay or ceramic enclosure, then bellows. Copper smelts before iron. A stone hearth is a poor furnace. That order is what the sim does.
+
+Why the size is off, narrowly. Charcoal against wood is +300°C, which is fair. Clay against stone on charcoal is +160°C (1270 against 1110), which is a real enclosure. Ceramic against clay is +40°C (9 refractory against 8). The copper gate sits 40°C above charcoal-and-stone (1110 against 1150), so a stone lining fails and a clay one (1270) succeeds by a wide margin the other way. Iron sits 90°C above charcoal-and-ceramic (1310), so bellows are mandatory, and they then land 160°C over the gate. Bloomery work is often described a hundred degrees cooler than 1400, which would let a good furnace touch iron without the blast, or would make the blast a help rather than a switch. A real furnace is not a 40°C razor. Draught, charge and time all move the temperature by more than the gap that decides copper here.
+
+Impact. The story "clay smelts copper, stone does not, iron needs bellows" is intact and is probably the intended gate. What is exaggerated is how little a lining error, or a slightly cooler fire, has to be before the ore does nothing. What is tiny is ceramic over clay: one refractory point, 40°C, in a formula that has already added 320°C for clay's 8. If ceramic is meant to be a better furnace rather than a lining that merely does not melt, this does not say so.
+
+Proposed direction, not applied. Keep the order. If the deep dive wants bellows to be important but not the only way to iron, move 1400 down into the usual bloomery range, and do not let one refractory point be the whole ceramic improvement. Leave the open-fire temperatures.
 
 ## Formulas that would arrive with skills step 4
 
