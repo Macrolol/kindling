@@ -96,13 +96,13 @@ The uninstrumented partner-visits bucket, minus the far meetings, is the walk bu
 1. **Partner phase: parallel pre-filter, serial roll.** Landed. The far-partner walk runs per band through `par_collect`; survivors are rolled in band and partner-list order. See the commit table.
 2. **Cheap reach bound before `land_cost`.** Skipped. The late 3-year sim fell from 40.8 s to 34.1 s, which is almost the whole uninstrumented walk (~7.6 s, meetings included in the old bucket). `land_cost` is inside that parallel walk. A bound that skips a fraction of it, then splits the rest by four threads, is under the noise.
 3. **Third closure slot.** Skip. A third per-band key would have hit 0.7% of late misses and 1.3% of seed-5 misses. An extra toolkit at ~72k bands is a large allocation for a fraction of a percent of rebuilds.
-4. **Incremental closure with a full-closure fallback** when the new item can feed an earlier recipe whose output is already producible. Closure is 2.4 s CPU per late year and 6.6 s on seed 5. Real, but only with the fallback. Not next.
+4. **Incremental closure with a full-closure fallback.** Not applied: it changed results. See below. Closure is still 2.4 s CPU per late year and 6.6 s on seed 5.
 5. **Teach-list scan.** Skipped: gain in the noise. Two bit-identical variants (a cached recipe set on the band) were measured against `kindling-kit` and neither was clearly above the ±3% swing on seed 5 at 1 thread or the late run, and neither was better on every row. Variant 1: s5 t1 +2.5 s, s5 t4 +0.8 s, late t4 −1.9 s. Variant 2: s5 t1 −4.1 s, s5 t4 +2.1 s, late t4 −0.4 s. Not committed. The profile cost (5.6 s CPU over the late 3 years, 3.7 s on seed 5) stays.
 6. **Kit belief reads inside the seasonal refit.** Landed. `make_kit_beliefs` was 13.2 s CPU over the late 3 years and 26.4 s on seed 5. A per-call memo folds `food_prior` once per form and hashes stored rows; maker skill is not looked up when the table is non-empty. A cache that skips the refit itself does not stay bit-identical: practice moves user skill and quality every season, payout moves beliefs, and raws move what is available. Inheritance, testimony, and year-means stay noise.
 7. **One-pass `via`.** Safe half only. Small next to 1 and 6. Do it if the closure time is still there after 4.
 8. **Stats tail.** `year_stats` was tried and skipped: gain in the noise. Counting producible items and known outputs in a `[u32; NITEMS]` and building each `BTreeMap` once, in item-id order, was bit-identical (pa-idcheck, threads 1 and 4) and then reverted. pa-bench against `kindling-kit`, one rep: s5 t1 115.5 s → 113.7 s (−1.8 s), s5 t4 47.9 s → 48.2 s (+0.3 s), late t4 36.0 s → 36.6 s (+0.6 s). That is under ±3% on seed 5 at 1 thread and not a gain on the late run. No second variant. `track_knowledge` (1.53 s on seed 5, 1.28 s over the late 3 years) was not started: it is the smaller half, and it cannot clear ±3% on seed 5 at 1 thread unless nearly all of it disappears.
 9. **`home_range` allocation.** Skip. 0.21 s over the late 3 years, 0.40 s on seed 5.
-10. **Further belief work.** Payout (`note_belief_payout`) is the only other belief site above noise (4.0 s on seed 5, 1.5 s CPU over the late 3 years, inside the parallel season). The kit memo does not touch it. Not started this pass: the clock ran out after the `year_stats` measurement. Do not touch inheritance or testimony.
+10. **Further belief work.** Payout (`note_belief_payout`) is the only other belief site above noise (4.0 s on seed 5, 1.5 s CPU over the late 3 years, inside the parallel season). The kit memo does not touch it. Not started: the clock ran out after item 4 failed the identity check. Do not touch inheritance or testimony.
 
 The `movement` bucket is large on the phase line and is not scheduled. It includes a toolkit refresh, so it is not evidence for a movement patch.
 
@@ -112,7 +112,9 @@ The `movement` bucket is large on the phase line and is not scheduled. It includ
 |---|---|---|---|---|---|---|
 | 6cb1da8 | profile and this plan | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
 | d663810 | parallel partner pre-filter, serial roll | `civ-core/src/world.rs` | yes, pa-idcheck threads 1 and 4 | 107.4 s → 105.9 s (−1.5 s) | 48.8 s → 41.3 s (−7.5 s) | 40.8 s → 34.1 s (−6.7 s) |
-| (this) | memo kit belief quotes per call | `civ-core/src/effects.rs` | yes, pa-idcheck threads 1 and 4 | 125.8 s → 112.3 s (−13.5 s) | 50.6 s → 48.2 s (−2.4 s) | 37.8 s → 35.7 s (−2.1 s) |
+| 8dde183 | memo kit belief quotes per call | `civ-core/src/effects.rs` | yes, pa-idcheck threads 1 and 4 | 125.8 s → 112.3 s (−13.5 s) | 50.6 s → 48.2 s (−2.4 s) | 37.8 s → 35.7 s (−2.1 s) |
+| d46fce9 | record the teach-scan and year-stats skips | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
+| (this) | record the incremental-closure miss | `docs/PERF-apply.md` | n/a, code reverted | n/a | n/a | n/a |
 
 Times are `pa-bench` sim seconds, one rep. Late is the Y750 800×800 save plus 3 years at 4 threads. The d663810 row was measured on the previous toolchain, A = skills-step4. The kit row is rustc 1.100.0, A = the rebuilt d663810 binary (`kindling-partner`), B = this commit. The two rows are not on the same clock. The kit chooser is inside the parallel season, so most of the 13.5 s shows up at one thread.
 
@@ -120,4 +122,4 @@ Skipped, not in the table: item 5 (teach-list scan) and the `year_stats` flat co
 
 ## Not applied: changes results
 
-None yet.
+**Incremental closure on learn** (`civ-core/src/knowledge.rs`, `civ-core/src/world.rs`). A toolkit miss whose raws and flame still matched, and whose recipe-id list was the previous list plus appended recipes, extended that closure. It fell back to a full closure when a new item fed a recipe whose output was already producible, when more than one recipe could make a new output, or when a new item would be born after the 16-pass cap. A `known_ver` bump that left the recipe list unchanged (a fight) reused the old graph and only refilled the chain. `cargo test --release` passed, including a unit test that accepted extensions only when they matched a full closure on small hand-built lists. `pa-idcheck` did not: every world differed from `id-base.txt` at threads 1 and 4. Seed 5 finished at pop 156548 / 7398 bands (baseline 144312 / 7345). The loaded Y750 world finished at pop 1311489 (baseline 1311172). The diff is `/tmp/perfapply-nonident-4.patch`. The code was reverted by hand and is not in this commit. No second variant. No bench.
