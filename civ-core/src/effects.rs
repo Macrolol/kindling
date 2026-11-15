@@ -16,7 +16,7 @@
 //! upkeep or the visible one. No entry is a prior and is not stored. An empty table keeps
 //! the old food score, bit for bit. `slot_score` stays the true-effects price.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
-use crate::beliefs::{food_prior, BELIEF_ADOPT_N, PRIOR_N};
+use crate::beliefs::{food_prior, material_term, BELIEF_ADOPT_N, BELIEF_CAP, PRIOR_FAIL, PRIOR_N, PRIOR_N0};
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use crate::params::Params;
@@ -1268,6 +1268,147 @@ struct Quote {
     known: bool,
 }
 
+/// One stored row in the open-address table. `on` is the empty mark.
+#[derive(Clone, Copy)]
+struct QSlot {
+    on: bool,
+    slot: u8,
+    item: u16,
+    mean: f32,
+    fail: f32,
+    labour: f32,
+    n: f32,
+}
+
+/// Quotes for one `make_kit_beliefs` call. Stored rows are hashed. An unstored
+/// item reuses the prior ratio of its form: `food_prior` depends on the query
+/// only through `form(it)` until the final `material_term` multiply, and the
+/// fold below is that loop (same skips, same product order). A table longer
+/// than `BELIEF_CAP` sets `disabled` and `quote` calls `quote_of`.
+struct QuoteMemo {
+    disabled: bool,
+    tab: [QSlot; 64],
+    n: [f32; BELIEF_CAP],
+    rho_j: [f32; BELIEF_CAP],
+    form: [u8; BELIEF_CAP],
+    nrows: u8,
+    rho_all: f32,
+    rho: [f32; NFORM],
+    have: [bool; NFORM],
+}
+
+fn qhash(slot: u8, item: u16) -> usize {
+    let mut x = (item as u32) ^ ((slot as u32) << 16);
+    x = x.wrapping_mul(0x9E37_79B1);
+    x ^= x >> 16;
+    (x as usize) & 63
+}
+
+impl QuoteMemo {
+    fn build(beliefs: &[crate::band::Belief]) -> Self {
+        let empty = QSlot { on: false, slot: 0, item: 0, mean: 0.0, fail: 0.0, labour: 0.0, n: 0.0 };
+        let mut m = Self {
+            disabled: beliefs.len() > BELIEF_CAP,
+            tab: [empty; 64],
+            n: [0.0; BELIEF_CAP],
+            rho_j: [0.0; BELIEF_CAP],
+            form: [0; BELIEF_CAP],
+            nrows: 0,
+            rho_all: 1.0,
+            rho: [0.0; NFORM],
+            have: [false; NFORM],
+        };
+        if m.disabled {
+            return m;
+        }
+        let mut all_n = 0.0;
+        let mut all_r = 0.0;
+        for b in beliefs {
+            if !(b.n > 0.0) || !valid_item(b.item) {
+                continue;
+            }
+            m.insert(b.slot, b.item, b.mean, b.fail, b.labour, b.n);
+            let pv = material_term(b.slot as usize, b.item);
+            if !(pv > 0.0) {
+                continue;
+            }
+            let rho_j = b.mean / pv;
+            if !rho_j.is_finite() {
+                continue;
+            }
+            all_n += b.n;
+            all_r += b.n * rho_j;
+            let i = m.nrows as usize;
+            if i < BELIEF_CAP {
+                m.n[i] = b.n;
+                m.rho_j[i] = rho_j;
+                m.form[i] = form(b.item) as u8;
+                m.nrows += 1;
+            }
+        }
+        m.rho_all = if all_n > 0.0 { all_r / all_n } else { 1.0 };
+        m
+    }
+
+    fn insert(&mut self, slot: u8, item: u16, mean: f32, fail: f32, labour: f32, n: f32) {
+        let mut i = qhash(slot, item);
+        loop {
+            if !self.tab[i].on {
+                self.tab[i] = QSlot { on: true, slot, item, mean, fail, labour, n };
+                return;
+            }
+            if self.tab[i].slot == slot && self.tab[i].item == item {
+                return;
+            }
+            i = (i + 1) & 63;
+        }
+    }
+
+    /// Ratio `food_prior` multiplies by `material_term`. `max_s` only changes
+    /// the prior variance, which the quote does not read.
+    fn rho_for(&self, want: u8) -> f32 {
+        let mut num = 0.0;
+        let mut den = 0.0;
+        for i in 0..self.nrows as usize {
+            let s = motion_cos(self.form[i], want);
+            let n = self.n[i];
+            let rho_j = self.rho_j[i];
+            num += s * n * rho_j;
+            den += s * n;
+        }
+        (num + PRIOR_N0 * self.rho_all) / (den + PRIOR_N0)
+    }
+
+    #[inline]
+    fn quote(&mut self, beliefs: &[crate::band::Belief], slot: usize, it: Item) -> Quote {
+        if self.disabled {
+            return quote_of(beliefs, slot, it);
+        }
+        let s = slot as u8;
+        let mut i = qhash(s, it);
+        loop {
+            let row = &self.tab[i];
+            if !row.on {
+                break;
+            }
+            if row.slot == s && row.item == it {
+                return Quote { mean: row.mean, fail: row.fail, labour: row.labour, n: row.n, known: true };
+            }
+            i = (i + 1) & 63;
+        }
+        // `food_prior` uses form only for a valid item. `form()` clamps every
+        // other id onto the last form, which would pick the wrong ratio.
+        let want = if valid_item(it) { form(it) as u8 } else { u8::MAX };
+        let fi = want as usize;
+        if fi < NFORM && !self.have[fi] {
+            self.rho[fi] = self.rho_for(want);
+            self.have[fi] = true;
+        }
+        let rho = if fi < NFORM { self.rho[fi] } else { self.rho_for(u8::MAX) };
+        Quote { mean: material_term(slot, it) * rho, fail: PRIOR_FAIL, labour: 0.0, n: PRIOR_N, known: false }
+    }
+}
+
 /// Stored belief for `(it, slot)`, or a prior that is not stored. A prior cannot be adopted.
 fn quote_of(beliefs: &[crate::band::Belief], slot: usize, it: Item) -> Quote {
     let s = slot as u8;
@@ -1285,37 +1426,37 @@ fn belief_adopt(q: &Quote) -> bool {
     q.known && q.n >= PRIOR_N + BELIEF_ADOPT_N
 }
 
-/// Replace food-slot terms already in the kit with the belief or the prior.
-/// Quality on those slots is cleared: the mean already carries it. `skip` is
-/// the slot being chosen; `yargs_of` has emptied it.
-fn paint_belief_context(a: &mut YArgs, k: &Kit, skip: usize, beliefs: &[crate::band::Belief]) {
+fn apply_quote_term(a: &mut YArgs, sl: usize, mean: f32) {
+    let mean = if mean.is_finite() { mean } else { 0.0 };
+    match sl {
+        0 => {
+            a.hunt_q = mean;
+            a.q_hunt = 0.0;
+        }
+        1 => {
+            a.cut = mean;
+            a.q_cut = 0.0;
+        }
+        10 => a.point = mean,
+        4 => a.axe = mean,
+        12 => {
+            a.netq = mean;
+            a.q_net = 0.0;
+        }
+        13 => {
+            a.trapq = mean;
+            a.q_trap = 0.0;
+        }
+        _ => {}
+    }
+}
+
+fn paint_slots(a: &mut YArgs, k: &Kit, skip: usize, mut mean_of: impl FnMut(usize, Item) -> f32) {
     let mut put = |sl: usize, it: Item| {
         if sl == skip || it == NONE {
             return;
         }
-        let q = quote_of(beliefs, sl, it);
-        let mean = if q.mean.is_finite() { q.mean } else { 0.0 };
-        match sl {
-            0 => {
-                a.hunt_q = mean;
-                a.q_hunt = 0.0;
-            }
-            1 => {
-                a.cut = mean;
-                a.q_cut = 0.0;
-            }
-            10 => a.point = mean,
-            4 => a.axe = mean,
-            12 => {
-                a.netq = mean;
-                a.q_net = 0.0;
-            }
-            13 => {
-                a.trapq = mean;
-                a.q_trap = 0.0;
-            }
-            _ => {}
-        }
+        apply_quote_term(a, sl, mean_of(sl, it));
     };
     put(0, k.hunt);
     put(1, k.cut);
@@ -1323,6 +1464,24 @@ fn paint_belief_context(a: &mut YArgs, k: &Kit, skip: usize, beliefs: &[crate::b
     put(4, k.axe);
     put(12, k.net);
     put(13, k.trap);
+}
+
+/// Replace food-slot terms already in the kit with the belief or the prior.
+/// Quality on those slots is cleared: the mean already carries it. `skip` is
+/// the slot being chosen; `yargs_of` has emptied it.
+fn paint_belief_context(a: &mut YArgs, k: &Kit, skip: usize, beliefs: &[crate::band::Belief]) {
+    paint_slots(a, k, skip, |sl, it| quote_of(beliefs, sl, it).mean);
+}
+
+/// `yargs_of` then `paint_belief_context`, without reading recipe quality of the
+/// food slots. Paint clears those qualities, so only the vessel and the dig
+/// stick still need `info`.
+fn yargs_belief<F>(k: &Kit, slot: usize, info: &F, user: &[f32; NFORM]) -> YArgs
+where
+    F: Fn(Item) -> (f32, f32, u8),
+{
+    let q = [0.0, 0.0, 0.0, 0.0, qual(info, k.vessel), qual(info, k.dig)];
+    yargs_rescaled(k, slot, user, &quiet, q)
 }
 
 /// `mean` stands in for the slot term. That slot's quality field is forced off so the
@@ -1363,7 +1522,7 @@ fn food_from_mean(slot: usize, base: &YArgs, m0: &[f32; 5], w: &[f32; 5], mean: 
 /// is installed. A better item that is not adoptable is only the trial. Nothing adoptable:
 /// the best score is installed and the trial stays empty, so a first tool can be used.
 /// Each point has its own mean. Ties keep the earlier item.
-fn choose_food_belief<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool, beliefs: &[crate::band::Belief]) {
+fn choose_food_belief<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool, beliefs: &[crate::band::Belief], memo: &mut QuoteMemo) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
     let mut second_cur = f32::NEG_INFINITY;
@@ -1383,17 +1542,30 @@ fn choose_food_belief<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, l
         }
         return;
     }
-    let mut base = yargs_of(k, slot, info, &view.user, &quiet);
+    let mut base = yargs_belief(k, slot, info, &view.user);
     // Other food slots contribute their believed term, not the true user-scaled
     // one. The slot under choice stays empty (its candidate is applied below).
-    paint_belief_context(&mut base, k, slot, beliefs);
+    paint_slots(&mut base, k, slot, |sl, it| memo.quote(beliefs, sl, it).mean);
     let m0 = yields(&base);
     let pitch = pitch_in_use(k, view.wet);
     let bow = k.bow != NONE;
+    // Same mean and fail produce the same food; the item only changes labour.
+    let mut seen_food = false;
+    let mut food_key = (0u32, 0u32);
+    let mut food_val = 0.0;
     for list in lists {
         for c in *list {
-            let q = quote_of(beliefs, slot, c.it);
-            let food = food_from_mean(slot, &base, &m0, w, q.mean, q.fail, bow);
+            let q = memo.quote(beliefs, slot, c.it);
+            let key = (q.mean.to_bits(), q.fail.to_bits());
+            let food = if seen_food && key == food_key {
+                food_val
+            } else {
+                let food = food_from_mean(slot, &base, &m0, w, q.mean, q.fail, bow);
+                seen_food = true;
+                food_key = key;
+                food_val = food;
+                food
+            };
             let labour = if q.known && q.labour > 0.0 {
                 q.labour
             } else {
@@ -1524,11 +1696,15 @@ where
         Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(),
         Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(), Bucket::new(),
     ];
+    // Food scores ignore maker skill once a table exists. Non-food scores never read it.
+    let belief = !beliefs.is_empty();
+    let mut memo = if belief { QuoteMemo::build(beliefs) } else { QuoteMemo::build(&[]) };
     for it in avail.iter() {
         let (f, m) = (form(it), mat(it));
         if let Some(bi) = bucket_of(f) {
             let (_sk, ql, d) = info(it);
-            buckets[bi].push(cand_new(it, view.user[f as usize], ql, d, m_of(it)));
+            let maker = if belief { 1.0 } else { m_of(it) };
+            buckets[bi].push(cand_new(it, view.user[f as usize], ql, d, maker));
             continue;
         }
         let mut upd = |slot: usize, s: f32, tgt: &mut Item| {
@@ -1599,7 +1775,7 @@ where
             if beliefs.is_empty() {
                 choose_food(&mut k, slot, &lists, info, view, &w, true);
             } else {
-                choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs);
+                choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs, &mut memo);
             }
         } else {
             let list = match slot {
@@ -1632,7 +1808,7 @@ where
         if beliefs.is_empty() {
             choose_food(&mut k, slot, &lists, info, view, &w, true);
         } else {
-            choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs);
+            choose_food_belief(&mut k, slot, &lists, info, view, &w, true, beliefs, &mut memo);
         }
     }
     apply_base(&mut k, &view.user);
@@ -1670,4 +1846,132 @@ pub fn make_kit_for(tk: &Toolkit, known: &[Known]) -> Kit {
 /// Nominal-view `make_kit_among`. Maker skill is forced to 1, same as `make_kit_for`.
 pub fn make_kit_among(avail: &ItemSet, tk: &Toolkit, known: &[Known]) -> Kit {
     make_kit_with_view(avail, &|it| recipe_info(tk, known, it), &BandView::nominal())
+}
+
+#[cfg(test)]
+mod quote_memo_tests {
+    use super::{paint_belief_context, paint_slots, quiet, quote_of, yargs_belief, yargs_of, QuoteMemo, YArgs};
+    use crate::band::{Belief, Kit};
+    use crate::materials::{item, Form, Mat, Item, NONE, NFORM};
+
+    fn assert_quote(beliefs: &[Belief], slot: usize, it: Item, memo: &mut QuoteMemo) {
+        let a = quote_of(beliefs, slot, it);
+        let b = memo.quote(beliefs, slot, it);
+        assert_eq!(a.known, b.known, "known slot {slot}");
+        assert_eq!(a.mean.to_bits(), b.mean.to_bits(), "mean slot {slot}");
+        assert_eq!(a.fail.to_bits(), b.fail.to_bits(), "fail slot {slot}");
+        assert_eq!(a.labour.to_bits(), b.labour.to_bits(), "labour slot {slot}");
+        assert_eq!(a.n.to_bits(), b.n.to_bits(), "n slot {slot}");
+    }
+
+    #[test]
+    fn memo_quote_matches_quote_of() {
+        let flint = item(Form::Edge, Mat::Flint);
+        let copper = item(Form::Edge, Mat::Copper);
+        let point = item(Form::Point, Mat::Flint);
+        let spear = item(Form::Spear, Mat::Wood);
+        let axe = item(Form::Axe, Mat::Stone);
+        let net = item(Form::Net, Mat::Fibre);
+        let beliefs = vec![
+            Belief { item: flint, slot: 1, n: 2.0, mean: 0.4, fail: 0.1, labour: 0.02, ..Default::default() },
+            Belief { item: flint, slot: 0, n: 0.0, mean: 9.0, fail: 0.2, labour: 0.9, ..Default::default() },
+            Belief { item: flint, slot: 1, n: 4.0, mean: 8.0, fail: 0.9, labour: 0.5, ..Default::default() },
+            Belief { item: copper, slot: 0, n: 3.0, mean: 0.8, fail: 0.05, labour: 0.0, ..Default::default() },
+            Belief { item: point, slot: 10, n: 1.0, mean: 0.3, fail: 0.2, labour: 0.01, ..Default::default() },
+            Belief { item: flint, slot: 10, n: 2.0, mean: f32::NAN, fail: 0.2, labour: 0.01, ..Default::default() },
+            Belief { item: spear, slot: 4, n: 1.5, mean: 0.2, fail: 0.1, labour: 0.03, ..Default::default() },
+        ];
+        let mut memo = QuoteMemo::build(&beliefs);
+        let queries = [
+            (1, flint),
+            (0, flint),
+            (0, copper),
+            (1, copper),
+            (10, point),
+            (10, flint),
+            (0, spear),
+            (4, axe),
+            (4, spear),
+            (12, net),
+            (13, net),
+            (0, point),
+            (12, item(Form::Trap, Mat::Fibre)),
+            (1, NONE),
+            (0, (Form::Edge as u16) * 32 + 31),
+        ];
+        for (slot, it) in queries {
+            assert_quote(&beliefs, slot, it, &mut memo);
+            assert_quote(&beliefs, slot, it, &mut memo);
+        }
+        let mut empty = QuoteMemo::build(&[]);
+        assert_quote(&[], 1, flint, &mut empty);
+        let mut long: Vec<Belief> = (0..25)
+            .map(|i| Belief {
+                item: item(Form::Edge, Mat::from_u8(i as u8 % 29)),
+                slot: 1,
+                n: 1.0 + i as f32,
+                mean: 0.1 * i as f32,
+                fail: 0.01,
+                labour: 0.02,
+                ..Default::default()
+            })
+            .collect();
+        long.push(Belief { item: axe, slot: 4, n: 2.0, mean: 0.7, fail: 0.2, labour: 0.04, ..Default::default() });
+        let mut slow = QuoteMemo::build(&long);
+        assert!(slow.disabled);
+        assert_quote(&long, 1, flint, &mut slow);
+        assert_quote(&long, 4, axe, &mut slow);
+        assert_quote(&long, 0, spear, &mut slow);
+    }
+
+    fn y_eq(a: &YArgs, b: &YArgs) {
+        let f = |x: f32, y: f32| assert_eq!(x.to_bits(), y.to_bits());
+        f(a.hunt_q, b.hunt_q);
+        f(a.cut, b.cut);
+        f(a.vq, b.vq);
+        f(a.dig, b.dig);
+        f(a.axe, b.axe);
+        f(a.cord, b.cord);
+        f(a.hammer, b.hammer);
+        f(a.point, b.point);
+        f(a.netq, b.netq);
+        f(a.trapq, b.trapq);
+        assert_eq!(a.bow, b.bow);
+        f(a.bow_uf, b.bow_uf);
+        f(a.q_hunt, b.q_hunt);
+        f(a.q_cut, b.q_cut);
+        f(a.q_net, b.q_net);
+        f(a.q_trap, b.q_trap);
+        f(a.q_vessel, b.q_vessel);
+        f(a.q_dig, b.q_dig);
+    }
+
+    #[test]
+    fn belief_base_matches_yargs_after_paint() {
+        let info = |_: Item| (0.4f32, 0.25f32, 2u8);
+        let mut k = Kit::default();
+        k.hunt = item(Form::Spear, Mat::Flint);
+        k.cut = item(Form::Edge, Mat::Flint);
+        k.vessel = item(Form::Vessel, Mat::Ceramic);
+        k.dig = item(Form::Shaft, Mat::Wood);
+        k.bow = item(Form::Bow, Mat::Wood);
+        k.point = item(Form::Point, Mat::Flint);
+        k.axe = item(Form::Axe, Mat::Stone);
+        let mut user = [0.4f32; NFORM];
+        user[Form::Edge as usize] = 0.2;
+        user[Form::Shaft as usize] = 0.7;
+        let beliefs = vec![
+            Belief { item: k.hunt, slot: 0, n: 2.0, mean: 0.55, fail: 0.1, labour: 0.02, ..Default::default() },
+            Belief { item: k.cut, slot: 1, n: 2.0, mean: 0.33, fail: 0.1, labour: 0.02, ..Default::default() },
+            Belief { item: k.point, slot: 10, n: 1.2, mean: 0.4, fail: 0.05, labour: 0.01, ..Default::default() },
+        ];
+        let mut memo = QuoteMemo::build(&beliefs);
+        for slot in [0usize, 1, 4, 10, 12, 13] {
+            let mut a = yargs_of(&k, slot, &info, &user, &quiet);
+            paint_belief_context(&mut a, &k, slot, &beliefs);
+            let mut b = yargs_belief(&k, slot, &info, &user);
+            paint_slots(&mut b, &k, slot, |sl, it| memo.quote(&beliefs, sl, it).mean);
+            y_eq(&a, &b);
+        }
+    }
 }
