@@ -8,10 +8,9 @@
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
 //! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
-//! food. Under `durability-v2`, knife and hunt food use `food_edge_q` (the combined
-//! working edge, or the split average cut) instead of bare `cut_q`. A point's fish term
-//! is `working_edge_q` on both accounts, not mere presence and not the split cut.
-//! The axe uses `axe_food_score`. The default
+//! food. Under `durability-v2`, knife and hunt food use `food_edge_q` (the split
+//! average cut) instead of bare `cut_q`. A point's fish term is `working_edge_q`,
+//! not mere presence and not the split cut. The axe uses `axe_food_score`. The default
 //! build does not. Non-food payoff slots keep the old
 //! `KIT_UPKEEP` ranking, with the user factor in place of the recipe-skill discount.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
@@ -514,11 +513,10 @@ fn cut_term(it: Item) -> f32 {
 }
 
 /// Material factor on the point slot's fish term. Feature off: 1, presence only.
-/// Feature on: `working_edge_q` on both accounts, so a glass point is not a full
-/// point. Not `food_edge_q`: under split that cut is small enough that flint's
-/// break labour outranks the extra keenness, and the priced flint point loses
-/// to soft copper. Knife and hunt already use `food_edge_q`.
-/// A diagnostic that forces v1 keeps the flat 1.
+/// Feature on: `working_edge_q`, so a glass point is not a full point. Not
+/// `food_edge_q`: that cut is small enough that flint's break labour outranks
+/// the extra keenness, and the priced flint point loses to soft copper.
+/// Knife and hunt already use `food_edge_q`. A test that forces v1 keeps the flat 1.
 /// The feature-off callers inline the 1, so this body is unused in that build
 /// and must not be called there (a multiply by 1.0 is not the same bits).
 #[cfg_attr(not(feature = "durability-v2"), allow(dead_code))]
@@ -531,7 +529,11 @@ fn point_food_scale(it: Item) -> f32 {
     }
     #[cfg(feature = "durability-v2")]
     {
-        if dur_force_v1() || it == NONE { 1.0 } else { working_edge_q(mat(it)) }
+        #[cfg(test)]
+        if dur_force_v1() || it == NONE {
+            return 1.0;
+        }
+        if it == NONE { 1.0 } else { working_edge_q(mat(it)) }
     }
 }
 
@@ -722,7 +724,7 @@ fn yields_with<N: Fn(usize) -> f32>(slot: usize, base: &YArgs, c: &Cand, bow_ite
             a.q_cut = c.ql;
         }
         // Feature off, every point fills the slot the same way: presence, not material.
-        // Feature on, the fish term scales by `working_edge_q` (both accounts).
+        // Feature on, the fish term scales by `working_edge_q`.
         10 => {
             #[cfg(not(feature = "durability-v2"))]
             {
@@ -1169,7 +1171,7 @@ fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
 /// Food-slot choice. `lists` are the candidate forms in item-id order (an edge before a point
 /// before a spear). Empty-slot multipliers are computed once. On the default build a point's
 /// food does not depend on which point it is, so that food is computed once. `durability-v2`
-/// scores each point (the working edge differs).
+/// scores each point (`working_edge_q` differs).
 fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
@@ -1188,10 +1190,12 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     let pitch = pitch_in_use(k, view.wet);
     // Default build: one food for every point. Presence changes the multipliers, the
     // material does not, and every point is the same form so it has the same user factor.
-    // `durability-v2` skips this unless a diagnostic forces the old model.
+    // `durability-v2` scores each point, unless a test forces the old model.
     #[cfg(not(feature = "durability-v2"))]
     let point_uniform = slot == 10;
-    #[cfg(feature = "durability-v2")]
+    #[cfg(all(feature = "durability-v2", not(test)))]
+    let point_uniform = false;
+    #[cfg(all(feature = "durability-v2", test))]
     let point_uniform = slot == 10 && dur_force_v1();
     let point_food = if point_uniform {
         let mut a = base;

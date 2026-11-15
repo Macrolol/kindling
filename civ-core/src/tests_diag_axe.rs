@@ -531,19 +531,9 @@ fn report_save(path: &str) {
 #[ignore]
 fn diag_axe_breakeven() {
     let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| crate::tests_diag::DIAG_SAVE_DEFAULT.to_string());
-    #[cfg(feature = "durability-v2")]
-    {
-        println!("==== COMBINED spread {EDGE_LIFE_SPREAD:.2} (load refits the kit under this account) ====");
-        with_durability_model(false, EDGE_LIFE_SPREAD, || report_save(&path));
-        println!("==== SPLIT (retention and breakage are separate; load refits again) ====");
-        with_split_model(|| report_save(&path));
-    }
-    #[cfg(not(feature = "durability-v2"))]
+    println!("==== live model {} (load refits the kit) ====", durability_account_name());
     report_save(&path);
     if std::path::Path::new(FRESH_SAVE).is_file() {
-        #[cfg(feature = "durability-v2")]
-        with_durability_model(false, EDGE_LIFE_SPREAD, || report_save(FRESH_SAVE));
-        #[cfg(not(feature = "durability-v2"))]
         report_save(FRESH_SAVE);
     } else {
         println!("fresh save absent: {FRESH_SAVE}");
