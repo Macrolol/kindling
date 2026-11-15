@@ -4,7 +4,7 @@ No simulation behaviour was changed. The only code added is ignored diagnostic t
 
 ## Summary
 
-Twenty findings. Two are high, nine are medium, nine are low. The material findings from the first pass stand. The bounds were measured on two saved worlds, seed 6 at year 350 and seed 1 at year 200, instead of judging clamps from the formula alone. The sizing pass measured material steps from the 0..10 property through to the food, fight and survival the sim applies. The protection cap is ranked above births and push: it binds more widely on the earlier save, and the warmth finding depends on it. The hunt finding is low, by this audit's own definition. The boat hazard floor is a late-game description and stays medium.
+Twenty-one findings. Two are high, nine are medium, ten are low. The material findings from the first pass stand. The bounds were measured on two saved worlds, seed 6 at year 350 and seed 1 at year 200, instead of judging clamps from the formula alone. The sizing pass measured material steps from the 0..10 property through to the food, fight and survival the sim applies. The protection cap is ranked above births and push: it binds more widely on the earlier save, and the warmth finding depends on it. The hunt finding is low, by this audit's own definition. The boat hazard floor is a late-game description and stays medium.
 
 The high one is the bug Michael already found. `durability` puts copper, bronze and iron on the same ceiling of 1, and steel just under it (0.979), because the formula pays for malleability and then divides by 12. Wear is `1.15 - durability`, so those three metals all wear at 0.150 and steel wears faster, at 0.171. Fight order is not reversed: a steel spear is still the deadliest weapon in the table (weapon quality 0.915, then bronze 0.875, iron 0.871, copper 0.814, flint 0.707). What the cap does change is upkeep, and therefore which tool a band keeps when the food gain is small. On a nominal band, forcing every axe to chain depth 8 makes bronze's score 0.319 and steel's 0.318. The axe study already measured the larger effect, which is chain depth, not this gap. On the saved world the depth term is doing that job: a copper axe sits near chain depth 3.2 and a steel axe near 7.3, so steel's labour is about 1.6 times copper's before the wear reversal.
 
@@ -163,6 +163,7 @@ Severity. High: the formula reverses or flattens a core comparison widely. Mediu
 | 18 | Low | `world.rs:2008` | Food effort is at least 30% of labour. Upkeep alone exceeds 55% of labour for 3.64% of bands, which is the tail that hits that floor on tools alone. | Those bands cannot spend less time feeding themselves as the kit gets dearer. `1 + 0.3 × depth` still spreads (median 2.2, max 4.9). | Leave it if the floor is "you still have to eat". It is not a flat labour price. |
 | 19 | Low | `materials.rs:549` | `vessel_q` defaults to 0.3, so wood, stone, every metal, bone, pitch and meat are one vessel. | No recipe makes those vessels, so the 0.3 does not change play. | Default unknown vessels to 0. |
 | 20 | Low | `materials.rs:571`, `physics.rs:476`, `materials.rs:197` | Sub-type H. Iron reduces at 1400°C, 90°C above charcoal in a ceramic kiln, so bellows are a switch. Ceramic over clay is only +40°C. Charcoal over wood (+300°C) is a fair step. | The ladder's order is right. The gate is a razor, and a good furnace cannot touch iron. Section 20. | Keep the order. If bellows should help iron rather than be required, lower 1400 into the usual bloomery range. Not now. |
+| 21 | Low | `physics.rs:291` | Sub-types B and C, latent. An edge is hafted as an axe if `hard >= 3.0 && tough + malleable >= 3.0`. Malleability stands in for toughness, the same mistake as rank 1. No current material changes outcome: obsidian fails either way, and every metal that passes does so on toughness alone. | A future metal that is hard enough, not tough, and very malleable would become an axe. Nothing in the present table does. | Require `tough >= 3.0` on its own. Do not add malleability into the gate. |
 
 ### What `durability-v2` addresses when it is on
 
@@ -175,7 +176,7 @@ The feature is not on this branch, and this audit does not turn it on. The colum
 | 12 | Addressed. `hunt_q_of` calls `food_edge_q` instead of raw `cut_q`. |
 | Mark slot | Addressed, though the slot was left in "Checked, and fine". `record_durability` uses `record_life`, which reads hardness. The ceramic +1 in the kit choice stays. |
 
-Ranks 2 and 4–11 and 13–20 are not what that feature retunes. The plants coefficient 0.1 and the farm coefficient 0.2 stay.
+Ranks 2 and 4–11 and 13–21 are not what that feature retunes. The axe-hafting gate (rank 21) is unchanged on that branch. The plants coefficient 0.1 and the farm coefficient 0.2 stay.
 
 ## Findings
 
@@ -656,6 +657,26 @@ Impact. The floor erases food-effort differences for a few percent of bands, the
 
 Spare's own clamp, `((labour − e_food − upkeep) / labour).clamp(0, 1)` (`world.rs:2049`), does not bind: spare is 0 for 0.03% and 1 for 0.00% (median 0.278, maximum 0.600). That one stays in the fine list.
 
+### 21. Hafting an axe lets malleability stand in for toughness
+
+Low, rank 21. Latent. Sub-types B and C. Same mistake as finding 1. Nothing in the current material table changes which edge becomes an axe.
+
+```291:293:civ-core/src/physics.rs
+            if em.props().hard >= 3.0 && em.props().tough + em.props().malleable >= 3.0 {
+                return o(item(Form::Axe, em), 0.25 + 0.3 * cut_q(em));
+            }
+```
+
+What it does. A shaft, a cord and an edge become an axe when the edge is at least 3 hard and the sum of toughness and malleability is at least 3. Malleability can fill a toughness the edge does not have.
+
+The order it should respect. An axe head has to hold together. Toughness is that. Being easy to reshape is not a substitute, which is finding 1's point about wear.
+
+Why it does not bite today. Malleability is 0 on every non-metal, so for those the sum is toughness. Obsidian is hard 5.5 and tough 1.5, so it fails the sum and it would also fail a toughness gate of 3. Copper, bronze, iron and steel are tough 9, so each passes on toughness alone. Tin is hard 1.5 and gold is hard 2.5, so both fail the hardness gate before malleability matters. No current edge is admitted by malleability that toughness would have refused.
+
+Impact. None, until a material is added that is hard enough to be an edge, tougher than nothing, and malleable enough to cross 3 without being tough. That is why the rank is low, and why it is written down: the next soft malleable metal should not inherit the gate.
+
+Proposed fix, not applied. Require `tough >= 3.0` beside `hard >= 3.0`. Do not add malleability into the sum. `durability-v2` does not change this line.
+
 ## Wrongly sized material differences
 
 Sub-type H. Nothing here is retuned. Michael asked for the size of the step, not only the order, and plans a separate deep dive. This section flags candidates.
@@ -790,7 +811,11 @@ Most of the 96 clamps are limits that should bind, or that nothing reaches. Grou
 
 **Sails, among sails that exist.** The score is toughness, plus 10 if the cloth is not plant-fibre matting (`effects.rs:1255`). Makeable sails are linen 14.5, wool 14, mat 3. Linen over wool over matting is the right order. The +10 is large and would also prefer a hide sail, but hide is not a sail recipe.
 
-**Hammers.** Only a raw cobble with hardness and toughness both at least 5 becomes a hammer. That is stone. Flint is hard and brittle and is excluded. The kit ranks hammers by hardness, and stone and steel both have hardness 6, but there is no steel hammer recipe. The tie cannot happen. Food treats "has a hammer" as 1, so which stone it is does not change a yield.
+**Hammers.** The kit ranks a hammer by hardness alone (`effects.rs:1253`), which would let a brittle hard stone beat a tough one. The only hammer recipe (`physics.rs:153`) requires `hard >= 5.0 && tough >= 5.0`, so flint is excluded and the ranking cannot bite today. That cobble is stone. Stone and steel both have hardness 6, and there is no steel hammer recipe. Food treats "has a hammer" as 1, so which stone it is does not change a yield.
+
+**A learner's starting quality.** `world.rs:3937` stores `(QUALITY_TEACH * tq).min(0.3)` on a new recipe whose skill is 0.3. `QUALITY_TEACH` is 0.5 (`world.rs:140`), so every teacher at quality 0.6 or above hands over the same 0.3. That is the rule that quality does not exceed skill (`world.rs:132`: a recipe is never done better than it is known), applied at the learner's starting skill. The same rule is what fades and showing-off already clamp to (`world.rs:2287`, `world.rs:3625`). Probably intended. Left as fine.
+
+**The five formula clamps.** `cut_q`, `durability`, `boat_q`, `mesh_q` and `garment_q` (`materials.rs:534` through `materials.rs:568`) are the clamps this audit already covers. `cut_q` never reaches 1 (obsidian 0.820). `boat_q` tops out at 0.929 and `mesh_q` at 0.933, so those two clamps are idle; the mesh tie is the formula, not the clamp. `durability`'s ceiling is rank 1. `garment_q`'s ceiling is rank 8. Nothing else of that shape was found.
 
 **Shafts and digging sticks.** Every shaft scores 1.0 (`effects.rs:1247`). The only shaft physics allows is wood. Nothing is flattened that can exist.
 
