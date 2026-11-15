@@ -762,9 +762,26 @@ What to re-measure, on the merged `skills-step4` tree, feature off and feature o
 - The ordering tests, `working_edge_orders_knife_axe_and_point` and `split_model_orders_retention_break_and_price`.
 - Default-build golden hashes. They should be step 4's pair (`0x1845e2690330d59` and `0x4c41b83c2c81e1f5`), not the pair this proposal froze. A feature-on mismatch with either pair is expected and is not a reason to edit the constants.
 
+## Known bugs
+
+These two are bugs in the split formulas. They are not tuning knobs and they are not questions. Both must be fixed before `durability-v2` is switched on. The census further down was measured with the bugs still in the code. It will move after the fixes. Do not turn the feature on and then treat that census as the result.
+
+**Dull time is counted twice.** `split_working_cut` multiplies the fresh cut by `edge_retention`, and retention is already the keep index squared. `resharpen_labour` divides by the same retention. A band that pays to hone more often should spend less of the season dull. Charging both at full strength does the opposite of that: copper pays about 6.1 times the honing of a perfect edge and keeps about 15% of its fresh cut (0.073 against 0.480). Steel against copper then compounds to about 3 squared, roughly nine times, across labour and food together. Hardness is also already inside `cut_q` (`0.4 * hard`), so it is in the product a third time.
+
+Two candidate fixes. Pick one. Then re-run the census. Copper should be able to survive in more places than the 29 foragers the current split census keeps. That is acceptable if it is what the corrected physics says.
+
+- Hone at a fixed loss of keenness. Average cut is the same fraction of fresh for every material. Only the labour scales with `1 / retention`.
+- Charge the optimal interval. Honing and dullness each scale with the square root of `1 / retention`, not with the whole factor.
+
+**The axe score lets toughness stand in for cutting.** `split_axe_score` is half the working cut and half toughness. On that blend a hide axe scores 0.300 and a wooden one 0.303, against stone 0.324 and copper 0.486, and a flint axe (0.177) scores below the wooden one. Toughness is already inside the working cut (the body term) and inside `break_labour`, so it is counted three times. The four tool metals are all toughness 9, so that half of the score is a flat 0.45 for each of them. Steel against copper on the axe score shrinks to 1.29 even though the working cut differs by about 4.9 times.
+
+The fix is the one the review names, not a weight to taste: the axe's food is the working cut alone, and breakage stays on the labour side. The plants coefficient (`0.1`) and the farm coefficient (`0.2`) are outside this bug. They stay where they are until a later sizing pass.
+
+After both fixes, re-measure `diag_durability_flips` and `diag_axe_breakeven` on `DIAG_SAVE`. Replace the census. The numbers in this note are the broken formulas.
+
 ## Questions for Michael
 
-The landing order is decided (this branch first, then #12 merges main in). These are still open.
+The landing order is decided (this branch first, then #12 merges main in). These are still open. The double-counted dull time and the 50/50 axe blend are not on this list. They are bugs, and they are fixed before the feature is switched on. See Known bugs. The census moves after that.
 
 1. Turn the feature on at all? My recommendation is to land the code with the feature off, and to use the split account when it is turned on. The default build stays byte-identical until that decision.
 2. Are the constants acceptable? Combined edge: keep `0.65 * hard + 0.35 * sharp`, roll `0.09 * malleable`, chip `0.50 * fracture / 10`, scale `/ 45`, the pitch-versus-clay term `0.004 * hard`, repair `0.045 * malleable`, working-edge floor `0.40`, spread `0.50` (combined only; the sim does not read it while the account is Split). Split edge: retention is that keep, squared; hone scale `RESHARPEN_USE` 0.07; break scale `0.60`; chip floor on the working cut `0.25`; interval floor `0.02`. They were chosen to hit the orders and to sit on today's wear scale. They are not fitted to the felling trials. The sizing candidates are listed above and are not questions for this pass except where one of them is also a constant you might reject outright.
