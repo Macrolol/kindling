@@ -8,7 +8,8 @@
 # Verified against the source tree (native/src/cli.rs):
 #   package / binary: kindling   (cargo build --release -p kindling)
 #   There is no `parallel` feature on `kindling`; native builds always enable
-#   civ-core/parallel (rayon) via native/Cargo.toml, so no --features flag is passed.
+#   civ-core/parallel (rayon) via native/Cargo.toml. The `features` input is
+#   passed as `--features` only when non-empty; empty is the command below.
 #   headless:  kindling --headless --seeds A..B --years N [--map WxH] [--threads N]
 #                       [--config params.json] [--save out.civsave]
 #   screenshot (needs a window, run under Xvfb):
@@ -113,6 +114,11 @@ on:
         description: "runs-on label for build and sim jobs (e.g. a self-hosted runner label)"
         required: false
         default: "ubuntu-latest"
+        type: string
+      features:
+        description: "cargo features, e.g. civ-core/durability-v2"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -229,7 +235,16 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
 
       - name: Build
-        run: cargo build --release --locked -p kindling
+        env:
+          FEATURES: ${{ inputs.features }}
+        run: |
+          # Empty `features` is today's command, byte for byte. The input is an env
+          # var so it is never interpolated into this script.
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --locked -p kindling --features "$FEATURES"
+          else
+            cargo build --release --locked -p kindling
+          fi
 
       - name: Smoke test CLI
         run: ./target/release/kindling --help
@@ -274,6 +289,9 @@ jobs:
 
       - name: Test
         run: cargo test --release --locked --workspace
+
+      - name: Test durability-v2
+        run: cargo test --release --locked --workspace --features civ-core/durability-v2
 
   sim:
     name: Seeds ${{ matrix.name }}
@@ -403,6 +421,7 @@ jobs:
           MAP: ${{ inputs.map }}
           CONFIG: ${{ inputs.config }}
           RAYON_NUM_THREADS: ${{ inputs.threads || '4' }}
+          FEATURES: ${{ inputs.features }}
         run: |
           set -euo pipefail
           if [ -n "${CONFIG:-}" ]; then echo "::warning::the probe uses default params"; fi
@@ -410,7 +429,13 @@ jobs:
           export PROBE_W="${wh%x*}" PROBE_H="${wh#*x}" PROBE_OUT="$PWD/probe-out"
           export PROBE_SEEDS=$(seq -s, "$FROM" "$TO")
           mkdir -p probe-out
-          cargo test --release --locked -p civ-core probe_diffusion -- --ignored --nocapture 2>&1 | tee "probe-out/probe-${CHUNK}.log"
+          # Empty `features` keeps today's command. A non-empty input builds the probe with it.
+          # The input is an env var so it is never interpolated into this script.
+          if [ -n "$FEATURES" ]; then
+            cargo test --release --locked -p civ-core probe_diffusion --features "$FEATURES" -- --ignored --nocapture 2>&1 | tee "probe-out/probe-${CHUNK}.log"
+          else
+            cargo test --release --locked -p civ-core probe_diffusion -- --ignored --nocapture 2>&1 | tee "probe-out/probe-${CHUNK}.log"
+          fi
           gzip -9 probe-out/*.csv
 
       - uses: actions/upload-artifact@v4

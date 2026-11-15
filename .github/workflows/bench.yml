@@ -38,6 +38,11 @@ on:
         required: true
         default: "1 2 4"
         type: string
+      features:
+        description: "cargo features, e.g. civ-core/durability-v2"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -70,10 +75,18 @@ jobs:
       - name: Build
         env:
           BASE: ${{ inputs.baseline_ref }}
+          FEATURES: ${{ inputs.features }}
         run: |
           set -euo pipefail
           nproc; lscpu | grep -E 'Model name|^CPU\(s\)' || true
-          cargo build --release --locked -p kindling
+          # Empty `features` is today's command. The baseline ref is not rebuilt with it:
+          # an older tag does not define the feature. The input is an env var so it is
+          # never interpolated into this script.
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --locked -p kindling --features "$FEATURES"
+          else
+            cargo build --release --locked -p kindling
+          fi
           mkdir -p bin && cp target/release/kindling bin/kindling-test
           if [ -n "$BASE" ]; then
             git worktree add ../base "$BASE"
