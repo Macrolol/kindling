@@ -6,16 +6,13 @@
 //!
 //! `DIAG_SAVE` is the snapshot (the same one as the steel-axe diagnostic).
 
-use crate::band::KIT_UPKEEP;
-use crate::effects::{
-    fills_payoff, recipe_info, slot_score_m, tool_effects_m, user_factor, BandView, LABOUR_SHARE, PAYOFF_SLOTS, WORK_SHARE,
-};
+use crate::band::Kit;
+use crate::effects::{fills_payoff, recipe_info, slot_score, slot_score_m, BandView, PAYOFF_SLOTS};
 use crate::materials::*;
 use crate::tests_diag::DIAG_SAVE_DEFAULT;
 use crate::World;
 use std::collections::BTreeMap;
 
-const FOOD_EPS: f32 = 1e-6;
 const SLOT_NAMES: [&str; 12] = [
     "hunt", "cut", "point", "axe", "boat", "net", "trap", "bow", "shield", "outrigger", "plank", "ship",
 ];
@@ -98,17 +95,32 @@ fn net_edge_wear(m: Mat) -> f32 {
     (1.15 - life) * repair_factor(WearClass::Edge, m)
 }
 
+fn assert_edge_order(life: impl Fn(Mat) -> f32) {
+    assert!(life(Mat::Obsidian) < life(Mat::Flint), "obsidian chips before flint");
+    assert!(life(Mat::Flint) < life(Mat::Copper), "flint chips before copper dulls");
+    assert!(life(Mat::Copper) < life(Mat::Stone), "a ground stone edge outlasts soft copper");
+    assert!(life(Mat::Stone) < life(Mat::Bronze), "stone does not outlast bronze");
+    assert!(life(Mat::Bronze) < life(Mat::Iron), "iron a bit ahead of bronze");
+    assert!(life(Mat::Iron) < life(Mat::Steel), "steel keeps an edge");
+}
+
 /// The proposal's edge order, and that the default build still uses the old formula.
 #[test]
 fn durability_v2_orders_edges_and_v1_formula_stays() {
+    let raw = raw_edge_life;
     let e = |m: Mat| class_durability(WearClass::Edge, m);
-    assert!(e(Mat::Obsidian) < e(Mat::Flint), "obsidian chips before flint");
-    assert!(e(Mat::Flint) < e(Mat::Copper), "flint chips before copper dulls");
-    assert!(e(Mat::Copper) < e(Mat::Bronze), "copper dulls before bronze");
-    assert!(e(Mat::Bronze) < e(Mat::Iron), "iron a bit ahead of bronze");
-    assert!(e(Mat::Iron) < e(Mat::Steel), "steel keeps an edge");
-    assert!(e(Mat::Steel) > e(Mat::Iron) * 1.15, "steel is clearly ahead of iron, not a rounding");
-    assert!(e(Mat::Copper) < e(Mat::Stone) && e(Mat::Stone) < e(Mat::Bronze), "a ground stone edge outlasts soft copper and not bronze");
+    assert_edge_order(raw);
+    assert_edge_order(e);
+    // The 15% gap is the raw formula. Compression keeps the order and shrinks it.
+    assert!(raw(Mat::Steel) > raw(Mat::Iron) * 1.15, "raw steel is clearly ahead of iron, not a rounding");
+    assert!(e(Mat::Steel) > e(Mat::Iron) + 0.04, "compressed steel is still clearly ahead of iron");
+    assert!((EDGE_LIFE_SPREAD - 0.50).abs() < 1e-6, "the sim's spread is the recommended one");
+    assert!((edge_life_at(Mat::Steel, 1.0) - raw(Mat::Steel)).abs() < 1e-6);
+    let wq = working_edge_q;
+    assert!(wq(Mat::Steel) > wq(Mat::Iron) && wq(Mat::Iron) > wq(Mat::Flint), "working edge: steel > iron > flint");
+    assert!(wq(Mat::Iron) > wq(Mat::Obsidian) && wq(Mat::Bronze) > wq(Mat::Obsidian), "glass does not outrank a metal blade");
+    assert!(wq(Mat::Flint) > wq(Mat::Copper), "flint is still keener than soft copper");
+    assert!(wq(Mat::Flint) > wq(Mat::Stone), "a flint edge out-cuts dull stone");
     // The bug the proposal is answering: the old function still caps copper above steel.
     assert!(durability(Mat::Copper) > durability(Mat::Steel));
     assert!((durability(Mat::Copper) - 1.0).abs() < 1e-6);
@@ -157,6 +169,44 @@ fn durability_v2_orders_edges_and_v1_formula_stays() {
     }
 }
 
+/// Feature on: the priced working edge at chain depth 0, nominal band. A glass edge
+/// must not beat iron, bronze or steel. Flint still beats soft copper as a knife.
+#[cfg(feature = "durability-v2")]
+#[test]
+fn working_edge_orders_knife_axe_and_point() {
+    let view = BandView::nominal();
+    let info = |_: Item| (1.0f32, 0.0, 0u8);
+    let price = |slot: usize, f: Form, m: Mat| {
+        let it = item(f, m);
+        slot_score(&view, &Kit::default(), slot, it, &info).0
+    };
+    let order = |slot: usize, f: Form, mats: &[Mat], label: &str| {
+        let mut prev = f32::INFINITY;
+        let mut prev_m = "";
+        let mut shown = String::new();
+        for &m in mats {
+            let p = price(slot, f, m);
+            shown.push_str(&format!(" {}={:.4}", m.name(), p));
+            assert!(p < prev, "{label}: {prev_m} {prev:.4} should beat {} {p:.4};{shown}", m.name());
+            prev = p;
+            prev_m = m.name();
+        }
+    };
+    // Knife and point: keenness discounted by life. Flint stays ahead of soft copper.
+    let cut = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Flint, Mat::Copper, Mat::Obsidian];
+    order(1, Form::Edge, &cut, "knife");
+    order(10, Form::Point, &cut, "point");
+    // Axe: half keenness, half compressed life, then repair. Copper is a working axe
+    // again; flint and obsidian chip. Stone (a ground celt) sits between copper and flint.
+    let axe = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Copper, Mat::Stone, Mat::Flint, Mat::Obsidian];
+    order(4, Form::Axe, &axe, "axe");
+    assert!(price(1, Form::Edge, Mat::Flint) > price(1, Form::Edge, Mat::Stone), "flint knife over stone");
+    assert!(price(1, Form::Edge, Mat::Copper) > price(1, Form::Edge, Mat::Obsidian), "copper knife over obsidian");
+    assert!(price(10, Form::Point, Mat::Copper) > price(10, Form::Point, Mat::Obsidian), "copper point over obsidian");
+    assert!(price(0, Form::Spear, Mat::Iron) > price(0, Form::Spear, Mat::Obsidian), "iron spear over obsidian");
+    assert!(price(0, Form::Spear, Mat::Steel) > price(0, Form::Spear, Mat::Iron), "steel spear over iron");
+}
+
 fn axe_score(m: Mat, v2: bool) -> f32 {
     let d = if v2 { class_durability(WearClass::Edge, m) } else { durability(m) };
     0.5 * cut_q(m) + 0.5 * d
@@ -185,17 +235,25 @@ fn new_wear(class: WearClass, m: Mat) -> f32 {
 #[test]
 #[ignore]
 fn diag_durability_table() {
-    println!("PROPOSAL diagnostic. feature durability-v2 is {}", if cfg!(feature = "durability-v2") { "ON (sim uses v2)" } else { "OFF (sim uses v1; this table still prints v2)" });
     println!(
-        "{:<14} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-        "material", "old", "edge", "impact", "vessel", "cord", "hull", "thermal", "record", "struct", "stock", "repair", "oldWear", "edgeWear", "axeOld", "axeNew", "eqOld", "eqNew", "markNew"
+        "PROPOSAL diagnostic. feature durability-v2 is {}. EDGE_LIFE_SPREAD {:.2} anchor {:.2} keep_floor {:.2}",
+        if cfg!(feature = "durability-v2") { "ON (sim uses v2)" } else { "OFF (sim uses v1; this table still prints v2)" },
+        EDGE_LIFE_SPREAD,
+        EDGE_LIFE_ANCHOR,
+        EDGE_KEEP_FLOOR
+    );
+    println!("edge column is compressed life (upkeep and the axe). rawEdge is spread 1. workQ is working_edge_q (raw life, not compressed).");
+    println!(
+        "{:<14} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "material", "old", "rawEdge", "edge", "impact", "vessel", "cord", "hull", "thermal", "record", "struct", "stock", "repair", "oldWear", "edgeWear", "axeOld", "axeNew", "eqOld", "eqNew", "markNew", "workQ"
     );
     for &m in &ALL_MATS {
         let r = repair_factor(WearClass::Edge, m);
         println!(
-            "{:<14} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3}",
+            "{:<14} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3} {:8.3}",
             m.name(),
             durability(m),
+            raw_edge_life(m),
             class_durability(WearClass::Edge, m),
             class_durability(WearClass::Impact, m),
             class_durability(WearClass::Vessel, m),
@@ -212,7 +270,8 @@ fn diag_durability_table() {
             axe_score(m, true),
             edge_score(m, false),
             edge_score(m, true),
-            mark_score(m, true)
+            mark_score(m, true),
+            working_edge_q(m)
         );
     }
     println!("ties (same life, and the same inputs — expected where the props match):");
@@ -253,6 +312,16 @@ fn diag_durability_table() {
             new_wear(WearClass::Thermal, m)
         );
     }
+    println!("SPREAD compare (life / edgeWear / axe). workQ does not depend on spread.");
+    for spread in [1.0f32, 0.50, 0.35] {
+        println!("  spread {spread:.2}");
+        for m in [Mat::Obsidian, Mat::Flint, Mat::Stone, Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel] {
+            let life = edge_life_at(m, spread);
+            let wear = (1.15 - life) * repair_factor(WearClass::Edge, m);
+            let axe = 0.5 * cut_q(m) + 0.5 * life;
+            println!("    {:<10} life {:7.3} wear {:7.3} axe {:7.3} workQ {:7.3}", m.name(), life, wear, axe, working_edge_q(m));
+        }
+    }
 }
 
 fn print_ties(label: &str, life: impl Fn(Mat) -> f32) {
@@ -269,54 +338,6 @@ fn print_ties(label: &str, life: impl Fn(Mat) -> f32) {
 
 fn live_v2() -> bool {
     cfg!(feature = "durability-v2")
-}
-
-fn wear_model(it: Item, v2: bool) -> f32 {
-    if !v2 {
-        return old_wear(mat(it));
-    }
-    let class = wear_class(form(it));
-    new_wear(class, mat(it))
-}
-
-fn price_of(food: f32, labour: f32, view: &BandView) -> f32 {
-    let pop = view.pop.max(1.0);
-    let units = labour * LABOUR_SHARE * pop;
-    let price = view.food.max(FOOD_EPS) / (WORK_SHARE * LABOUR_SHARE * pop);
-    food - price * units
-}
-
-fn nonfood_price(slot: usize, it: Item, u: f32, ql: f32, d: u8, v2: bool) -> f32 {
-    let m = mat(it);
-    let term = match slot {
-        11 | 16 | 18 | 22 => boat_q(m),
-        14 | 15 => m.props().tough + 1.0,
-        _ => 0.0,
-    };
-    let up = KIT_UPKEEP * wear_model(it, v2) * (1.0 + 0.3 * d as f32);
-    term * (1.0 + crate::band::QUALITY_YIELD * ql) * user_factor(u) - up
-}
-
-fn food_pair(view: &BandView, kit: &crate::band::Kit, tk: &crate::knowledge::Toolkit, known: &[crate::knowledge::Known], slot: usize, it: Item) -> (f32, f32, f32) {
-    let info = |x: Item| recipe_info(tk, known, x);
-    let mskill = tk.chain_m(it);
-    let fx = tool_effects_m(view, kit, slot, it, &info, 0, mskill);
-    let live = live_v2();
-    let wear_l = wear_model(it, live);
-    let wear_o = wear_model(it, !live);
-    let lab_o = if wear_l > 1e-8 { fx.labour * wear_o / wear_l } else { fx.labour };
-    let food_o = if slot == 4 {
-        let t_l = axe_score(mat(it), live);
-        let t_o = axe_score(mat(it), !live);
-        if t_l > 1e-8 { fx.food * t_o / t_l } else { fx.food }
-    } else {
-        fx.food
-    };
-    let p_l = price_of(fx.food, fx.labour, view);
-    let p_o = price_of(food_o, lab_o, view);
-    let (p1, p2) = if live { (p_o, p_l) } else { (p_l, p_o) };
-    let scored = slot_score_m(view, kit, slot, it, &info, mskill).0;
-    (p1, p2, scored)
 }
 
 fn argmax(rows: &[(Item, f32)]) -> Item {
@@ -346,9 +367,18 @@ fn bump(map: &mut BTreeMap<String, (u64, u64)>, key: String, farm: bool) {
     }
 }
 
+fn spread_moves_food(slot: usize) -> bool {
+    matches!(slot, 0 | 1 | 4 | 10)
+}
+
+fn score_item(view: &BandView, kit: &crate::band::Kit, tk: &crate::knowledge::Toolkit, known: &[crate::knowledge::Known], slot: usize, it: Item) -> f32 {
+    slot_score_m(view, kit, slot, it, &|x| recipe_info(tk, known, x), tk.chain_m(it)).0
+}
+
 /// (b) Which payoff slot (and the mark) would change material under v2, on the
-/// loaded save. v1 and v2 are both scored here; the feature only changes which
-/// one the sim itself uses. One slot at a time, in the kit as loaded.
+/// loaded save. Feature on, each edge slot is scored at the old formula and at
+/// edge-life spreads 1, 0.50 and 0.35. Feature off, only the live v1 pick is
+/// counted (the v2 food path is not in that binary).
 #[test]
 #[ignore]
 fn diag_durability_flips() {
@@ -356,23 +386,24 @@ fn diag_durability_flips() {
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     println!(
-        "FLIPS save {path} format v{} year {:.0} bands {} pop {} live-model {}",
+        "FLIPS save {path} format v{} year {:.0} bands {} pop {} live-model {} spread {:.2}",
         info.format_version,
         w.year(),
         w.bands.len(),
         w.total_pop(),
-        if live_v2() { "v2" } else { "v1" }
+        if live_v2() { "v2" } else { "v1" },
+        EDGE_LIFE_SPREAD
     );
-    let mut flips: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    let mut axe_v1: BTreeMap<String, u64> = BTreeMap::new();
-    let mut axe_v2: BTreeMap<String, u64> = BTreeMap::new();
+    // 0 = v1, 1 = spread 1, 2 = spread 0.50, 3 = spread 0.35
+    let labels = ["v1", "spread1.00", "spread0.50", "spread0.35"];
+    let mut flips: [BTreeMap<String, (u64, u64)>; 3] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
+    let mut axe_c: [BTreeMap<String, u64>; 4] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
     let mut scorer_bad = 0u64;
     let mut scorer_n = 0u64;
     let mut kit_mismatch = 0u64;
     let mut kit_n = 0u64;
     let mut farm_n = 0u64;
     let mut forage_n = 0u64;
-    let mut sample: Vec<String> = Vec::new();
     for b in &w.bands {
         let view = w.band_view(b);
         let farm = is_farm(b.sow, &view.harvest);
@@ -385,50 +416,67 @@ fn diag_durability_flips() {
         let known = &b.known;
         let kit = &b.d.kit;
         for (j, &slot) in PAYOFF_SLOTS.iter().enumerate() {
-            let mut rows1: Vec<(Item, f32)> = Vec::new();
-            let mut rows2: Vec<(Item, f32)> = Vec::new();
+            let mut rows: [Vec<(Item, f32)>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
             for it in tk.avail.iter() {
                 if !fills_payoff(it, j) {
                     continue;
                 }
-                let (p1, p2, scored) = if matches!(slot, 0 | 1 | 10 | 4 | 12 | 13) {
-                    food_pair(&view, kit, tk, known, slot, it)
-                } else {
-                    let (_sk, ql, d) = recipe_info(tk, known, it);
-                    let u = view.user[form(it) as usize];
-                    let p1 = nonfood_price(slot, it, u, ql, d, false);
-                    let p2 = nonfood_price(slot, it, u, ql, d, true);
-                    let scored = slot_score_m(&view, kit, slot, it, &|x| recipe_info(tk, known, x), tk.chain_m(it)).0;
-                    (p1, p2, scored)
+                let live = score_item(&view, kit, tk, known, slot, it);
+                #[cfg(feature = "durability-v2")]
+                let ps = {
+                    let v1 = with_durability_model(true, 1.0, || score_item(&view, kit, tk, known, slot, it));
+                    let s1 = if spread_moves_food(slot) {
+                        with_durability_model(false, 1.0, || score_item(&view, kit, tk, known, slot, it))
+                    } else {
+                        live
+                    };
+                    let s50 = if spread_moves_food(slot) {
+                        with_durability_model(false, 0.50, || score_item(&view, kit, tk, known, slot, it))
+                    } else if (EDGE_LIFE_SPREAD - 0.50).abs() < 1e-6 {
+                        live
+                    } else {
+                        with_durability_model(false, 0.50, || score_item(&view, kit, tk, known, slot, it))
+                    };
+                    let s35 = if spread_moves_food(slot) {
+                        with_durability_model(false, 0.35, || score_item(&view, kit, tk, known, slot, it))
+                    } else {
+                        live
+                    };
+                    [v1, s1, s50, s35]
                 };
-                let live = if live_v2() { p2 } else { p1 };
+                #[cfg(not(feature = "durability-v2"))]
+                let ps = [live, live, live, live];
                 scorer_n += 1;
-                if (live - scored).abs() > 1e-3 {
+                let expect = if live_v2() { ps[2] } else { ps[0] };
+                if (live - expect).abs() > 1e-3 {
                     scorer_bad += 1;
                 }
-                rows1.push((it, p1));
-                rows2.push((it, p2));
+                for i in 0..4 {
+                    rows[i].push((it, ps[i]));
+                }
             }
-            if rows1.is_empty() {
+            if rows[0].is_empty() {
                 continue;
             }
-            let a = argmax(&rows1);
-            let c = argmax(&rows2);
+            let picks: [Item; 4] = [argmax(&rows[0]), argmax(&rows[1]), argmax(&rows[2]), argmax(&rows[3])];
             kit_n += 1;
             let held = kit.slot_item(j);
-            let live_pick = if live_v2() { c } else { a };
+            let live_pick = if live_v2() { picks[2] } else { picks[0] };
             if live_pick != held {
                 kit_mismatch += 1;
             }
             if j == 3 {
-                *axe_v1.entry(item_name(a)).or_insert(0) += 1;
-                *axe_v2.entry(item_name(c)).or_insert(0) += 1;
+                for i in 0..4 {
+                    *axe_c[i].entry(item_name(picks[i])).or_insert(0) += 1;
+                }
             }
-            if a != c {
-                let key = format!("{} {} -> {}", SLOT_NAMES[j], item_name(a), item_name(c));
-                bump(&mut flips, key.clone(), farm);
-                if sample.len() < 24 && SLOT_NAMES[j] == "axe" {
-                    sample.push(format!("band {} {} {key}", b.id, if farm { "farm" } else { "forage" }));
+            #[cfg(feature = "durability-v2")]
+            {
+                for i in 0..3 {
+                    if picks[0] != picks[i + 1] {
+                        let key = format!("{} {} -> {}", SLOT_NAMES[j], item_name(picks[0]), item_name(picks[i + 1]));
+                        bump(&mut flips[i], key, farm);
+                    }
                 }
             }
         }
@@ -446,30 +494,49 @@ fn diag_durability_flips() {
             let c = argmax(&marks2);
             if a != c {
                 let key = format!("mark {} -> {}", item_name(a), item_name(c));
-                bump(&mut flips, key, farm);
+                #[cfg(feature = "durability-v2")]
+                {
+                    for i in 0..3 {
+                        bump(&mut flips[i], key.clone(), farm);
+                    }
+                }
+                #[cfg(not(feature = "durability-v2"))]
+                {
+                    let _ = (key, farm);
+                }
             }
         }
     }
+    let _ = flips[0].len();
     println!("bands farm {farm_n} forage {forage_n}");
     println!("scorer vs slot_score mismatches {scorer_bad} of {scorer_n} (above 0.001)");
     println!("live pick vs loaded kit mismatches {kit_mismatch} of {kit_n} (a later pass can move a slot; not a flip)");
-    println!("axe census v1:");
-    for (k, n) in &axe_v1 {
-        println!("  {n:6} {k}");
+    for (i, label) in labels.iter().enumerate() {
+        println!("axe census {label}:");
+        for (k, n) in &axe_c[i] {
+            println!("  {n:6} {k}");
+        }
     }
-    println!("axe census v2:");
-    for (k, n) in &axe_v2 {
-        println!("  {n:6} {k}");
-    }
-    println!("FLIPS from -> to  (farm / forage). Empty means that slot did not change.");
-    if flips.is_empty() {
-        println!("  none");
-    }
-    for (k, (farm, wild)) in &flips {
-        println!("  {farm:5} farm  {wild:5} forage  {k}");
-    }
-    println!("sample of axe flips (at most 24):");
-    for line in &sample {
-        println!("  {line}");
+    #[cfg(not(feature = "durability-v2"))]
+    println!("feature off: v2 flip tables are not scored in this binary. Re-run with --features durability-v2.");
+    #[cfg(feature = "durability-v2")]
+    {
+        for (i, label) in ["spread1.00", "spread0.50", "spread0.35"].iter().enumerate() {
+            println!("FLIPS v1 -> {label}  (farm / forage).");
+            if flips[i].is_empty() {
+                println!("  none");
+            }
+            for (k, (farm, wild)) in &flips[i] {
+                println!("  {farm:5} farm  {wild:5} forage  {k}");
+            }
+        }
+        println!("SUMMARY flip rows (not band totals):");
+        for (i, label) in ["spread1.00", "spread0.50", "spread0.35"].iter().enumerate() {
+            let mut bands = 0u64;
+            for (farm, wild) in flips[i].values() {
+                bands += farm + wild;
+            }
+            println!("  {label} rows {} band-slots {bands}", flips[i].len());
+        }
     }
 }

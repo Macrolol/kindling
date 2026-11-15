@@ -701,7 +701,8 @@ impl Band {
 pub fn weapon_q(k: &Kit) -> f32 {
     // (v8) in a fight that lasts, an edge that chips or breaks is soon useless: weapon quality
     // weighs durability as well as sharpness, so bronze and iron finally beat flint.
-    // `edge_q` is that weight. Food ranking does not use it (skills step 1); fight terms do.
+    // `edge_q` is that weight. Food does not use it (skills step 1). `durability-v2` food
+    // uses `working_edge_q` instead, which is keenness discounted by raw edge life.
     let hunt = if k.hunt == NONE {
         0.0
     } else {
@@ -736,7 +737,7 @@ pub const KIT_UPKEEP: f32 = 0.06;
 pub const KIT_TRIAL_P: f32 = 0.2;
 
 /// (v8) a blade's worth in a fight: sharp and lasting. Not used for food (skills step 1);
-/// only `weapon_q` and `Effects.fight` read it.
+/// only `weapon_q` and `Effects.fight` read it. `durability-v2` food uses `working_edge_q`.
 pub fn edge_q(m: Mat) -> f32 {
     0.55 * cut_q(m) + 0.45 * score_durability(m)
 }

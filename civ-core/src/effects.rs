@@ -8,8 +8,11 @@
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
 //! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
-//! food. Non-food payoff slots keep the old `KIT_UPKEEP` ranking, with the user factor in
-//! place of the recipe-skill discount.
+//! food. Under `durability-v2`, knife, hunt and point food use `working_edge_q` (fresh
+//! keenness times a keep factor from raw edge life) instead of bare `cut_q`, and a point's
+//! fish term is that quality rather than mere presence. The axe stays half keenness and
+//! half edge life. The default build does not. Non-food payoff slots keep the old
+//! `KIT_UPKEEP` ranking, with the user factor in place of the recipe-skill discount.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
@@ -496,17 +499,35 @@ fn hunt_q_of(it: Item) -> f32 {
     if it == NONE {
         0.0
     } else {
-        let m = mat(it);
+        let q = food_edge_q(mat(it));
         match form(it) {
-            Form::Spear => 0.35 + 0.65 * cut_q(m),
-            Form::Point => 0.35 * cut_q(m),
-            _ => 0.2 * cut_q(m),
+            Form::Spear => 0.35 + 0.65 * q,
+            Form::Point => 0.35 * q,
+            _ => 0.2 * q,
         }
     }
 }
 
 fn cut_term(it: Item) -> f32 {
-    if it == NONE { 0.0 } else { cut_q(mat(it)) }
+    if it == NONE { 0.0 } else { food_edge_q(mat(it)) }
+}
+
+/// Material factor on the point slot's fish term. Feature off: 1, presence only.
+/// Feature on: working-edge quality, so a glass point is not a full point.
+/// The feature-off callers inline the 1, so this body is unused in that build
+/// and must not be called there (a multiply by 1.0 is not the same bits).
+#[cfg_attr(not(feature = "durability-v2"), allow(dead_code))]
+#[inline(always)]
+fn point_food_scale(it: Item) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        let _ = it;
+        1.0
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        if dur_force_v1() || it == NONE { 1.0 } else { working_edge_q(mat(it)) }
+    }
 }
 
 fn axe_term(it: Item) -> f32 {
@@ -630,7 +651,18 @@ where
         axe: axe_term(axe) * scale(user, axe, 4, noise),
         cord: if k.cord == NONE { 0.0 } else { 1.0 },
         hammer: if k.hammer == NONE { 0.0 } else { 1.0 },
-        point: if point == NONE { 0.0 } else { scale(user, point, 10, noise) },
+        point: if point == NONE {
+            0.0
+        } else {
+            #[cfg(not(feature = "durability-v2"))]
+            {
+                scale(user, point, 10, noise)
+            }
+            #[cfg(feature = "durability-v2")]
+            {
+                point_food_scale(point) * scale(user, point, 10, noise)
+            }
+        },
         netq: mesh_term(net) * scale(user, net, 12, noise),
         trapq: mesh_term(trap) * scale(user, trap, 13, noise),
         bow: k.bow != NONE && point != NONE,
@@ -664,10 +696,11 @@ fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
     let m = mat(it);
     let dur = score_durability(m);
     let cq = cut_q(m);
+    let fq = food_edge_q(m);
     let (hunt_q, term) = match form(it) {
-        Form::Spear => (0.35 + 0.65 * cq, 0.0),
-        Form::Point => (0.35 * cq, 0.0),
-        Form::Edge => (0.2 * cq, cq),
+        Form::Spear => (0.35 + 0.65 * fq, 0.0),
+        Form::Point => (0.35 * fq, 0.0),
+        Form::Edge => (0.2 * fq, fq),
         Form::Axe => (0.0, 0.5 * cq + 0.5 * dur),
         Form::Net | Form::Trap => (0.0, mesh_q(m)),
         Form::Boat | Form::Outrigger | Form::Plank | Form::Ship => (0.0, boat_q(m)),
@@ -690,9 +723,17 @@ fn yields_with<N: Fn(usize) -> f32>(slot: usize, base: &YArgs, c: &Cand, bow_ite
             a.cut = c.term * s;
             a.q_cut = c.ql;
         }
-        // every point fills the slot the same way: the multiplier is presence, not material
+        // Feature off, every point fills the slot the same way: presence, not material.
+        // Feature on, the fish term scales by the working edge.
         10 => {
-            a.point = s;
+            #[cfg(not(feature = "durability-v2"))]
+            {
+                a.point = s;
+            }
+            #[cfg(feature = "durability-v2")]
+            {
+                a.point = point_food_scale(c.it) * s;
+            }
             a.bow = bow_item;
         }
         4 => a.axe = c.term * s,
@@ -1128,8 +1169,9 @@ fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
 }
 
 /// Food-slot choice. `lists` are the candidate forms in item-id order (an edge before a point
-/// before a spear). Empty-slot multipliers are computed once. A point's food does not depend
-/// on which point it is, so that food is computed once too.
+/// before a spear). Empty-slot multipliers are computed once. On the default build a point's
+/// food does not depend on which point it is, so that food is computed once. `durability-v2`
+/// scores each point (the working edge differs).
 fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
@@ -1146,9 +1188,14 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     let base_f = yargs_rescaled(k, slot, &USER_FULL, &quiet, quals_of(&base));
     let m0_f = yields(&base_f);
     let pitch = pitch_in_use(k, view.wet);
-    // one food for every point: presence changes the multipliers, the material does not,
-    // and every point is the same form so it has the same user factor
-    let point_food = if slot == 10 {
+    // Default build: one food for every point. Presence changes the multipliers, the
+    // material does not, and every point is the same form so it has the same user factor.
+    // `durability-v2` skips this unless a diagnostic forces the old model.
+    #[cfg(not(feature = "durability-v2"))]
+    let point_uniform = slot == 10;
+    #[cfg(feature = "durability-v2")]
+    let point_uniform = slot == 10 && dur_force_v1();
+    let point_food = if point_uniform {
         let mut a = base;
         a.point = user_factor(view.user[Form::Point as usize]);
         a.bow = k.bow != NONE;

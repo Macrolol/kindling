@@ -329,7 +329,8 @@ fn harvest_prior_smooths_mix() {
 
 /// No two of these share a `cut_q` (stone 0.42, bone 0.43, copper 0.48, iron 0.64, flint 0.76,
 /// steel 0.78, obsidian 0.82), so equal food cannot be asserted by pairing materials. Food per
-/// unit of `cut_q` is the same for all of them; labour follows durability and is not.
+/// unit of `food_edge_q` is the same for all of them (`cut_q` on the default build,
+/// `working_edge_q` under `durability-v2`); labour follows durability and is not.
 #[test]
 fn knife_food_is_cut_q_and_has_no_fight() {
     let view = BandView::nominal();
@@ -349,7 +350,7 @@ fn knife_food_is_cut_q_and_has_no_fight() {
         k.cut = it;
         let fx = tool_effects(&view, &k, 1, it, &info, 0);
         assert_eq!(fx.fight, 0.0, "{m:?} in the cut slot is not a weapon");
-        let r = fx.food / cut_q(m);
+        let r = fx.food / food_edge_q(m);
         match ratio {
             None => ratio = Some(r),
             Some(r0) => assert!((r - r0).abs() < 1e-4, "{m:?} food/cut_q {r} vs {r0}"),
@@ -401,7 +402,7 @@ fn lone_flint_edge_multipliers_and_mats() {
     s.add(flint);
     let k = make_kit(&s);
     assert_eq!((k.hunt, k.cut), (flint, flint));
-    let c = cut_q(Mat::Flint);
+    let c = food_edge_q(Mat::Flint);
     let game = (1.0 + 1.4 * 0.2 * c) * (1.0 + 0.35 * c);
     let farm = 0.5 + 0.35 * c;
     assert_eq!(k.game_m.to_bits(), game.to_bits());
@@ -1016,7 +1017,7 @@ fn low_edge_skill_lowers_cut_yield() {
     assert!(low.game_m < full.game_m, "game {} vs {}", low.game_m, full.game_m);
     assert!(low.farm_m < full.farm_m, "farm {} vs {}", low.farm_m, full.farm_m);
     assert_eq!(full.game_m.to_bits(), {
-        let c = cut_q(Mat::Flint);
+        let c = food_edge_q(Mat::Flint);
         ((1.0 + 1.4 * 0.2 * c) * (1.0 + 0.35 * c)).to_bits()
     });
 }

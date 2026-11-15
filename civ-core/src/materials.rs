@@ -4,6 +4,8 @@
 //! decided by `physics::apply` (what happens when a primitive action is applied to things) and by
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "durability-v2")]
+use std::cell::Cell;
 
 pub const NMAT: usize = 29;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
@@ -591,7 +593,7 @@ pub fn wear_class(f: Form) -> WearClass {
 pub fn class_durability(class: WearClass, m: Mat) -> f32 {
     let p = m.props();
     match class {
-        WearClass::Edge => edge_life(p),
+        WearClass::Edge => scale_edge_life(edge_life(p), active_spread()),
         WearClass::Impact => impact_life(p),
         WearClass::Vessel => vessel_life(p),
         WearClass::Cordage => cord_life(p),
@@ -603,10 +605,10 @@ pub fn class_durability(class: WearClass, m: Mat) -> f32 {
     }
 }
 
-/// Kept edge. Hardness resists abrasion, `sharp` is the keenness the props record
-/// (steel's `hard` is only 6 against iron's 5.5; the comment on steel puts the
-/// kept edge in `sharp`). Malleability rolls a soft edge, so it divides. Toughness
-/// resists chipping, discounted when the edge fails by conchoidal flaking.
+/// Kept edge, before compression. Hardness resists abrasion, `sharp` is the keenness
+/// the props record (steel's `hard` is only 6 against iron's 5.5; the comment on
+/// steel puts the kept edge in `sharp`). Malleability rolls a soft edge, so it
+/// divides. Toughness resists chipping, discounted when the edge fails by flaking.
 fn edge_life(p: &Props) -> f32 {
     let keep = 0.65 * p.hard + 0.35 * p.sharp;
     let roll = 1.0 + 0.09 * p.malleable;
@@ -614,6 +616,105 @@ fn edge_life(p: &Props) -> f32 {
     // The product alone ties pitch (hard 0.5, tough 2) with clay (hard 1, tough 1).
     // A small hardness term splits that pair. It does not reorder the working edges.
     (keep / roll) * chip / 45.0 + 0.004 * p.hard
+}
+
+/// Uncompressed edge life (spread 1). Stone sits above copper: hard 6, malleable 0,
+/// fracture 3.5, a ground edge that does not roll. One class also covers a flake.
+pub fn raw_edge_life(m: Mat) -> f32 {
+    edge_life(m.props())
+}
+
+/// Where compressed edge life is pulled toward. Near raw wrought iron, so iron and
+/// bronze barely move and the soft and glassy ends are what the spread changes.
+pub const EDGE_LIFE_ANCHOR: f32 = 0.80;
+
+/// How far edge life sits from `EDGE_LIFE_ANCHOR`. 1.0 is the raw formula
+/// (obsidian about 0.14, steel about 0.97). Lower keeps the same order and
+/// shrinks the labour gap, so a copper edge is not three times a steel one.
+/// The sim uses this constant. Diagnostics also score 1.0.
+pub const EDGE_LIFE_SPREAD: f32 = 0.50;
+
+/// `raw` pulled toward the anchor. Spread 1 returns `raw` bit-for-bit.
+/// Order is unchanged for any spread > 0.
+pub fn scale_edge_life(raw: f32, spread: f32) -> f32 {
+    if spread == 1.0 {
+        raw
+    } else {
+        EDGE_LIFE_ANCHOR + spread * (raw - EDGE_LIFE_ANCHOR)
+    }
+}
+
+/// Edge life at an explicit spread. Does not read the diagnostic override.
+pub fn edge_life_at(m: Mat, spread: f32) -> f32 {
+    scale_edge_life(raw_edge_life(m), spread)
+}
+
+#[cfg(feature = "durability-v2")]
+thread_local! {
+    static DUR_SPREAD: Cell<f32> = Cell::new(-1.0);
+    static DUR_V1: Cell<bool> = Cell::new(false);
+}
+
+/// Diagnostic switch. The feature-on sim reads it; the default build does not
+/// have the function. `v1` forces the old durability and the old food terms.
+#[cfg(feature = "durability-v2")]
+pub fn with_durability_model<T>(v1: bool, spread: f32, f: impl FnOnce() -> T) -> T {
+    DUR_SPREAD.with(|s| {
+        DUR_V1.with(|v| {
+            let old_s = s.replace(spread);
+            let old_v = v.replace(v1);
+            let out = f();
+            s.set(old_s);
+            v.set(old_v);
+            out
+        })
+    })
+}
+
+#[cfg(feature = "durability-v2")]
+#[inline]
+pub fn dur_force_v1() -> bool {
+    DUR_V1.with(|c| c.get())
+}
+
+#[inline]
+fn active_spread() -> f32 {
+    #[cfg(feature = "durability-v2")]
+    {
+        let s = DUR_SPREAD.with(|c| c.get());
+        if s < 0.0 { EDGE_LIFE_SPREAD } else { s }
+    }
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        EDGE_LIFE_SPREAD
+    }
+}
+
+/// Share of fresh keenness a short-lived edge still gets. The rest scales with
+/// raw edge life (not the compressed life). Compression must not soften this:
+/// a gentle spread would otherwise let obsidian outrank iron again.
+pub const EDGE_KEEP_FLOOR: f32 = 0.40;
+
+/// Keenness you still have after the edge's life is priced in.
+/// `cut_q * (floor + (1 - floor) * raw life)`. A life of 1 keeps the fresh edge.
+/// A life of 0 keeps `EDGE_KEEP_FLOOR` of it. Not what the default build pays.
+pub fn working_edge_q(m: Mat) -> f32 {
+    let life = raw_edge_life(m);
+    cut_q(m) * (EDGE_KEEP_FLOOR + (1.0 - EDGE_KEEP_FLOOR) * life)
+}
+
+/// Keenness a food slot pays. Feature off: `cut_q`, the same bits as before.
+/// Feature on: `working_edge_q`, unless a diagnostic forces the old model.
+#[inline(always)]
+pub fn food_edge_q(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        cut_q(m)
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        if dur_force_v1() { cut_q(m) } else { working_edge_q(m) }
+    }
 }
 
 /// A striking face. Toughness is the life; flaking shatters it. Hardness keeps
@@ -686,6 +787,7 @@ pub fn repair_factor(class: WearClass, m: Mat) -> f32 {
 
 /// The `(1.15 - durability)` piece of upkeep. Feature off: that expression.
 /// Feature on: `(1.15 - class life) * repair_factor` for the item's form.
+/// Edge life is the compressed one (`EDGE_LIFE_SPREAD`).
 #[inline]
 pub fn upkeep_wear(it: Item) -> f32 {
     #[cfg(not(feature = "durability-v2"))]
@@ -694,14 +796,18 @@ pub fn upkeep_wear(it: Item) -> f32 {
     }
     #[cfg(feature = "durability-v2")]
     {
-        let class = wear_class(form(it));
-        let m = mat(it);
-        (1.15 - class_durability(class, m)) * repair_factor(class, m)
+        if dur_force_v1() {
+            1.15 - durability(mat(it))
+        } else {
+            let class = wear_class(form(it));
+            let m = mat(it);
+            (1.15 - class_durability(class, m)) * repair_factor(class, m)
+        }
     }
 }
 
 /// Durability mixed into an edge's working score (axe term, `edge_q`, fight).
-/// Feature off: `durability`. Feature on: edge life, not repair.
+/// Feature off: `durability`. Feature on: compressed edge life, not repair.
 #[inline]
 pub fn score_durability(m: Mat) -> f32 {
     #[cfg(not(feature = "durability-v2"))]
@@ -710,7 +816,7 @@ pub fn score_durability(m: Mat) -> f32 {
     }
     #[cfg(feature = "durability-v2")]
     {
-        class_durability(WearClass::Edge, m)
+        if dur_force_v1() { durability(m) } else { class_durability(WearClass::Edge, m) }
     }
 }
 
