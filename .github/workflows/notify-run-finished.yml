@@ -85,11 +85,15 @@ jobs:
                   return r.read(), dict(r.headers), r.status
 
           dispatch_ref = None
+          # Preferred: the watched workflows put "ref=<ref>" in their run-name.
+          m = re.search(r"(?:^|\s)ref=(\S+)", os.environ.get("RUN_DISPLAY_TITLE") or "")
+          if m:
+              dispatch_ref = m.group(1)
           try:
               raw, _, _ = get(f"{api}/actions/runs/{run_id}")
               data = json.loads(raw)
               inputs = data.get("inputs")
-              if isinstance(inputs, dict) and "ref" in inputs:
+              if dispatch_ref is None and isinstance(inputs, dict) and "ref" in inputs:
                   dispatch_ref = inputs.get("ref")
                   if dispatch_ref == "":
                       dispatch_ref = ""
