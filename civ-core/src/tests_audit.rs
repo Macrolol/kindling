@@ -350,7 +350,10 @@ fn near(a: f32, b: f32) -> bool {
 #[test]
 #[ignore]
 fn audit_bounds_in_play() {
-    let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| "/workspace/step3-saves/main_seed6_y350_256x160.civsave".to_string());
+    let Ok(path) = std::env::var("DIAG_SAVE") else {
+        println!("audit_bounds_in_play: DIAG_SAVE is unset; skipping (no save loaded)");
+        return;
+    };
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (mut w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let live: Vec<usize> = w.bands.iter().enumerate().filter(|(_, b)| b.pop > 0).map(|(i, _)| i).collect();
