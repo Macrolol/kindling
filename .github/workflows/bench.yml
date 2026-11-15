@@ -4,6 +4,7 @@
 # baseline ref, e.g. v0.5.0), then runs the same seed with each --threads value in turn, so
 # all timings come from the same machine. Keep it small: one seed, a few hundred years.
 name: bench
+run-name: "bench ref=${{ inputs.ref || 'main' }} baseline=${{ inputs.baseline_ref || 'none' }} seed=${{ inputs.seed }} years=${{ inputs.years }}"
 
 on:
   workflow_dispatch:

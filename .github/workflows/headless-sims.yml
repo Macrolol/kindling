@@ -25,6 +25,7 @@
 #   aggregates those (tools/collect_runs.py, tools/agg_results.py) and still keeps the text
 #   reports (results-*.txt, tools/sum_results.py).
 name: headless-sims
+run-name: "headless-sims ref=${{ inputs.ref || 'main' }} seeds=${{ inputs.seeds }} years=${{ inputs.years }} map=${{ inputs.map || 'default' }}"
 
 on:
   workflow_dispatch:
