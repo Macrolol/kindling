@@ -7,7 +7,7 @@
 use crate::archive::{Archive, EventLog, Frame, LineageRow, LoreRow, RegionRow, GRID};
 use crate::band::{refine_kit, Band, Grudge, Kit, Partner, CRAFT_LEN, KIT_TRIAL_P};
 use crate::beliefs::{
-    accept_testimony, claim_fresh_writeoffs, expected_multiplier, fade_unused, food_payoff, inherit_beliefs, mark_writeoffs, material_term, note_payout, pick_testimony, realised_multiplier, starter_belief, technique_fail, PayoffStart,
+    accept_testimony, claim_fresh_writeoffs, expected_multiplier, fade_unused, food_payoff, inherit_beliefs, mark_writeoffs, material_term, note_payout, pick_testimony, realised_multiplier, starter_belief, PayoffStart,
     BELIEF_NMAX, BELIEF_TELL_P, FLAG_WROTE_OFF, FLAG_YEAR, PAYOFF_SLOT, TELL_W, TRIAL_SHARE,
 };
 use crate::effects::{
@@ -1129,6 +1129,9 @@ impl World {
         let pitch = pitch_in_use(&kit, wet);
         let rate = self.params.upkeep;
         let in_kit = |e: &crate::band::Belief| (0..PAYOFF_SLOT.len()).any(|j| PAYOFF_SLOT[j] == e.slot && kit.slot_item(j) == e.item);
+        // Technique of each stored belief. Filled on the first form this call.
+        // Cleared when a row is added or removed; an in-place update leaves it.
+        let mut tech_cache: Vec<Option<crate::knowledge::Tech>> = Vec::new();
         for j in 0..PAYOFF_SLOT.len() {
             let inc = kit.slot_item(j);
             if !valid_item(inc) || !ec.used.contains(&inc) {
@@ -1136,19 +1139,19 @@ impl World {
             }
             let slot = PAYOFF_SLOT[j];
             let failed = ec.make_fail & (1u16 << j) != 0;
-            self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, inc, 1.0, failed, true, &in_kit);
+            self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, inc, 1.0, failed, true, &in_kit, &mut tech_cache);
             let mut paid_fb = NONE;
             if failed && food_payoff(slot) {
                 let fb = kit.fallback[j];
                 if valid_item(fb) && fb != inc {
                     paid_fb = fb;
-                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, fb, 1.0, false, true, &in_kit);
+                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, fb, 1.0, false, true, &in_kit, &mut tech_cache);
                 }
             }
             if ec.trial_on & (1u16 << j) != 0 {
                 let ch = kit.trial[j];
                 if valid_item(ch) && ch != inc && ch != paid_fb {
-                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, ch, TRIAL_SHARE, false, false, &in_kit);
+                    self.observe_paid(b, fx, &user, &kit, pitch, rate, slot, ch, TRIAL_SHARE, false, false, &in_kit, &mut tech_cache);
                 }
             }
         }
@@ -1168,6 +1171,7 @@ impl World {
         failed: bool,
         sealed_pitch: bool,
         in_kit: &impl Fn(&crate::band::Belief) -> bool,
+        tech_cache: &mut Vec<Option<crate::knowledge::Tech>>,
     ) {
         let u = user[form(it) as usize];
         let (_, quality, _) = recipe_info(&b.d.tk, &b.known, it);
@@ -1178,22 +1182,50 @@ impl World {
         let x = realised_multiplier(slot as usize, it, u, quality, noise);
         // A trial (weight under a full season) of a written-off item is one retry.
         // The sticky bit clears. The fresh bit stays so this year still counts the write-off.
+        // `note_payout` reads the technique-failure prior only when this row is
+        // absent. A stored row is updated in place, so the walk is skipped.
+        let stored = b.beliefs.iter().position(|e| e.item == it && e.slot == slot);
         if w < 1.0 {
-            if let Some(e) = b.beliefs.iter_mut().find(|e| e.item == it && e.slot == slot) {
-                if e.flags & FLAG_WROTE_OFF != 0 {
-                    e.flags &= !FLAG_WROTE_OFF;
+            if let Some(i) = stored {
+                if b.beliefs[i].flags & FLAG_WROTE_OFF != 0 {
+                    b.beliefs[i].flags &= !FLAG_WROTE_OFF;
                     fx.counters.tools_retried += 1;
                 }
             }
         }
-        let fail_same = item_tech(&self.reg, b, it).and_then(|t| technique_fail(&b.beliefs, |e| item_tech(&self.reg, b, e.item) == Some(t)));
+        let fail_same = if stored.is_some() { None } else { self.payout_fail_same(b, it, tech_cache) };
         let (formed, evicted) = note_payout(&mut b.beliefs, &mut b.learn_curve, slot, it, x, w, failed, labour, fail_same, in_kit);
+        if formed || evicted {
+            tech_cache.clear();
+        }
         if formed {
             fx.counters.beliefs_formed += 1;
         }
         if evicted {
             fx.counters.beliefs_evicted += 1;
         }
+    }
+
+    /// Believed failure of `it`'s technique. `None` when the item has no
+    /// technique, or no stored belief shares it. `cache` is one `item_tech`
+    /// per current row; the caller clears it when a row is added or removed.
+    /// The sum is `technique_fail` (same skips, same order).
+    fn payout_fail_same(&self, b: &Band, it: Item, cache: &mut Vec<Option<crate::knowledge::Tech>>) -> Option<f32> {
+        let t = item_tech(&self.reg, b, it)?;
+        if cache.len() != b.beliefs.len() {
+            cache.clear();
+            cache.extend(b.beliefs.iter().map(|e| item_tech(&self.reg, b, e.item)));
+        }
+        let mut n = 0.0f32;
+        let mut s = 0.0f32;
+        for (e, tech) in b.beliefs.iter().zip(cache.iter()) {
+            if !(e.n > 0.0) || *tech != Some(t) {
+                continue;
+            }
+            n += e.n;
+            s += e.n * e.fail;
+        }
+        if n > 0.0 { Some(s / n) } else { None }
     }
 
     /// Mean beliefs per band, mean `n` of beliefs that match the current kit,
