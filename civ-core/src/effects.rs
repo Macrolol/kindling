@@ -8,9 +8,10 @@
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
 //! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
-//! food. Under `durability-v2`, knife, hunt and point food use `food_edge_q` (the combined
-//! working edge, or the split average cut) instead of bare `cut_q`, and a point's fish term
-//! is that quality rather than mere presence. The axe uses `axe_food_score`. The default
+//! food. Under `durability-v2`, knife and hunt food use `food_edge_q` (the combined
+//! working edge, or the split average cut) instead of bare `cut_q`. A point's fish term
+//! is `working_edge_q` on both accounts, not mere presence and not the split cut.
+//! The axe uses `axe_food_score`. The default
 //! build does not. Non-food payoff slots keep the old
 //! `KIT_UPKEEP` ranking, with the user factor in place of the recipe-skill discount.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
@@ -513,7 +514,11 @@ fn cut_term(it: Item) -> f32 {
 }
 
 /// Material factor on the point slot's fish term. Feature off: 1, presence only.
-/// Feature on: working-edge quality, so a glass point is not a full point.
+/// Feature on: `working_edge_q` on both accounts, so a glass point is not a full
+/// point. Not `food_edge_q`: under split that cut is small enough that flint's
+/// break labour outranks the extra keenness, and the priced flint point loses
+/// to soft copper. Knife and hunt already use `food_edge_q`.
+/// A diagnostic that forces v1 keeps the flat 1.
 /// The feature-off callers inline the 1, so this body is unused in that build
 /// and must not be called there (a multiply by 1.0 is not the same bits).
 #[cfg_attr(not(feature = "durability-v2"), allow(dead_code))]
@@ -717,7 +722,7 @@ fn yields_with<N: Fn(usize) -> f32>(slot: usize, base: &YArgs, c: &Cand, bow_ite
             a.q_cut = c.ql;
         }
         // Feature off, every point fills the slot the same way: presence, not material.
-        // Feature on, the fish term scales by the working edge.
+        // Feature on, the fish term scales by `working_edge_q` (both accounts).
         10 => {
             #[cfg(not(feature = "durability-v2"))]
             {

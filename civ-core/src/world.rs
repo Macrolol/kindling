@@ -10,6 +10,8 @@ use crate::effects::{
     food_mults, make_kit_for_view, maker_fail_roll, maker_p_fail, maker_scrap_factor, maker_waste, novice_factor, pitch_in_use, recipe_info, sealed_factor,
     tool_upkeep, u_eff, BandView, USE_FADE_X, USE_FOUNDER, USE_INHERIT, USE_PRACTICE, USE_TEACH_P, USE_TEACH_SHARE,
 };
+#[cfg(feature = "durability-v2")]
+use crate::effects::apply_base;
 use crate::knowledge::*;
 use crate::map::*;
 use crate::materials::*;
@@ -3862,6 +3864,8 @@ impl World {
                         nteach += 1;
                     }
                 }
+                #[cfg(feature = "durability-v2")]
+                let mut taught = false;
                 for &f in &teach[..nteach] {
                     if !rng.chance(USE_TEACH_P) {
                         continue;
@@ -3874,7 +3878,22 @@ impl World {
                         next = u_src;
                     }
                     bands[dst].use_skill[f] = next;
+                    #[cfg(feature = "durability-v2")]
+                    {
+                        taught = true;
+                    }
                     fx.counters.use_taught += 1;
+                }
+                // The kit was fitted before this lesson. Food multipliers scale with the
+                // user factor, so they go stale until the next refit. The default build
+                // keeps that lag: its golden hashes include it. The feature build
+                // reapplies the multipliers on the same items (no new choice).
+                #[cfg(feature = "durability-v2")]
+                if taught {
+                    let b = &mut bands[dst];
+                    let user = band_user(b);
+                    apply_base(&mut b.d.kit, &user);
+                    refine_kit(&mut b.d.kit, &b.d.tk, &b.known);
                 }
             }
         }
