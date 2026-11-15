@@ -1,0 +1,178 @@
+# Notify a routine webhook when a Kindling CI workflow finishes.
+#
+# This is a workflow_run workflow. GitHub only runs it from the copy of this
+# file on the default branch, so it takes effect after merge to main.
+#
+# Repo Actions secrets (add from the routine panel; names are exact):
+#   ROUTINE_WEBHOOK_URL
+#   ROUTINE_WEBHOOK_KEY
+#
+# Auth header (confirm with Michael; change AUTH_SCHEME / AUTH_HEADER_PREFIX
+# in the job env if the routine expects a different scheme):
+#   Authorization: Bearer <ROUTINE_WEBHOOK_KEY>
+name: notify-run-finished
+
+on:
+  workflow_run:
+    workflows:
+      - headless-sims
+      - bench
+    types:
+      - completed
+
+permissions:
+  contents: none
+  actions: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Easy to change if the routine expects a different header.
+      # Confirm with Michael. The script builds: "${AUTH_HEADER_PREFIX}${ROUTINE_WEBHOOK_KEY}"
+      # Examples:
+      #   AUTH_HEADER_PREFIX: "Authorization: Bearer "     (current)
+      #   AUTH_HEADER_PREFIX: "X-Webhook-Key: "
+      #   AUTH_HEADER_PREFIX: "Authorization: "
+      AUTH_HEADER_PREFIX: "Authorization: Bearer "
+    steps:
+      - name: Post completion to the routine webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.ROUTINE_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.ROUTINE_WEBHOOK_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_STATUS: ${{ github.event.workflow_run.status }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_KEY:-}" ]; then
+            echo "ROUTINE_WEBHOOK_URL or ROUTINE_WEBHOOK_KEY is unset; skipping notify."
+            exit 0
+          fi
+
+          # Best-effort dispatch `ref` input. The Actions runs API does not
+          # expose workflow_dispatch inputs, and head_branch is the branch the
+          # *workflow file* ran from (usually main), not inputs.ref (the commit
+          # the jobs built). We try .inputs.ref anyway, then parse the first
+          # actions/checkout@v4 "ref:" from a small job's logs (both watched
+          # workflows check out inputs.ref). Leave it null if that fails.
+          python3 - <<'PY'
+          import json, os, re, sys, urllib.request, urllib.error
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["REPO"]
+          run_id = os.environ["RUN_ID"]
+          api = f"https://api.github.com/repos/{repo}"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "kindling-notify-run-finished",
+          }
+
+          def get(url, timeout=20):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return r.read(), dict(r.headers), r.status
+
+          dispatch_ref = None
+          try:
+              raw, _, _ = get(f"{api}/actions/runs/{run_id}")
+              data = json.loads(raw)
+              inputs = data.get("inputs")
+              if isinstance(inputs, dict) and "ref" in inputs:
+                  dispatch_ref = inputs.get("ref")
+                  if dispatch_ref == "":
+                      dispatch_ref = ""
+          except Exception as e:
+              print(f"note: runs API lookup failed: {e}", file=sys.stderr)
+
+          def job_sort_key(job):
+              name = (job.get("name") or "").lower()
+              if name in ("bench",) or name.startswith("cargo test") or name.startswith("build kindling"):
+                  return (0, name)
+              if name.startswith("seeds") or name.startswith("probe") or "archive" in name or name.startswith("summarise"):
+                  return (2, name)
+              return (1, name)
+
+          if dispatch_ref is None:
+              try:
+                  raw, _, _ = get(f"{api}/actions/runs/{run_id}/jobs?per_page=100")
+                  jobs = json.loads(raw).get("jobs") or []
+                  jobs = sorted(jobs, key=job_sort_key)
+                  checkout_re = re.compile(
+                      r"##\[group\]Run actions/checkout@v\d+\nwith:\n(?:  .+\n)*?  ref: (.*)",
+                  )
+                  inputs_re = re.compile(
+                      r"##\[group\] Inputs\n((?:.*\n)*?)##\[endgroup\]",
+                  )
+                  for job in jobs[:4]:
+                      jid = job.get("id")
+                      if not jid:
+                          continue
+                      url = f"{api}/actions/jobs/{jid}/logs"
+                      try:
+                          req = urllib.request.Request(url, headers={**headers, "Range": "bytes=0-524287"})
+                          with urllib.request.urlopen(req, timeout=25) as r:
+                              log = r.read().decode("utf-8", "replace")
+                      except Exception as e:
+                          print(f"note: log fetch for job {jid} ({job.get('name')}) failed: {e}", file=sys.stderr)
+                          continue
+                      # Runner logs prefix every line with a timestamp and one space.
+                      # Use a single trailing space so indent on the rest of the line is kept.
+                      log = re.sub(r"(?m)^\d{4}-\d{2}-\d{2}T[0-9:.]+Z ", "", log)
+                      log = log.replace("\r\n", "\n")
+                      m = inputs_re.search(log)
+                      if m:
+                          for line in m.group(1).splitlines():
+                              if line.startswith("ref:"):
+                                  dispatch_ref = line.split(":", 1)[1].strip()
+                                  break
+                      if dispatch_ref is None:
+                          m = checkout_re.search(log)
+                          if m:
+                              dispatch_ref = m.group(1).strip()
+                      if dispatch_ref is not None:
+                          print(f"note: found dispatch ref from job {jid} ({job.get('name')})", file=sys.stderr)
+                          break
+              except Exception as e:
+                  print(f"note: job-log ref lookup failed: {e}", file=sys.stderr)
+
+          payload = {
+              "run_id": int(run_id),
+              "workflow": os.environ.get("RUN_WORKFLOW") or "",
+              "conclusion": os.environ.get("RUN_CONCLUSION") or "",
+              "status": os.environ.get("RUN_STATUS") or "",
+              "head_branch": os.environ.get("RUN_HEAD_BRANCH") or "",
+              "head_sha": os.environ.get("RUN_HEAD_SHA") or "",
+              "event": os.environ.get("RUN_EVENT") or "",
+              "html_url": os.environ.get("RUN_HTML_URL") or "",
+              "display_title": os.environ.get("RUN_DISPLAY_TITLE") or "",
+              "ref": dispatch_ref,
+          }
+          out = os.environ.get("PAYLOAD_PATH", "payload.json")
+          with open(out, "w", encoding="utf-8") as f:
+              json.dump(payload, f, separators=(",", ":"))
+          # Print a redacted view (no secrets).
+          shown = dict(payload)
+          print("payload:", json.dumps(shown, indent=2))
+          PY
+
+          AUTH_HEADER="${AUTH_HEADER_PREFIX}${WEBHOOK_KEY}"
+          curl --fail --retry 3 --retry-delay 2 \
+            --connect-timeout 10 --max-time 30 \
+            -H "Content-Type: application/json" \
+            -H "${AUTH_HEADER}" \
+            --data @payload.json \
+            "${WEBHOOK_URL}"
+          echo
+          echo "webhook accepted"
