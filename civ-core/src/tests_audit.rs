@@ -354,7 +354,23 @@ fn audit_bounds_in_play() {
         println!("audit_bounds_in_play: DIAG_SAVE is unset; skipping (no save loaded)");
         return;
     };
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    audit_bounds_run(&path);
+}
+
+/// Same read-only measurement as `audit_bounds_in_play`, on the save in
+/// `DIAG_SAVE_EARLY`. Asserts nothing. Skips when that variable is unset.
+#[test]
+#[ignore]
+fn audit_bounds_in_play_early() {
+    let Ok(path) = std::env::var("DIAG_SAVE_EARLY") else {
+        println!("audit_bounds_in_play_early: DIAG_SAVE_EARLY is unset; skipping (no save loaded)");
+        return;
+    };
+    audit_bounds_run(&path);
+}
+
+fn audit_bounds_run(path: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (mut w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let live: Vec<usize> = w.bands.iter().enumerate().filter(|(_, b)| b.pop > 0).map(|(i, _)| i).collect();
     let nb = live.len() as u64;
