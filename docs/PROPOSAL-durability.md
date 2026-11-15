@@ -259,13 +259,49 @@ After both fixes, re-measure `diag_durability_flips` and `diag_axe_breakeven` on
 
 A band is a farm when the grain share of its harvest is at least 0.10, or `sow >= 0.2`. The same split as the axe diagnostic.
 
-The feature-on scorer is checked against `slot_score_m`, and the kit after load is checked against the live split pick. Load refits. The v1 column is a rescore with `with_v1_model`, not a second load. The feature-off binary prints the v1 census only.
+Re-measured this pass, feature on, `diag_durability_flips` and `diag_axe_breakeven`. Save format 16, year 350, 3354 bands, population 67836, 2308 farms and 1046 foragers. The scorer matched `slot_score_m` on 0 of 103022. The kit after load matched the live split pick on 0 of 31774: loading with the feature on already refits. The v1 column is that rescore (`with_v1_model`), not a second load. The feature-off binary prints the v1 census only.
 
-Point rows are not the earlier pass. That pass multiplied fish by a working-edge factor. This one does not. Axe rows do not read the fish term; they are re-measured anyway.
+Axe argmax, every band that takes an axe (3303 of 3354; 51 have no axe they can make):
 
-<!-- CENSUS-START -->
-Census not yet replaced by this pass's re-run.
-<!-- CENSUS-END -->
+| | copper | iron | steel | stone |
+| --- | ---: | ---: | ---: | ---: |
+| v1 rescore | 806 | 264 | 2209 | 24 |
+| split | 56 | 26 | 3197 | 24 |
+
+Among the 3234 who can make a steel axe (`diag_axe_breakeven`, population 65734), the loaded split kit holds copper 29, iron 8, steel 3197. The 69 who cannot make steel are 27 copper, 18 iron and 24 stone. Stone's count does not move. No bronze axe is held. Bronze's axe score (0.554) sits just under iron (0.557); availability and chain depth, not the old cap, are why the census is empty of bronze.
+
+`cur` is the holder's margin over steel at chain skill. Positive means they keep what they have. `mis%` is 0 on these rows.
+
+- The 29 copper holders are all foragers, `cur = +0.0042`. Steel's food gain is +0.0123 against a labour gap of 0.0166. Copper's chain depth averages 3.2; steel's averages 10.5.
+- The 8 iron holders are all foragers, `cur = +0.0176`, food gain of steel +0.0136.
+- Steel holders, n=3196, `cur = -0.1679` (farms -0.2112, foragers -0.0587). One steel band has no alternative, which is why 3196 and not 3197.
+
+Flips from the v1 pick to split, farm then forage. Axe, knife and hunt match the previous split measurement. Point rows do not. The previous pass multiplied fish by a working-edge factor (steel about 0.765, copper about 0.324). This one fishes on presence, so steel no longer wins the point on yield. It wins on wear alone (0.166 against copper 0.314). Fewer points move. The axe argmax did not move: the axe does not read the fish term.
+
+| slot | from | to | farm | forage |
+| --- | --- | --- | ---: | ---: |
+| axe | copper axe | iron axe | 0 | 13 |
+| axe | copper axe | steel axe | 90 | 647 |
+| axe | iron axe | steel axe | 81 | 170 |
+| knife | flint blade | copper knife | 0 | 10 |
+| knife | flint blade | stone blade | 2 | 0 |
+| knife | obsidian blade | copper knife | 0 | 1 |
+| knife | obsidian blade | stone blade | 0 | 1 |
+| point | bone point | flint point | 0 | 1 |
+| point | copper point | iron point | 1 | 6 |
+| point | copper point | steel point | 990 | 529 |
+| point | iron point | steel point | 805 | 186 |
+| hunt | bone point | stone blade | 0 | 9 |
+| hunt | copper point | copper knife | 0 | 6 |
+| hunt | flint point | copper knife | 0 | 3 |
+| hunt | flint point | copper point | 0 | 1 |
+| hunt | flint point | stone blade | 0 | 3 |
+| hunt | sharpened-stick spear | steel point | 1 | 0 |
+| hunt | sharpened-stick spear | stone blade | 2 | 2 |
+
+Copper to steel on the point is 1519 bands (990 farm, 529 forage). It was 1825 when the fish term scaled with the edge (1113 and 712). Iron to steel is 991 (805 and 186), and it was 1015. Seven bands move a copper point to iron instead (1 and 6). One forager moves bone to flint. No bone point moves to steel; the previous pass had six. No iron, bronze or steel knife moves to obsidian. The ten foragers who drop a flint knife for copper are a chain-depth case. At depth 0 the test still has flint ahead of copper.
+
+Nets, the mark and the snare do not read the edge formulas. They move because the class lives change. Hide net to flax, 166 farm and 58 forage. Hide net to plant fibre, 65 and 330. Plant-fibre net to flax, 58 and 11. Tally stick to bone, 35 and 73. Plant-fibre snare to flax, 5 and 0. Rawhide snare to plant fibre, 0 and 53, and one forager's rawhide snare to flax. 25 flip rows, 4415 band-slots. The previous split total was 4752. The difference is the point rows.
 
 Step 4, once main is merged into it, prices a food slot from a belief when the table is non-empty. The prior is `tool_upkeep`, which is `upkeep_wear` times the seal and the chain depth. The yield the belief learns is `split_working_cut` for a knife and a hunt weapon, and the plants and farm lines on `split_axe_score` for an axe. The point's fish factor is presence, so a point belief does not learn a material fish factor. A stored labour belief freezes the upkeep and does not freeze the yield. The flips in this note are the empty-table price. Re-measure them on the merged tree. They will not match.
 
