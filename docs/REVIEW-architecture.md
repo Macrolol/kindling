@@ -27,8 +27,6 @@ Those problems are smaller, and they are real.
 
 Do not start an ECS, a struct-of-arrays rewrite of bands, a project whose only job is to split `world.rs`, or a move of every balance constant into the saved `Params`.
 
-Sections 3–8 (where each feature fits, the measurements, viewing, the options, and the questions) follow this map.
-
 ## 2. The architecture as it is
 
 ### Crates
@@ -41,7 +39,7 @@ The workspace (`Cargo.toml`) has two members. The web build is not a third crate
 | `kindling` (native) | `native/` | Desktop app, headless runner, and the wasm target. Macroquad + egui. |
 | web shell | `web/index.html` (11 lines), `web/civ_io.js` (26 lines) | Page that loads `kindling.wasm`. Save download/upload. Not a sim. |
 | tools | `tools/*.py` | CI result tables. Not in the sim. |
-| tests | `civ-core/src/tests*.rs`, `civ-core/tests/fixtures/` | Unit tests and old-save fixtures, v1 through v15 (format 16 is the current writer). |
+| tests | `civ-core/src/tests*.rs`, `civ-core/tests/fixtures/` | Unit tests and old saves (v1–v13 and v15; no v14 or v16 file). Format 16 is the current writer. |
 
 `native/Cargo.toml` is the cross-platform split. Off wasm, `civ-core` is built with the `parallel` feature (rayon) and mimalloc. On wasm, `civ-core` is built **without** `parallel` and without mimalloc (`native/Cargo.toml` lines 18–24). One step function, two schedulers.
 
@@ -254,3 +252,392 @@ This shim pile is expensive to *extend carelessly* and cheap to *obey*. Format 1
 What is parallel today: toolkit prep, the post-harvest season, neighbour search, meeting rounds, regrow on big maps, field regrow, and (in the renderer only) map pixels. What is serial, and must stay serial: the harvest, demography, the tail of year stats, and the walk of the partner list (it barely speeds up; see section 4).
 
 Wasm never takes the parallel branch. A world that is comfortable on four native threads is a different machine in the browser. Section 5 is about that, not about putting rayon in wasm.
+
+## 3. Where new work fits, and where it fights
+
+The skills steps did not outgrow the model. They filled holes the model already had: a derived kit, a counter registry, columns on the band, `serde(default)`. Step 4 adds a module and reads fields format 16 already reserved. That is the structure working.
+
+What fights is local: the same physical fact restated with different weights, a clamp that erases an ordering, and a per-band cost that grew faster than the world.
+
+### What fitted cleanly
+
+| Change | Why it fitted |
+|---|---|
+| Skills steps 1–3 (on main) | Layer 1 (true food and labour) went into `effects`, which the economy already called. Maker skill went into the toolkit, which was already derived and not saved. |
+| Format 16 | New band columns appended. `BANDS_V` went to 3. Old files load. `FIXTURE_V10_HASH.0` did not move. |
+| Counters and `YearStats` for steps 2–8 | Declared in step 0, left at 0 until the step that fills them. One line in `counters!`, one field on `YearStats`. |
+| Farming, conflict, feasts, crossings | Each got a file under `world/` and counters. The season loop grew call sites, not a second kind of agent. |
+| Diffusion D1–D6 | Kit-by-payoff, teaching, forgetting. Same `Band`, same step. |
+| Step 4 beliefs (branch) | New `beliefs.rs`. Choice reads the table. Economy still pays `tool_effects`. That split is the proposal, and the files can hold it. |
+
+### Five yardsticks
+
+"Is this tool better?" is computed in five places. Two of them should exist. The other three are drift.
+
+| Yardstick | Where | What it adds up | Used for a decision? |
+|---|---|---|---|
+| Kit choice | `effects.rs` `slot_score_m` (line 1011), `make_kit_scored` | This band's food, minus labour priced at last season's food per worker. Food slots use `tool_upkeep`. | Yes. This is the live choice on main. |
+| Economy | `world.rs` `economy` (line 1852), yields from `effects` | The same upkeep and the same yield function, applied to the stocks. | Yes. It pays the season. It does not pick the tool. |
+| Fight | `band.rs` `edge_q` (line 740), `weapon_q` (line 701) | `edge_q` is `0.55 × cut + 0.45 × durability`. The axe term inside `weapon_q` is a different mix, `0.5 × cut + 0.5 × durability`. | Yes, for losses in `world/conflict.rs`. The food choice ignores `Effects.fight` on purpose. |
+| Probe, "true value" | `probe_diffusion.rs` `true_value` (line 182) | Unweighted sum of the five food multipliers, minus `KIT_UPKEEP` (0.06, `band.rs` line 734) times wear times depth, plus `0.1 ×` fight. | No. It is the report's "worse held" column. Test-only. |
+| Probe, "own value" | `probe_diffusion.rs` `own_value` (line 210) | Sum of `slot_score` over the twelve slots. | It is supposed to be the band's own ranking. Since step 2 it is not quite: the choice scores food at the band's own skill, and the sum of marginals is not the marginal. |
+| Beliefs (step 4 only) | `kindling-step4` `beliefs.rs` `material_term` | A fresh set of weights. Hunt uses `cut_q` and ignores durability. The axe uses `0.5 × cut + 0.5 × durability` again. The choice then does **not** call `tool_effects`. | Yes, on that branch, for food slots. The economy still pays the truth. |
+
+The economy and the kit choice sharing `tool_upkeep` is the part that already got unified, in step 1. Keep that.
+
+The fight formula is allowed to differ from the food formula. A battle cares about an edge that chips. A harvest cares about food per hour. They should both call the same `cut` and the same `wear`, and then weight them for the job. Today `edge_q` and `axe_term` (`effects.rs` line 511) disagree with each other about the weights, and both call `durability` which has already thrown the ordering away.
+
+The probe is the one that actively misleads. `KIT_UPKEEP` is not `tool_upkeep`. The probe adds the farm multiplier in full for a band that does not farm, and it adds fight, which the band does not read. PR #11 measured the result on seed 6, year 350: of 772 bands that can make a steel axe and hold copper, every one ranks copper higher on the real score, and the probe still prefers steel for 94% of them. That is not a stale kit. It is a third yardstick. Step 4 points "own value" at the belief price, which is the right fix for that column. "True value" still needs to use the economy's units, or the report should say it is unweighted. Step 5's plan already retargets the probe. Do it there. Do not invent a sixth formula.
+
+### The durability formula, and how many times it is restated
+
+One definition, `materials.rs` lines 537–540:
+
+```rust
+((p.tough + 0.5 * p.malleable) / 12.0).clamp(0.05, 1.0)
+```
+
+Keenness, `cut_q`, lines 532–535, is `(0.6 × sharp + 0.4 × hard) / 10`, clamped to 0..1. Steel is 0.78. That clamp is not hiding an order. The durability clamp is.
+
+| | cut | durability | axe score (half and half) | wear `1.15 − durability` |
+|---|---:|---:|---:|---:|
+| copper | 0.480 | 1.000 (raw 1.125, clamped) | 0.740 | 0.150 |
+| bronze | 0.650 | 1.000 (raw 1.000) | 0.825 | 0.150 |
+| iron | 0.640 | 1.000 (raw 1.000) | 0.820 | 0.150 |
+| steel | 0.780 | 0.979 | 0.880 | 0.171 |
+
+Copper, bronze and iron are the same durability. Steel lasts *less* long than copper, because copper is more malleable and the sum is then capped. Taking the cap off is not the fix. Uncapped, copper is 1.125, still "tougher" than steel, for the same bad reason. Michael's point is the reason: for a working edge, malleability is not durability. A soft edge dulls. Being easy to hammer is how a smith puts an edge *back*, which is a different number.
+
+Call sites of `durability(` on this branch, from a count: `effects.rs` 7, `band.rs` 2, `probe_diffusion.rs` 1, plus the definition, plus tests (`tests_skills` 3, `tests_diag` 4, `tests` 1). Call sites of `cut_q(`: `physics.rs` 11, `effects.rs` 8, `band.rs` 2, plus tests. The physics calls are recipe *chances* (can I knap this, can I carve a shaft). Those should keep using keenness. They are not a second wear formula.
+
+The wear expression `1.15 − durability` is written out again, not only inside `tool_upkeep`:
+
+- `effects.rs` line 373, the real upkeep
+- `effects.rs` around line 1050, the non-food score
+- `probe_diffusion.rs` line 159, times `KIT_UPKEEP` instead of `Params::upkeep`
+- the same expression copied into `tests_skills.rs` and `tests_diag.rs`
+
+The axe mix `0.5 × cut + 0.5 × durability` is written in `axe_term`, again in the fight term inside `effects.rs` (around lines 836 and 864), again in `weapon_q`, and again in step 4's `material_term`. `edge_q` is a fourth mix (`0.55 / 0.45`) for the same two inputs.
+
+`vessel_q` does not use `Props` at all. It is a match: ceramic 1, hide 0.6, fibre 0.5, anything else 0.3 (`materials.rs` line 542). `garment_q` special-cases flax at 0.55 and otherwise uses the same shape as mesh. Those are the same habit, a table beside the chemistry, and they are not what is distorting the axe. Leave them until someone is changing containers. Do not let the durability fix become a rewrite of every quality function in one go.
+
+Other clamps are a different kind. Skill, chance and prestige fading into 0..1 are bounds on a probability, not an ordering. `ambition` is clamped to ±`AMBITION_MAX` because it is a log multiplier. Those can stay. The ones to remove are the ones that make two materials compare equal when they are not.
+
+### What step 4 costs, and what it does not break
+
+Step 4 did not break the save rules or the load hash. `FIXTURE_V10_HASH.0` stayed `0x1845e2690330d59`. `.1` moved, because beliefs change the next forty steps. Format stays 16.
+
+The slowdown is real, and on the big checks it is **not** "more people".
+
+| Run | Step 3 | Step 4 | Time | People | Bands |
+|---|---:|---:|---|---|---|
+| Ten seeds, 500 y, 256×160, 4 threads (CI notes on PR #12) | 1,352 s | 2,158 s | **+60%** | −2.4% | −1.3% |
+| Ten seeds, 750 y, 800×800, 4 threads | 17,339 s | 22,225 s | **+28%** | +0.5% | −0.5% |
+| Bench, seed 5, 300 y, 1 thread (the figure in the ask) | 85.4 s | 118.5 s | **+39%** | +38% | +21%, and about **+14% per band** |
+| Same bench, local, noisy box (PR #12 body) | 120.0 s | 150.2 s | +25% | +38% (104,860 → 144,312) | +21% (6,050 → 7,345), about +3% per band |
+
+Read the first two rows as the architecture fact. Same number of bands, a third to a half again as long. The seed-5 bench is a different world (beliefs changed who ate well, so the world grew) plus some per-band work. The local pair was run while other builds were on the box; do not quote its +3% as the overhead.
+
+The sim jobs finished. The probe jobs did not. On the 256×160 run, probe seeds 1–5 were cancelled at the 150-minute job limit. On the 800×800 run both probe jobs were cancelled at 330 minutes, still on the first seed. Step 5 wants more probe columns. That gets harder, not easier.
+
+Nothing in those profiles says the `Band` struct is the wrong shape. Section 4 says what the time is actually spent on. It was measured on step 3, which is this branch's sim. Step 4 sits on top of the same toolkit refresh. A belief update that runs inside every refresh multiplies whatever the refresh already costs. The late world refreshes a toolkit about eight times per band per season (perf note #9). That is the multiplier on a sloppy belief update. Step 4's own write-up says the choice does not call `tool_effects`. Good. The closure still runs, because the economy still needs the chain.
+
+### Hot spots the structure already knows about
+
+Both perf notes profile the same year-750 save (seed 499246296, 800×800, about 1.30 million people, about 72,000 bands, about 91 known recipes). #10 is the sharper one. A late year is about 16 s at 4 threads and about 35 s at 1 thread. #9 measured the same stretch a little higher (about 18.5 s at 4 threads). The second digit moves with the box. The shape does not.
+
+Where a late year goes, 4 threads, from #10:
+
+| Phase | Seconds per year | Speeds up on 4 threads? |
+|---|---:|---|
+| Whole year, after load | 15.6 | 2.2× against the 35 s one-thread year |
+| Partner visits | 4.7 | 1.2×. Almost serial. |
+| Meetings | 2.9 | 3.6× |
+| Harvest (`take_harvest`) | 2.2 | No |
+| Year stats | 1.2 | No |
+| Regrow, occupancy, demography | under 0.2 | Not the year |
+
+The one-thread call counts, same year, from #10:
+
+| Call | Time | Note |
+|---|---:|---|
+| `closure` | 3.23 s | 8.4 µs, 384k rebuilds. Scans the known list in passes. |
+| fresh `fill_chain` | 4.84 s | 12.6 µs. Thrown away and redone even when one recipe was appended. |
+| `replay_chain` | 0.82 s | Entered 216k times, **skipped 0**. Practice bumps `skill_ver` every season, so the "skip if nothing changed" path never hits. |
+| `fit_kit` | 3.82 s | 5.3 µs, 2-plus fits per band per season. |
+| `meeting` (includes `exchange`) | 11.4 s | Teaching walks the teacher's known list. |
+| `land_cost` inside the partner scan | 3.90 s | 30% of the steps walked are pairs already too far to visit. |
+
+Proposed patches that do not change a single band's choice, from those notes:
+
+1. Do not walk a partner line once the straight-line distance already exceeds what a river discount could save. About 1.2 s on the late year, serial, so threads do not eat it. Bit-identical.
+2. When a band only *learns* a recipe, extend the old closure instead of rebuilding it. On the order of 1–2 s per late year at 4 threads. A forget still wants a full rebuild. Bit-identical if the first-writer-wins rule stays.
+3. Count "how many bands can make this item" in a flat array at year end, not a `BTreeMap` insert per band. A slice of the serial 1.2 s. Bit-identical.
+4. Do not refit the kit when the chain tick cannot change it. Real gain, easy to get wrong, and step 4 replaces the score being cached. Do not land a cache of today's food-minus-labour number. It would be deleted.
+
+Not proposed, and still not proposed: parallel harvest, a spatial index for neighbours (already 3× and only about 0.7 s), fewer `refresh_toolkit` calls on the hit path (a hit is a few microseconds; the miss is the cost).
+
+### Layout, hash maps, allocation
+
+`Vec<Band>` is an array of 1,624-byte structs (section 4). Walking it for "what is pop and where is the camp" pulls the toolkit along. That hurts the serial year-stats pass. It does not explain closure, meetings, or the partner walk. Those chase pointers *inside* one band: `Vec<Known>`, the toolkit's own vecs, a linear scan of `partners` (`Band::partner` is a find, not a hash).
+
+Hash maps in the hot loop were a real bug and are mostly already gone. SipHash on the recipe index was about 6% of a single-thread run; `FastHasher` replaced it (`knowledge.rs` lines 11–13). The toolkit's "which recipe makes this item" is a dense `Vec` plus a flat `rank_of`, not a map. What remains is `BTreeMap` for per-item tallies at year end (`item_bands`, `item_known`, and friends on `World`). Those are the flat-array patch above. The diffusion probe uses `HashMap`, and the probe is not in the release step.
+
+Per-step allocation is real and, on the measured year, small. `home_range` (`world.rs` line 1787) builds a `Vec` of cells for every band every season. `par_map` collects a `Vec` of `Fx`. The harvest returns a `Vec` of economy results. mimalloc is linked on native for exactly this (`native/src/main.rs` lines 13–16). The perf note's estimate for stopping the `home_range` heap allocation is under 0.3 s of a 16 s year. Worth doing when someone is in that function. Not a reason to change the data model.
+
+### Saves, constants, fixtures
+
+The migration list is fifteen functions and must stay (`save.rs` line 27). That is not debt. Deleting an old reader is how a year-3 save dies. The cost is discipline: append fields, default them, do not reorder `Band`. Step 4 and the step 5 plan both obey it. A durability change does not need a version bump, because it does not change the bytes of an old file. The next step uses the new wear.
+
+`Params` (`params.rs` line 58) is the right size: the knobs the settings window edits, saved with the world, every change logged in `settings_log`. Beside that, `pub const` is scattered on purpose (`docs/REFACTOR-NOTES.md`). A count on this branch: `world.rs` 67, `world/voyaging.rs` 50, `effects.rs` 21, `map.rs` 14, `world/feasting.rs` 11, `band.rs` 10, `archive.rs` 10, and smaller files behind those. On the order of 200 named constants. They are not in `Params` because a constant change is a new rule for every world, including one just loaded. A `Params` field would freeze the old number inside an old save. For a bugfix of physics, a constant is what you want.
+
+The fixtures and `tests_skills.rs` (1,945 lines) are why a casual refactor feels expensive. Most of that cost is honest. A pure move of a function does not touch them. A formula change updates the tests that pin copper-at-1.0, and updates `FIXTURE_V10_HASH.1`. It must not update `.0`. The v10 fixture file itself stays byte-for-byte.
+
+## 4. Measurements
+
+No new simulation was run for this note. The profiles below are the ones in PR #9 and PR #10, on step 3, which is this branch's sim. The step 4 times are from that PR's CI notes and from the bench in the ask. Struct sizes are `size_of` on a release build of this tree. The scratch test that printed them was not committed.
+
+### How big the structs are
+
+There is no `Person` and no `Cell`. `Item` is a `u16`. These are the inline sizes, not the heap behind a `Vec`:
+
+| Struct | Bytes | What the bytes are |
+|---|---:|---|
+| `Band` | 1624 | The agent. About three quarters of it is `Derived`. |
+| `Derived` | 1208 | Toolkit, kit, last season's food and harvest. Rebuilt. Not the saved row. |
+| `Toolkit` | 536 | Closure, chain skill, the recorded walk. Inside `Derived`. |
+| `World` | 3904 | Headers. The cell arrays and the band vec live on the heap. |
+| `Counters` | 720 | About ninety `u64`s. One copy on the world, plus per-year deltas. |
+| `YearStats` | 448 | One saved row per year. |
+| `Map` | 424 | Headers only. Cells are parallel `Vec`s. |
+| `Kit` | 168 | Chosen tools and the yield multipliers. |
+| `BandView` | 168 | What the kit choice is allowed to see. |
+| `ItemSet` | 128 | Bitset, 16 × `u64`. |
+| `Effects` | 52 | Food, labour, materials, failure, fight for one candidate. |
+| `Belief` | 36 | One tool in one slot. Empty on main. Cap 24 on the step 4 branch. |
+| `Recipe` | 36 | One discovered action. |
+| `Known` | 28 | One recipe a band holds. |
+| `Partner` | 20 | One trade tie. |
+| `Event` | 24 | One log record. |
+
+`Derived` is 1,208 of `Band`'s 1,624 bytes. A loop that only wants population and camp still touches the toolkit.
+
+Heap, estimated, not measured. The year-750 save has 72,169 bands, about 91 known recipes, about 43 partner links (perf notes):
+
+| Piece | Order of magnitude |
+|---|---|
+| The `Band` array, inline only | 72,169 × 1,624 ≈ **112 MB** |
+| Known lists | 91 × 28 × 72,169 ≈ **175 MB** |
+| Partner lists | 43 × 20 × 72,169 ≈ **60 MB** |
+| Map layers | about 15 float arrays × 640,000 cells × 4 ≈ **40 MB** |
+
+A late world is a few hundred megabytes before stocks, events and the archive. That matches the replay note's compressed save of 80–150 MB at that year. It is also why an 800×800 world is a bad citizen of a wasm linear memory, and why a recording of a few hundred kilobytes a year is a different object (section 5).
+
+### Lines per concern
+
+Section 2 has the file table. The season concerns inside `world.rs`, from the function anchors: economy about 200 lines (`economy` at 1852), one band's season about 350 (`band_season` at 2077), experiments about 240, movement and sea about 650, meetings and trade about 600, demography about 250, year stats and the archive about 400. Farming (728), conflict (380) and voyage helpers (447) are already outside the file. The 4,972 lines are mostly the social season, not unused scaffolding.
+
+### Formula sites
+
+Counted on this branch. Definitions included in the file that owns them.
+
+| Function | Production call sites, besides tests |
+|---|---|
+| `durability` | 10 (`effects` 7, `band` 2, probe 1) |
+| `cut_q` | 21 (`physics` 11, `effects` 8, `band` 2) |
+| `1.15 − durability` written out | 3 production (`tool_upkeep`, the non-food score, the probe), plus two test copies |
+| `0.5 × cut + 0.5 × durability` | 4 production on main (`axe_term`, two fight-term copies in `effects`, `weapon_q`), plus step 4's `material_term` |
+
+`physics.rs` is right to call `cut_q`. It is asking "is this edge keen enough to shape that". It should not grow a wear formula of its own.
+
+## 5. Headless running, and watching from somewhere else
+
+Leaning on headless runs plus a recording does **not** make a step faster. It moves the drawing off the machine that is stepping, and it stops the browser from being that machine for a large world. That is worth doing. It is not a substitute for the perf patches, and it is not a reason to drop interactive play.
+
+### What the sim does for the picture
+
+`civ-core` does not know about frames, egui, or macroquad. `World::step` never calls the renderer. The frame loop in `native/src/main.rs` (from line 401) is the other way around: it calls `step` between draws, and it caps that work so the window stays up. Normal speed runs seasons while they fit in about 30 ms of the frame. Fast mode runs as many as fit in about 250 ms. The sim is not doing view work. The view is waiting on the sim.
+
+Two fields on `World` exist only to be drawn:
+
+- `trade_flow` (`world.rs` line 781), decayed ×0.85 every season (line 1299), added to when goods move (`fx.rs`)
+- `conflict_flow` (line 783), decayed ×0.93, added to on a fight
+
+Nothing in the step reads them back. The renderer does (`render.rs` around lines 236 and 246). They are saved, so the overlay survives a load. On the late-year profile, regrow plus occupancy plus these two decays is about 0.03 s of a 16 s year, under 1%. The scatter-adds during trade and combat were not split out of meetings; they are not free, and they are not the meeting. Leaving the trails in the world is cheap. Moving them out is optional, and it is not a speedup.
+
+`ViewState` (camera, selection, overlay, `save.rs` line 394) is stored beside the world and never read by `step`.
+
+Derived fields (`kit`, harvest, food, the toolkit cache) are for the next season, not for drawing. The know-how overlay calls `n_items()` at draw time, which reads the toolkit. That is view code walking sim data. It is not work inside `step`.
+
+The map texture is already throttled (`render.rs` line 287). Static overlays (terrain, deposits, temperature) are drawn once. A live overlay is redrawn at most every half second, or every two seconds in fast mode, and the gap grows with how long the last rebuild took. The sim does not keep a per-frame cache. The renderer already chose "coarser than every season" without any help from `civ-core`.
+
+So: a step is not 10% drawing with 90% sim. Drawing is outside the step. The overlay trails inside the step are well under 1% of a late year. Making the core "more headless" does not claw back the 16 seconds.
+
+### What a recording changes
+
+PR #7 (`docs/PROPOSAL-replay.md` on `kindling-replay`) is the right design, and this note does not redo it. The part that matters for architecture:
+
+- A save answers "resume this world, bit-exact". A recording answers "what did it look like, year by year". They do not share a version number. Format 16 stays. A recording cannot continue a world.
+- The picture is taken after `step` returns. It must not touch the rng. `state_hash` and `.0` stay put.
+- One picture a year costs about half a percent of the run. The spike measured 1.7–2% of a season to build and compress a full picture; a year is four seasons and the picture is taken once.
+- A late 800×800 picture in that spike was about 596 KB of band rows and 273 KB of three byte layers. A save of that world is 80–150 MB. Copying the save format into the recording would make a movie as big as a save, and it would break every time `Band` grows.
+- The file is the transport. Tailing it is the live view. A small read-only server is optional and off unless asked. GitHub-hosted runners run the sim; they do not host a viewer. Watch a runner live only on a self-hosted machine. Download the file when the job ends.
+- The web page today can pick a `.civsave` (`web/civ_io.js`). It cannot pick a recording, because there is no such file.
+
+### The web build as a viewer
+
+Today the web build **is** the sim. `build-web.sh` compiles `native/` to wasm. That binary includes `World::step`, physics, the toolkit closure, experiments, meetings. It does not include rayon or mimalloc. One thread, and a linear memory that has to hold the whole world.
+
+A late year is about 35 s on one native thread, and about 16 s on four. Wasm is slower than native one-thread, not faster. An 800×800 year in the browser is tens of seconds of frozen page, plus a few hundred megabytes of bands (section 4). A small map (the default 256×160 early on, or a 128×80) is a fine interactive toy, and the start picker only needs a map. Those should keep running in the page.
+
+A viewer-only mode drops, from the browser:
+
+- `World::step` and everything under it (physics, closure, experiments, the meeting loop, demography)
+- the stocks, the known lists, the rng, and the 1,624-byte bands
+- the need to ship that code in the wasm module
+
+It keeps map decode (`codec::decode_map` is already how a save stores terrain), a short row per band (x, y, pop, lineage, a handful of overlay bytes), `YearStats`, and the events. That is the picture PR #7 already specified. The inspector that shows recipes, stocks and grudges (`ui.rs`) needs a full `Band`. A short row cannot feed it. The honest UI is: scrub the year, see the map, read the charts; open a save when you want to poke one band and continue. The proposal says the viewer should admit what it cannot show. That is the right trade.
+
+What you give up if the web build stops running the sim entirely: a stranger cannot open the page and watch a civilisation grow from a seed without a recording to point at. That is a real loss for a small map, and no loss for 800×800, which the page cannot run well anyway. So do not delete the wasm sim. Add a path that opens a recording and never calls `step`. Native keeps both: interactive play, and the same viewer.
+
+Hosting cost is the file, not a stream of saves. At one picture a year the disk sees well under 1 MB/s (the proposal's figure). Decade pictures are the right default for an 800×800 CI batch, so a normal run does not grow an artifact. No new server, no Tokio, no axum. MessagePack and deflate are already dependencies.
+
+Data layout does not need to change to serve this. The sim's `Vec<Band>` is the right layout for a band walking its own known list. The renderer wants six numbers. Snapshot those six. Do not store bands as a struct of arrays so the GPU is happier. The GPU is not the 16 seconds.
+
+## 6. Options
+
+Each row is a thing we could do. The recommendation in section 7 picks among them.
+
+| | What | Effort | Risk | Unlocks | Hashes and saves |
+|---|---|---|---|---|---|
+| (a) | One edge/wear function. Every scorer calls it. | Small. A few days, plus the audit's coefficients. | Medium for *worlds* (they move). Low for the code. | The durability bug, at the root. Steps 5 and 6 stop copying a bad mix. | No version bump. `.0` stays. `.1` moves. Old saves load. |
+| (b) | One vocabulary, two decisions. Not one number. | Small, mostly on the step 4/5 branches. | High if it collapses truth and belief. Low if it only deletes the extra copies. | Probe stops lying. Beliefs stay beliefs. | Probe-only edits do not move the sim hash. Chooser edits move `.1`. |
+| (c) | ECS, or struct-of-arrays for bands and people. | Large. Months. | High. Easy to change who meets whom. | Not the measured hot spots. A thinner year-stats scan, at best. | A bit-identical move keeps both hashes and the save. A real ECS will not be bit-identical. |
+| (d) | Split `world.rs`. | Medium, and it collides with #12 and #8. | Low if it is a pure move. High as a merge. | Easier reading. Nothing in the sim. | Pure move: hashes stay, saves stay. |
+| (e) | Sim / view split, as PR #7. | Medium. The proposal's own steps. | Low for the sim, if capture sits after `step`. | Watch a big run. Web memory. Not a faster step. | New file, new version, not format 16. `.0` stays if rng is untouched. |
+| (f) | Pull constants into one place. | Small to medium, huge diff. | Low for behaviour, high for every open PR. | A table of contents. Not a faster or truer sim. | Pure move: hashes stay. Do not put them in `Params`. |
+
+### (a) One material edge
+
+The root fix is a function, not a new crate. `materials.rs` already claims to be the chemistry. Make that claim true for wear.
+
+```rust
+/// Working-edge facts. No clamp that makes two metals compare equal.
+/// `cut` is keenness. `wear` is how fast a working edge is lost.
+/// `repair` is how readily a smith puts an edge back (malleability lives here, not in `wear`).
+pub struct Edge { pub cut: f32, pub wear: f32, pub repair: f32 }
+
+pub fn edge(m: Mat) -> Edge { /* the audit owns the coefficients */ }
+
+pub fn tool_upkeep(rate: f32, it: Item, depth: u8, sealed: f32) -> f32 {
+    // wear is edge(mat(it)).wear, not a handwritten `1.15 - durability(...)`
+}
+```
+
+`axe_term`, `edge_q`, `weapon_q`, the probe's upkeep, and step 4's `material_term` call `edge`. They may still weight cut against wear differently: food, fight and a prior are different questions. They may not add malleability back into wear, and they may not clamp the result to 1.
+
+`physics::apply` keeps calling keenness for "can this edge shape that". That is `edge(m).cut`, or today's `cut_q` if the audit leaves keenness alone.
+
+Chain depth stays a separate argument of `tool_upkeep`. It is an accounting choice (PR #11), not a material property. Do not hide it inside `edge`.
+
+Migration. No save version, no migration function. `after_load` refits kits and does not change pop, position or known-list length, which is all `.0` mixes, so `FIXTURE_V10_HASH.0` stays. `.1` moves, because forty steps diverge. Update the tests that assert copper durability is 1.0. Check with the usual guard rails (no crossing before year 100, crossing counts, war rate, no population collapse), not by freezing the old worlds. If PR #12 has not merged, rebase it so `material_term` calls `edge`. If it has, priors for a new tool pick up the new wear immediately, and a band's stored belief is wrong until a few seasons of use rewrite it. That is survivable. Starting step 5 on the old wear is not, because step 5 prices risk on top of that belief.
+
+### (b) Two decisions, one vocabulary
+
+Do not build this:
+
+```rust
+fn value(it: Item) -> f32 { /* kit, economy, probe and beliefs all call it */ }
+```
+
+A band that is wrong about steel is the point of beliefs. The economy must keep charging the true labour while the band believes something else. Step 4 already drew that line (the choice does not call `tool_effects`). Hold the line.
+
+Do build this:
+
+```rust
+// Truth. The economy, and the probe's "true" column, call this.
+pub fn tool_effects(...) -> Effects;
+
+// What the band thinks. The kit choice, and the probe's "own" column, call this.
+// Step 4's belief price. Step 5 adds risk on top of this function, not beside it.
+pub fn belief_price(...) -> f32;
+```
+
+`belief_price` turns `edge()` into a prior. It does not retype `0.5 * cut_q + 0.5 * durability`. The probe's true column uses the band's own harvest weights and `tool_upkeep`, or it is labelled unweighted and stops being called "worse". `KIT_UPKEEP` remains only where there is no labour price (boats and the like), which is what its comment already says.
+
+Effort is small because step 4 and the step 5 plan are already walking there. The risk is someone "cleaning up" by deleting `tool_effects` from the economy, or by feeding the belief back into the payout. Don't. Migration: a probe-only change moves no hash. A chooser change moves `.1` only, and step 4 has already accepted that.
+
+### (c) Data-oriented storage
+
+A full ECS, or a person record, is the wrong rework.
+
+There are no people to transpose. The agent is the band, and the hot data of a band is its own known list and its own partners, not column 7 of every band. Closure walks one band's recipes. Meetings take two bands. A struct of arrays helps a loop that reads one field of all bands. The only such loop that shows up in the profile is year stats, about 1.2 s of a 16 s year.
+
+The measured costs are a multi-pass scan of `Vec<Known>`, a chain walk, and a serial partner list. SoA does not make those smaller.
+
+The one layout change that matches the sizes: `Derived` is 1,208 of the band's 1,624 inline bytes, and it is not saved. A side `Vec<Derived>`, same index as `bands`, would let a pop scan touch a few dozen bytes instead of the toolkit. It is a pure move if every `b.d` becomes `derived[i]`. Both hashes stay. The save stays. It is also easy to get wrong (a split band, a pending drift landing, a parallel borrow). It is not worth doing before step 5, and it may never be worth doing for 1 second of a 16 second year.
+
+Do not invent `Person`. At 1.3 million people the meeting loop, the save and the determinism test all change, and no planned step needs a named individual.
+
+### (d) Splitting `world.rs`
+
+Worth doing the day someone is already editing meetings, or the sea, and not before. `docs/REFACTOR-NOTES.md` skipped "split `sea_season`" for this reason: a move mixed into a balance change hides the diff. PR #12 and PR #8 both edit `world.rs` (`fit_kit`, `economy`, `band_season`, `year_stats`). A split now is a merge tax on the skills work, for no change in behaviour.
+
+When it happens: move `economy`, the meeting/`exchange` block, and the voyage functions out, the way `farming` and `conflict` already moved. Pure move. Run the thread-count test. `.0` and `.1` both stay. No save change.
+
+### (e) Sim and view
+
+Do PR #7, on its own, when you want to watch a run that is still going or one that finished overnight. Capture after `step` returns. Do not read the rng. Do not write the overlay trails into the recording by running a second sim.
+
+Keep interactive play on the desktop: pause, inspect a band, change a `Params` knob, save, continue. The recording is not a save. The web build keeps `step` for a small map and gains "open a recording" for a large one.
+
+Version the recording from 1. Do not borrow `FORMAT_VERSION`. Old recordings stay readable by the same rule as saves: a version field, old readers kept, a newer file refused with a clear message. `.0` is untouched because the capture is not a load and not a step.
+
+This does not unlock step 5. It does not pay back the 28–60%. It unlocks looking at a world the browser cannot run.
+
+### (f) Constants
+
+Do not consolidate them as a project. A single `consts.rs` would be a pure move and the hashes would stay, and the diff would touch every open PR for a navigation win. A generated index, or a heading in `docs/DATA_SCHEMA.md`, is enough if a number is hard to find.
+
+Do not move balance constants into `Params`. A loaded save would keep the old number, so a physics fix would silently not apply to the worlds you care about continuing. The settings window would grow a hundred knobs nobody should drag during a run.
+
+## 7. Recommendation, against the open PRs
+
+Same order as section 1, named against the drafts.
+
+**Before step 5**
+
+1. **Durability, its own change, before PR #8 and coordinated with PR #12.** The audit owns the coefficients. The architecture rule is: one `edge`, malleability is repair and not wear, no clamp that flattens copper, bronze and iron. Rebase #12 onto it if #12 has not merged, so `material_term` is not a handwritten copy. Do not put this inside the step 5 PR, and do not put the chain-depth question (PR #11) inside it. Depth can stay. The axe note showed depth, not the durability cap, is most of why a forager keeps copper. Both can be true. Fix the physics now; decide the accounting separately.
+2. **Bit-identical perf from PR #9 and PR #10.** Skip a partner line that is already too far. Extend a closure when a band only learned a recipe. Flat array for the year-end item counts. Do not cache today's food score (#9's "leave the kit score alone" is right, and step 4 deletes that score). Do not parallelize the harvest. These do not move `.0` or `.1`. Land them on main, or on a branch that #12 and #8 can rebase onto. They are safe under beliefs because they do not touch the chooser. They matter more after step 4, not less: the (a) worlds got 60% slower with no extra bands, and the probe jobs stopped finishing.
+3. **Then step 5 (PR #8), on beliefs.** Its own plan says: if the choice still calls `tool_effects`, stop; if `.0` moved, stop. Hold it to that. Add risk on `belief_price`, not on a new function. Point the probe's two columns at `tool_effects` and `belief_price`. Write down that the bench budget is +5% against step 4, and that step 4 is already +28% and +60% against step 3 on the same-size worlds. A pass that meets "+5% versus step 4" can still be the wrong time to add more.
+
+**Can wait**
+
+- **PR #7, the recording.** Do it when you want to watch runs, including CI. It does not block skills, and skills should not block it, as long as it does not edit `push_event` while step 4 is in that function. The proposal already says to skip the event tap in the first cut. Good.
+- **Splitting `world.rs`.** After step 5, or inside a step that is already rewriting one of those functions, as a separate commit that does not change behaviour.
+- **A side `Vec<Derived>`.** Only if a later profile shows year stats or a band scan dominating after the patches above. Not on a hunch from the 1,624-byte figure.
+- **`vessel_q` and the other match-tables.** When containers are the subject. Not this fix.
+- **Overlay trails.** They can stay on `World`. Moving them is a tidy, not a speedup.
+
+**Do not do**
+
+- An ECS, a person record, or a struct-of-arrays rewrite of `Band`.
+- One `value()` shared by the economy and the beliefs.
+- A project to gather every `pub const` into `Params` or into one file.
+- Parallel harvest.
+- Turning the web build into a viewer only, with no sim left in the page.
+- Streaming saves as the way to watch a run. A save is a resume point. A picture a year is the movie.
+- Anything that moves `FIXTURE_V10_HASH.0`. If a load-time refill changes pop, position or known-list length, stop.
+
+PR #11 stays an analysis. It is right that the kit choice matches food-minus-labour, and right that the probe's yardstick is the thing calling copper "worse". It treats "malleable copper wears less" as acceptable physics. This note does not. That disagreement is a decision for Michael, listed below, not a second architecture.
+
+## 8. Decisions needed
+
+1. **Wear.** Confirm that malleability must not increase the durability of a working edge, and that the 1.0 cap goes because it flattens copper, bronze and iron. The audit picks the coefficients. If you would rather keep "soft metals are re-sharpened, so they last", say so and the formula stays; the single function is still worth having, but it is then a tidy and not a physics fix.
+2. **When, relative to PR #12.** Rebase beliefs onto the new `edge` before #12 merges, or merge #12 first and accept a few seasons of stale beliefs after the formula lands? The recommendation is rebase-first.
+3. **Chain depth as a seasonal cost.** Leave it (PR #11's option 1), or stop charging the whole chain every season (option 3)? This review does not fold that into the durability change. It does change who holds a steel axe, and it moves `.1`.
+4. **Is +28% / +60% on step 4 acceptable** until the bit-identical patches land, or do those patches have to land before step 5 starts? The recommendation is: patches first, or in the same queue, ahead of step 5.
+5. **Web.** Keep a small-map sim in the wasm build and add a recording viewer (recommended), or stop shipping `step` to the browser at all?
+6. **Interactive play.** Confirm the desktop app keeps pause, inspect, live `Params`, and save-and-continue. The recording does not replace that.
+7. **`trade_flow` / `conflict_flow`.** Leave them on `World` (recommended; they are under 1% and they make old saves' overlays still work), or drop them from the step and let only a live viewer accumulate them?
+
