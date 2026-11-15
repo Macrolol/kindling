@@ -24,6 +24,8 @@ mod tests_diffusion;
 mod tests_diag;
 #[cfg(test)]
 mod tests_skills;
+#[cfg(test)]
+mod tests_audit;
 
 pub use params::{parse_starts, Config, ParamChange, Params, StartCheck};
 pub use save::ViewState;
