@@ -13,7 +13,7 @@ use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{band_user, inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -149,7 +149,34 @@ fn payout_invariant() {
         ];
         b.d.harvest.iter().sum::<f32>() > 1.0 && kit.iter().any(|&it| it != NONE)
     };
-    let b = w.bands.iter().find(|b| food_tool(b)).expect("a band harvesting with a food tool");
+    // The kit is fitted before this season's lesson. Food multipliers scale with
+    // the user factor and stay at the kit-time factor until the next refit. That
+    // lag is on both builds. The feature used to reapply the multipliers in the
+    // season of the lesson, which is the only reason a taught band passed this
+    // comparison. Skip a band taught this season: its stored multipliers are the
+    // kit-time user, not `band_user` at the end of the step.
+    let kit_still_matches = |b: &Band| {
+        let user = band_user(b);
+        let info = |it: Item| recipe_info(&b.d.tk, &b.known, it);
+        let y = kit_yields(&b.d.kit, &info, &user);
+        let k = &b.d.kit;
+        y.plants_m.to_bits() == k.plants_m.to_bits()
+            && y.game_m.to_bits() == k.game_m.to_bits()
+            && y.fish_m.to_bits() == k.fish_m.to_bits()
+            && y.small_m.to_bits() == k.small_m.to_bits()
+            && y.farm_m.to_bits() == k.farm_m.to_bits()
+            && y.boat_q.to_bits() == k.boat_q.to_bits()
+            && y.protect.to_bits() == k.protect.to_bits()
+            && y.fine.to_bits() == k.fine.to_bits()
+            && y.ship_q.to_bits() == k.ship_q.to_bits()
+            && y.digest.map(f32::to_bits) == k.digest.map(f32::to_bits)
+            && y.smoke == k.smoke
+    };
+    let b = w
+        .bands
+        .iter()
+        .find(|b| food_tool(b) && kit_still_matches(b))
+        .expect("a band harvesting with a food tool whose kit still matches the user factor");
     let s = w.season();
     let ec = w.economy(b, s);
     let view = w.band_view(b);
@@ -330,7 +357,7 @@ fn harvest_prior_smooths_mix() {
 /// No two of these share a `cut_q` (stone 0.42, bone 0.43, copper 0.48, iron 0.64, flint 0.76,
 /// steel 0.78, obsidian 0.82), so equal food cannot be asserted by pairing materials. Food per
 /// unit of `food_edge_q` is the same for all of them (`cut_q` on the default build,
-/// `working_edge_q` under `durability-v2`); labour follows durability and is not.
+/// `split_working_cut` under `durability-v2`); labour follows durability and is not.
 #[test]
 fn knife_food_is_cut_q_and_has_no_fight() {
     let view = BandView::nominal();

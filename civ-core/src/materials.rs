@@ -657,33 +657,6 @@ pub(crate) fn dur_force_v1() -> bool {
     DUR_V1.with(|c| c.get())
 }
 
-/// Share of fresh keenness a short-lived edge still gets. Used only by the
-/// point slot's fish term (`working_edge_q`), not by the split edge.
-#[cfg(feature = "durability-v2")]
-pub const EDGE_KEEP_FLOOR: f32 = 0.40;
-
-/// Raw edge life behind `working_edge_q`. Not wear, and not the split cut.
-#[cfg(feature = "durability-v2")]
-fn edge_life(p: &Props) -> f32 {
-    let keep = 0.65 * p.hard + 0.35 * p.sharp;
-    let roll = 1.0 + 0.09 * p.malleable;
-    let chip = chip_tough(p);
-    (keep / roll) * chip / 45.0 + 0.004 * p.hard
-}
-
-#[cfg(feature = "durability-v2")]
-fn raw_edge_life(m: Mat) -> f32 {
-    edge_life(m.props())
-}
-
-/// Keenness discounted by raw edge life. The point slot's fish term still
-/// reads this. Knife, hunt and the axe do not: they use the split cut.
-#[cfg(feature = "durability-v2")]
-pub fn working_edge_q(m: Mat) -> f32 {
-    let life = raw_edge_life(m);
-    cut_q(m) * (EDGE_KEEP_FLOOR + (1.0 - EDGE_KEEP_FLOOR) * life)
-}
-
 /// Hardness and acuity, 0..1. Malleability is not read. Neither is toughness.
 fn keep_index(p: &Props) -> f32 {
     (0.65 * p.hard + 0.35 * p.sharp) / 10.0

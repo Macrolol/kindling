@@ -152,14 +152,12 @@ fn durability_v2_orders_edges_and_v1_formula_stays() {
         // malleable than iron, and its retention is still shorter.
         assert!(edge_retention(Mat::Copper) < edge_retention(Mat::Iron));
         assert!(edge_toughness(Mat::Gold) < edge_toughness(Mat::Copper) || edge_retention(Mat::Gold) < edge_retention(Mat::Copper));
-        let wq = working_edge_q;
-        assert!(wq(Mat::Steel) > wq(Mat::Iron) && wq(Mat::Iron) > wq(Mat::Flint), "point factor: steel > iron > flint");
-        assert!(wq(Mat::Flint) > wq(Mat::Copper), "the point factor still rates flint above soft copper");
     }
 }
 
 /// Feature on: the priced edge at chain depth 0, nominal band. A glass edge
 /// must not beat iron, bronze or steel. Flint still beats soft copper as a knife.
+/// A point fishes on presence, so its order is wear: copper ahead of flint.
 #[cfg(feature = "durability-v2")]
 fn assert_priced_edge_orders(label: &str) {
     let view = BandView::nominal();
@@ -182,7 +180,9 @@ fn assert_priced_edge_orders(label: &str) {
     };
     let cut = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Flint, Mat::Copper, Mat::Obsidian];
     order(1, Form::Edge, &cut, "knife");
-    order(10, Form::Point, &cut, "point");
+    // Food is the same for every point. Copper wears less than flint, so it prices higher.
+    let point = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Copper, Mat::Flint, Mat::Obsidian];
+    order(10, Form::Point, &point, "point");
     let axe = [Mat::Steel, Mat::Iron, Mat::Bronze, Mat::Copper, Mat::Stone, Mat::Flint, Mat::Obsidian];
     order(4, Form::Axe, &axe, "axe");
     assert!(price(1, Form::Edge, Mat::Flint) > price(1, Form::Edge, Mat::Stone), "{label}: flint knife over stone");

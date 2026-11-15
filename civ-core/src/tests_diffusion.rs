@@ -66,11 +66,11 @@ fn d2_ornament_practised_without_wear() {
 
 /// D3, layer 1: a practised knife is ranked by the food its edge adds, minus the food its
 /// upkeep labour would have grown. On the default build that food is fresh `cut_q`. Under
-/// `durability-v2` it is `working_edge_q` (keenness discounted by raw edge life), and a
-/// point's fish term is the same quality rather than mere presence. Every metal knife still
-/// beats stone. Flint stays keener than soft copper, so the flint knife stays; iron, bronze
-/// and steel are keen enough, and last long enough, to take the cut from flint and from
-/// obsidian. The hunt slot is a different choice (a spear's reach) and is not asserted here.
+/// `durability-v2` it is `split_working_cut`. A point fishes on presence on both builds,
+/// so the point slot follows wear, not keenness. Every metal knife still beats stone.
+/// Flint stays keener than soft copper, so the flint knife stays; iron, bronze and steel
+/// are keen enough, and last long enough, to take the cut from flint and from obsidian.
+/// The hunt slot is a different choice (a spear's reach) and is not asserted here.
 #[test]
 fn d3_metal_blades_outrank_stone_when_practised() {
     use crate::band::make_kit;
@@ -91,13 +91,9 @@ fn d3_metal_blades_outrank_stone_when_practised() {
     }
     let k = kit(Mat::Copper, Mat::Flint);
     assert_eq!(k.cut, item(Form::Edge, Mat::Flint), "flint feeds better than copper");
-    // A flint point is keener than soft copper. The default build ignores that (every
-    // point fishes the same) and keeps copper because it wears less. The feature prices
-    // the working edge, and the keenness still pays at depth 0.
-    #[cfg(not(feature = "durability-v2"))]
-    assert_eq!(k.point, item(Form::Point, Mat::Copper), "the point's food does not depend on the stone");
-    #[cfg(feature = "durability-v2")]
-    assert_eq!(k.point, item(Form::Point, Mat::Flint), "a flint point out-feeds soft copper");
+    // A flint point is keener than soft copper. Both builds ignore that: every point
+    // fishes on presence, and copper wears less, so the point stays copper.
+    assert_eq!(k.point, item(Form::Point, Mat::Copper), "a point fishes on presence; copper wears less");
     assert_eq!(k.trial[1], NONE, "copper is worse even fully practised");
     for metal in [Mat::Bronze, Mat::Iron, Mat::Steel] {
         let k = kit(metal, Mat::Flint);
@@ -110,7 +106,7 @@ fn d3_metal_blades_outrank_stone_when_practised() {
     // the feature because the food itself discounts a chippy edge. Soft copper does
     // not clear obsidian on fresh `cut_q`. It does once keenness is discounted by
     // life and the glass edge's wear is charged. A copper point beats an obsidian
-    // point on both: the glass point chips, and it is not a better working point.
+    // point on both builds: fish is presence, and the glass point wears more.
     assert_eq!(kit(Mat::Iron, Mat::Obsidian).cut, item(Form::Edge, Mat::Iron));
     #[cfg(not(feature = "durability-v2"))]
     assert_eq!(kit(Mat::Copper, Mat::Obsidian).cut, item(Form::Edge, Mat::Obsidian));

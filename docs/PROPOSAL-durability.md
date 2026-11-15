@@ -20,6 +20,14 @@ I recommend the split account. The reasons, the ratio check against felling tria
 
 The knife reversal stays fixed under both accounts. At chain depth 0 a priced iron, bronze or steel knife beats obsidian, a flint knife beats copper, and a copper knife beats obsidian. `working_edge_orders_knife_axe_and_point` runs that under both accounts. `split_model_orders_retention_break_and_price` locks the split account on its own: copper's hone above iron's, copper's working cut well below its fresh cut and below iron's, a knapped edge's cost mostly replacement, malleability absent from the interval. Both are ordinary tests, compiled only with the feature.
 
+## Separate proposals (not in this feature)
+
+Two behaviour changes were drafted on this branch and then taken out. They are not wear. They are not part of `durability-v2`. Each could be proposed on its own later. Paragraphs further down that still mention `point_food_scale`, a point priced on `working_edge_q`, or a same-season refit describe that draft. The code does not do those.
+
+**Point fish term.** Today a point multiplies fish by 1 whenever any point is in the kit. The material does not matter. The draft multiplied that term by `working_edge_q` (steel about 0.765, copper about 0.324), so every band's fish fell, including bands already on steel. That is a global fish cut, not a wear fix, and the factor was picked so a flint point would beat copper. It belongs in the sizing deep dive, next to the audit's bow/arrow finding (the bow's fight term ignores which point is nocked). With the feature on, a point still fishes on presence, exactly as in the default build.
+
+**Same-season refit after a lesson.** The kit is fitted before practice and before teaching. A lesson then moves `use_skill`, and the food multipliers stay at the kit-time user factor until the next refit. That one-season lag exists on both builds. The feature used to call `apply_base` and `refine_kit` again in the season of the lesson, only so `payout_invariant` would see the new user factor. That mixed a second effect into every feature-on comparison. The test now skips a band taught this season. Changing the lag on both builds would be its own change, and it would need its own golden-hash update.
+
 ## The bug, in plain words
 
 A steel axe wears out faster than a copper axe.
