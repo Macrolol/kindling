@@ -98,7 +98,7 @@ The uninstrumented partner-visits bucket, minus the far meetings, is the walk bu
 3. **Third closure slot.** Skip. A third per-band key would have hit 0.7% of late misses and 1.3% of seed-5 misses. An extra toolkit at ~72k bands is a large allocation for a fraction of a percent of rebuilds.
 4. **Incremental closure with a full-closure fallback** when the new item can feed an earlier recipe whose output is already producible. Closure is 2.4 s CPU per late year and 6.6 s on seed 5. Real, but only with the fallback. Not next.
 5. **Teach-list scan.** 5.6 s CPU over the late 3 years (inside parallel meetings) and 3.7 s on seed 5. Worth doing after the partner walk.
-6. **Seasonal refit / kit belief reads.** The kit chooser is the step-4 hotspot: 13.2 s CPU over the late 3 years, 26.4 s on seed 5, 8–10 calls per band-year. Skip a refit only when the chosen items cannot move. This is also the belief optimisation; inheritance, testimony, and year-means are not.
+6. **Kit belief reads inside the seasonal refit.** Landed. `make_kit_beliefs` was 13.2 s CPU over the late 3 years and 26.4 s on seed 5. A per-call memo folds `food_prior` once per form and hashes stored rows; maker skill is not looked up when the table is non-empty. A cache that skips the refit itself does not stay bit-identical: practice moves user skill and quality every season, payout moves beliefs, and raws move what is available. Inheritance, testimony, and year-means stay noise.
 7. **One-pass `via`.** Safe half only. Small next to 1 and 6. Do it if the closure time is still there after 4.
 8. **Stats tail.** Both halves are real and similar. Late year: `track_knowledge` 0.43 s, `year_stats` 0.49 s. Seed 5: 1.53 s and 2.60 s. `year_stats` is the larger one on the long run. Fix that first.
 9. **`home_range` allocation.** Skip. 0.21 s over the late 3 years, 0.40 s on seed 5.
@@ -111,9 +111,10 @@ The `movement` bucket is large on the phase line and is not scheduled. It includ
 | commit | change | files | identity | s5 t1 | s5 t4 | late t4 |
 |---|---|---|---|---|---|---|
 | 6cb1da8 | profile and this plan | `docs/PERF-apply.md` | n/a, no sim change | n/a | n/a | n/a |
-| (this) | parallel partner pre-filter, serial roll | `civ-core/src/world.rs` | yes, pa-idcheck threads 1 and 4 | 107.4 s → 105.9 s (−1.5 s) | 48.8 s → 41.3 s (−7.5 s) | 40.8 s → 34.1 s (−6.7 s) |
+| d663810 | parallel partner pre-filter, serial roll | `civ-core/src/world.rs` | yes, pa-idcheck threads 1 and 4 | 107.4 s → 105.9 s (−1.5 s) | 48.8 s → 41.3 s (−7.5 s) | 40.8 s → 34.1 s (−6.7 s) |
+| (this) | memo kit belief quotes per call | `civ-core/src/effects.rs` | yes, pa-idcheck threads 1 and 4 | 125.8 s → 112.3 s (−13.5 s) | 50.6 s → 48.2 s (−2.4 s) | 37.8 s → 35.7 s (−2.1 s) |
 
-Times are `pa-bench` sim seconds, one rep, A = skills-step4 binary, B = this commit. Late is the Y750 800×800 save plus 3 years at 4 threads. The 1-thread seed-5 delta is small; the 4-thread deltas are the walk.
+Times are `pa-bench` sim seconds, one rep. Late is the Y750 800×800 save plus 3 years at 4 threads. The d663810 row was measured on the previous toolchain, A = skills-step4. The kit row is rustc 1.100.0, A = the rebuilt d663810 binary (`kindling-partner`), B = this commit. The two rows are not on the same clock. The kit chooser is inside the parallel season, so most of the 13.5 s shows up at one thread.
 
 ## Not applied: changes results
 
