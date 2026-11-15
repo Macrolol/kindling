@@ -2,11 +2,23 @@
 
 This is a proposal. The default build does not use it. Cargo feature `durability-v2` is off unless you ask for it, and with it off the simulation is unchanged (the golden hashes stay `0x1845e2690330d59` and `0x5cef0617c34457c6`). Nothing here is a retune of the live game. Michael decides whether the feature is ever turned on.
 
-**Where this draft stands.** Two corrections after the first pass, both inside the feature. The default build is untouched.
+**Answer on re-sharpening.** Model it as its own upkeep. Do not fold it into one durability number.
 
-Food for a knife, a hunt weapon and a point is a working edge, not the fresh keenness. Obsidian and flint start sharper than iron and then chip. The first pass let an obsidian knife beat an iron knife at chain depth 0, which is the same class of reversal this proposal is trying to remove. That is gone. A flint knife still beats a copper knife, on purpose: flint's working edge is 0.460 and soft copper's is 0.324, while bronze, iron and steel (0.565, 0.565 and 0.765 at three decimals) all beat flint. A priced copper knife beats obsidian, and a copper point still beats an obsidian point.
+Soft copper is a poor axe next to iron because the edge rolls. The tool spends the season dull, and someone has to hammer it sharp again and again. Snapping is a different bill, paid by flint and obsidian. One wear number cannot say which bill it is. The split account can. It is what the feature-on sim uses (`WEAR_ACCOUNT = Split`). The combined account (one life per class, malleability only as a repair discount, edge life pulled toward wrought iron) stays in the feature so the two can be scored on the same save. It is not the recommendation.
 
-Edge life is compressed toward wrought iron. The raw formula is still computed (spread 1.0). The sim uses spread 0.50, which I recommend. Working-edge life, longest first: steel 0.884, iron 0.802, bronze 0.791, stone 0.730, copper 0.630, flint 0.571, obsidian 0.470. Stone sits above copper because a ground stone edge does not roll and does not knap itself apart. The same class also covers a flake, which that number flatters. Copper's edge wear is about 1.55 times steel's (0.310 against 0.200), not the threefold gap of the raw formula. On the year-350 seed-6 save, 3150 of 3234 steel-capable bands hold a steel axe, 81 still hold copper and 3 hold iron. Spread 1.0 puts steel in every one of those 3234 bands (4766 band-slots flip). Spread 0.50 flips 4550. Spread 0.35 flips 3862 and keeps 331 copper axes, but the bronze axe term then sits just above iron, so it is not the default.
+Malleability does not add to a working edge, and the 1.0 cap is not in the new formulas. Confirmed in the code, not only in this note. `edge_retention`, `split_working_cut` and `split_axe_score` never read `malleable`. Retention is hardness and acuity, squared, so a soft rank dulls sooner than a straight reading of it. Toughness, after the knap discount, is breakage. `resharpen_cost` and `repair_factor` (`1 - 0.045 * malleable`) are the only places malleability helps, and they make the hone cheaper. They do not make the edge last longer. Gold is more malleable than copper and still retains less. The old `durability` clamp at 1.0 remains only on the feature-off path, and inside a diagnostic that forces the old formula. Class life has no cap.
+
+Measured on the year-350 seed-6 save (3354 bands, 3234 of them able to make steel). Feature on, both accounts, and once feature off. The tables are in "Resharpening as its own cost".
+
+Copper against iron, split. Fresh cut 0.480 against 0.640, so a newly sharp copper axe is still about three quarters of an iron one. Average working cut 0.073 against 0.215: copper keeps about a third of iron's cut, and 15% of its own fresh cut. Resharpen labour 0.254 against 0.141 (1.8 times iron, and 2.4 times steel's 0.106). Break labour 0.060 for both, because every tool metal is toughness 9. Copper's bill is the hone. Obsidian's is the opposite: break labour 0.555, resharpen labour 0.140. That is the shape you described.
+
+It is not "nearly useless" in the food number the plants and farm lines actually multiply. The split axe score is 0.486 for copper, 0.557 for iron, 0.629 for steel. The farm term (`0.2 * axe`) moves from 0.097 to 0.111. Half of the axe score is toughness, and toughness does not differ, and 0.1 and 0.2 then shrink what is left. Of the 3234 bands that can make steel, 3197 take a steel axe, 29 foragers still price copper ahead by 0.004, and 8 foragers still price iron ahead. Those 29 are a short copper chain against a long steel chain, not a claim that copper cuts like iron.
+
+Combined, spread 0.50, same save. There is no hone line. Copper's working cut is 0.324 against iron's 0.565 (57% of iron, not a third) and its wear is 0.310 against steel's 0.200 (1.55 times, one blended number). 81 foragers who can make steel keep copper, by 0.014. Spread 1 makes copper's wear about three times steel's and puts steel on all 3234, and it still does not say that the cost is a hone.
+
+I recommend the split account. The reasons, the ratio check against felling trials and hardness, and why I no longer recommend compressing edge life, are below. `EDGE_LIFE_SPREAD` stays 0.50 so the combined comparison does not move. The feature-on sim does not read it.
+
+The knife reversal stays fixed under both accounts. At chain depth 0 a priced iron, bronze or steel knife beats obsidian, a flint knife beats copper, and a copper knife beats obsidian. `working_edge_orders_knife_axe_and_point` runs that under both accounts. `split_model_orders_retention_break_and_price` locks the split account on its own: copper's hone above iron's, copper's working cut well below its fresh cut and below iron's, a knapped edge's cost mostly replacement, malleability absent from the interval. Both are ordinary tests, compiled only with the feature.
 
 ## The bug, in plain words
 
@@ -51,11 +63,13 @@ Tools do not wear the same way.
 
 Rough order for how long a working edge should last, as a target, not as a fitted curve. Judgment, from the usual workshop picture rather than from a measured test in this repo: obsidian and flint are short, because they chip. Copper is short-ish: it dulls, and it is easy to hammer sharp again. Bronze is better, especially once work-hardened. Wrought iron is about the same as bronze or a bit better. Steel is clearly the best. Stone is the awkward one. A ground stone edge outlasts soft copper: it is harder, it does not roll, and it is not very prone to knapping (`fracture` 3.5). A casual flake does not, and the sim has one edge class for both.
 
-The raw formula (spread 1) produces obsidian 0.140, flint 0.342, copper 0.460, stone 0.659, bronze 0.783, iron 0.804, steel 0.967. The sim does not use those as the life it charges. It pulls them toward 0.80 by half (spread 0.50): obsidian 0.470, flint 0.571, copper 0.630, stone 0.730, bronze 0.791, iron 0.802, steel 0.884. Same order. Smaller gaps. Stone stays above copper on life, below bronze.
+The raw formula (spread 1) produces obsidian 0.140, flint 0.342, copper 0.460, stone 0.659, bronze 0.783, iron 0.804, steel 0.967. The combined account does not charge those. It pulls them toward 0.80 by half (spread 0.50): obsidian 0.470, flint 0.571, copper 0.630, stone 0.730, bronze 0.791, iron 0.802, steel 0.884. Same order. Smaller gaps. Stone stays above copper on life, below bronze. The feature-on sim does not charge this life either. An edge pays the split account.
 
 ## The model
 
 Feature `durability-v2` on `civ-core` (default off; `native/Cargo.toml` forwards it onto the `kindling` binary). With the feature off, `score_durability`, `record_durability` and `upkeep_wear` are bit-identical to the old formula. A unit test checks that for every material and every form (`durability_v2_orders_edges_and_v1_formula_stays`).
+
+The formulas in the rest of this section are the combined account. The feature-on sim does not use them for an edge. It uses the split account in "Resharpening as its own cost". Non-edge forms (cord, hull, pot, mark, shield, and the rest) use these class formulas either way. The spread applies only to the combined edge.
 
 With the feature on, life depends on what the object is. `wear_class` (`materials.rs:574`) maps all 32 forms:
 
@@ -84,7 +98,7 @@ life = (keep / roll) * chip / 45 + 0.004 * hard
 
 Hardness does most of the work of keeping the edge, acuity the rest. Malleability divides, so a soft edge rolls. Toughness resists the chip, and a high `fracture` (a knapped edge) spends that toughness faster. The `/ 45` puts raw steel just under 1 and raw obsidian near 0.14. The `+ 0.004 * hard` exists only because the product alone ties pitch (hard 0.5, tough 2) with clay (hard 1, tough 1). It does not reorder the working edges. That term is a judgment, and it is the one place a hardness nudge was added for a reason other than physics.
 
-**Compression** (`scale_edge_life`, `EDGE_LIFE_ANCHOR` 0.80, `EDGE_LIFE_SPREAD` 0.50). The anchor is raw wrought iron, so iron and bronze barely move. Spread 1 returns the raw life bit for bit. Any other spread is `anchor + spread * (raw - anchor)`. Order is unchanged for a positive spread. Only the edge class is compressed. A cord, a hull, a pot, a mark and a shield use the formulas below with no spread. `class_durability` of an edge, and therefore `score_durability`, axe food, `edge_q` and edge upkeep, all read the compressed life. Diagnostics can score spread 1.0 and 0.35 without editing the constant. 0.35 is printed so it can be chosen; it is not what the sim uses, because at 0.35 the bronze axe term (0.722) sits just above iron (0.721).
+**Compression** (`scale_edge_life`, `EDGE_LIFE_ANCHOR` 0.80, `EDGE_LIFE_SPREAD` 0.50). The anchor is raw wrought iron, so iron and bronze barely move. Spread 1 returns the raw life bit for bit. Any other spread is `anchor + spread * (raw - anchor)`. Order is unchanged for a positive spread. Only the edge class is compressed. A cord, a hull, a pot, a mark and a shield use the formulas below with no spread. On the combined account, `class_durability` of an edge, and therefore `score_durability`, axe food, `edge_q` and edge upkeep, all read the compressed life. The split account does not. Diagnostics can score spread 1.0 and 0.35 without editing the constant. 0.35 is printed so it can be chosen for the combined account; it is not a setting I recommend, because at 0.35 the bronze axe term (0.722) sits just above iron (0.721).
 
 **Working-edge food** (`working_edge_q`). Fresh keenness is `cut_q`. A season of use is not a fresh edge:
 
@@ -92,11 +106,11 @@ Hardness does most of the work of keeping the edge, acuity the rest. Malleabilit
 working_edge_q = cut_q * (0.40 + 0.60 * raw_edge_life)
 ```
 
-The 0.40 is `EDGE_KEEP_FLOOR`: a hopelessly short edge still keeps 40% of its keenness, and a life of 1 keeps all of it. The life in this product is the raw life, not the compressed one. Compressing it as well would let obsidian outrank iron again, which is the reversal this term exists to stop. Feature off, `food_edge_q` is `cut_q`, the same bits as before. Feature on, it is `working_edge_q` unless a diagnostic forces the old model.
+The 0.40 is `EDGE_KEEP_FLOOR`: a hopelessly short edge still keeps 40% of its keenness, and a life of 1 keeps all of it. The life in this product is the raw life, not the compressed one. Compressing it as well would let obsidian outrank iron again, which is the reversal this term exists to stop. Feature off, `food_edge_q` is `cut_q`, the same bits as before. Feature on, combined, it is `working_edge_q`. Feature on, split, it is `split_working_cut`. A diagnostic can force the old model.
 
 Measured working-edge quality, which does not move when the spread changes: steel 0.765, bronze 0.565, iron 0.565, flint 0.460, obsidian 0.397, stone 0.334, copper 0.324, bone 0.281. Bronze is a hair above iron before rounding (0.5654 against 0.5647) because bronze is keener and the life gap is small. The priced knife at depth 0 still ranks iron just ahead of bronze, because iron wears less.
 
-Where it is paid. The knife (`cut_term`) and the hunt weapon (`hunt_q_of`: spear, point, or a held edge) use `food_edge_q` instead of `cut_q`. The point slot's fish term used to be 1 whenever any point existed. Feature on, `point_food_scale` is `working_edge_q`, so a glass point is not a full point. It is not renormalized: a steel point feeds at 0.765, not at today's flat 1.0, and a copper point at 0.324. That shrinks fish for every band. Whether to divide by steel's quality so the best point matches today's 1.0 is a question, not a silent second constant. The axe stays `0.5 * cut_q + 0.5 * compressed life`. Switching the axe onto the product form would widen the copper penalty, which is the opposite of the spread. Fight stays on `edge_q` and on the axe blend. Food does not call `edge_q`.
+Where it is paid. The knife (`cut_term`) and the hunt weapon (`hunt_q_of`: spear, point, or a held edge) use `food_edge_q` instead of `cut_q`. The point slot's fish term used to be 1 whenever any point existed. Feature on, the point's fish term is `food_edge_q` instead of a flat 1. On the combined account that is 0.765 for steel and 0.324 for copper. On the split account it is 0.359 and 0.073. Neither is renormalized. Whether to divide by steel's quality so the best point matches today's 1.0 is a question, not a silent second constant. The combined axe stays `0.5 * cut_q + 0.5 * compressed life`. The split axe is `split_axe_score` (half the dull-time cut, half toughness). Fight stays on `edge_q` and on the axe blend. Food does not call `edge_q`.
 
 Choice, stated. A flint knife beats a copper knife. Flint is much keener (cut 0.76 against 0.48), and a raw life of 0.342 is short but not obsidian-short, so the discount does not hand the knife to soft copper. Bronze, iron and steel clear flint on the same number. A copper knife beats an obsidian knife once the chip is in the food and in the wear: obsidian's working edge (0.397) is still above copper's (0.324), and obsidian's wear (0.680 against 0.310) is what makes the priced copper knife win, including at depth 0. The copper point beats the obsidian point on both builds. The flint point beats the copper point only with the feature on, for the same reason the flint knife does. The default build still keeps the copper point, because every point used to fish the same and copper wears less.
 
@@ -120,7 +134,7 @@ Choice, stated. A flint knife beats a copper knife. Flint is much keener (cut 0.
 
 **Wear charged as labour** (`upkeep_wear`, line 690): feature off, `1.15 - durability`. Feature on, `(1.15 - class life) * repair_factor` for the item's form. The 1.15 is the old upkeep's zero point, kept so a life near 1 still costs a little and the feature-off path does not move. No current material reaches 1.15, so wear stays positive. The unit test asserts life in `[0, 1.15)` and repair in `(0.5, 1]`. A future material could cross 1.15 and then upkeep would go negative. There is no floor. That is a question, not a silent clamp.
 
-Working-edge wear after repair, at the recommended spread 0.50, the number that actually hits the labour pool: steel 0.200, iron 0.254, bronze 0.262, copper 0.310, stone 0.420, flint 0.579, obsidian 0.680. Steel wears less than iron, iron a bit less than bronze, bronze less than copper, copper less than stone, stone less than flint, flint less than obsidian. Repair did not put copper back in front of steel. Easy to re-sharpen is not the same as cheap to keep using: copper's repair factor is the best of the tool metals (0.595 against steel's 0.752) and the wear is still about 1.55 times steel's. At spread 1.0 the same wear is steel 0.138, iron 0.252, bronze 0.268, copper 0.411, and copper is about three times steel. Compression is what cuts that from three times to one and a half. It also moves steel's own wear from today's 0.171 up to 0.200. Steel is not cheaper to keep than it is today. Copper is more expensive (0.150 today, 0.310 here), and the food gap is what moves the axe.
+Working-edge wear after repair, on the combined account at spread 0.50 (not what the feature-on sim charges; the split wear is in the later section): steel 0.200, iron 0.254, bronze 0.262, copper 0.310, stone 0.420, flint 0.579, obsidian 0.680. Steel wears less than iron, iron a bit less than bronze, bronze less than copper, copper less than stone, stone less than flint, flint less than obsidian. Repair did not put copper back in front of steel. Easy to re-sharpen is not the same as cheap to keep using: copper's repair factor is the best of the tool metals (0.595 against steel's 0.752) and the wear is still about 1.55 times steel's. At spread 1.0 the same wear is steel 0.138, iron 0.252, bronze 0.268, copper 0.411, and copper is about three times steel. Compression is what cuts that from three times to one and a half. It also moves steel's own wear from today's 0.171 up to 0.200. Steel is not cheaper to keep than it is today. Copper is more expensive (0.150 today, 0.310 here), and the food gap is what moves the axe.
 
 The old function `durability` is left in place. The sim does not call it when the feature is on. `tests.rs:1799` still asserts `durability(steel) >= 0.95 * durability(iron)` on that old function. That assertion is the bug-shaped comparison (0.979 against 1.0) and it still passes. It does not see this model. The new test checks the edge order.
 
@@ -244,22 +258,23 @@ A ceramic crucible or kiln wears less than it does today (0.604 against 0.983), 
 
 ## What bands do with it
 
-Save: `DIAG_SAVE`, which in this run was `/workspace/bots/build-bot/step3-saves/main_seed6_y350_256x160.civsave`. Format v16, year 350, 3354 bands, population 67836. Not a user save. 2308 bands count as farming and 1046 as foraging. A band is a farm when the grain share of its harvest is at least 0.10, or `sow >= 0.2`. That is the same split the axe diagnostic uses.
+Save: `DIAG_SAVE`, which in this run was `/workspace/bots/build-bot/step3-saves/main_seed6_y350_256x160.civsave`. Format v16, year 350, 3354 bands, population 67836. Not a user save. 2308 bands count as farming and 1046 as foraging. A band is a farm when the grain share of its harvest is at least 0.10, or `sow >= 0.2`. That is the same split the axe diagnostic uses. The tables below are the combined account. The split account, which is the one the feature-on sim uses, is measured in "Resharpening as its own cost". Its axe census is copper 56, iron 26, steel 3197, stone 24.
 
-`diag_durability_flips`, feature on, scores every payoff slot at today's formula and at spreads 1.00, 0.50 and 0.35. The live model (spread 0.50) matched `slot_score_m` on 0 mismatches of 103022. The kit after load matched the live pick on 0 mismatches of 31774: loading the save with the feature on already refits the kit. The v1 column is that rescore, not a second load. It reproduces the axe census the feature-off build holds. Nets, marks and traps do not read edge life, so their flips are the same at every spread. The feature-off binary prints the v1 census only and says the v2 tables are not scored there.
+`diag_durability_flips`, feature on, scores every payoff slot at today's formula, at combined spreads 1.00, 0.50 and 0.35, and at the split account. This pass the live model is split. It matched `slot_score_m` on 0 mismatches of 103022. The kit after load matched the live pick on 0 mismatches of 31774: loading the save with the feature on already refits the kit to split. The v1 column is that rescore, not a second load. It reproduces the axe census the feature-off build holds (re-run feature off this pass: the same 806 / 264 / 2209 / 24, and the same 0 mismatches). Nets, marks and traps do not read the edge account, so their flips are the same in every column. The feature-off binary prints the v1 census only.
 
 Axe argmax, all bands. 51 bands have no axe they can make. 3234 can make steel. 3303 have some axe.
 
 | | copper | iron | steel | stone | band-slots that flip |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | v1, today's formula | 806 | 264 | 2209 | 24 | |
-| spread 1.00, raw life | 16 | 27 | 3234 | 26 | 4766 |
-| spread 0.50, this proposal | 113 | 15 | 3150 | 25 | 4550 |
-| spread 0.35, comparison only | 331 | 16 | 2926 | 30 | 3862 |
+| spread 1.00, raw life | 16 | 27 | 3234 | 26 | 4780 |
+| spread 0.50, combined | 113 | 15 | 3150 | 25 | 4563 |
+| spread 0.35, comparison only | 331 | 16 | 2926 | 30 | 3876 |
+| split, the recommendation | 56 | 26 | 3197 | 24 | 4752 |
 
 At spread 1.00 the 16 copper, 27 iron and 26 stone are the 69 bands that cannot make steel. Every steel-capable band holds steel. At spread 0.50, 81 of the copper axes and 3 of the iron axes are held by bands that can make steel (81 + 3 + 3150 = 3234). The other 32 copper, 12 iron and 25 stone are the same 69. At spread 0.35, 308 steel-capable bands hold something else (3234 − 2926). Compression does not stop the swing. It restores a minority.
 
-**Spread 0.50, the proposal.** Farm, then forage. This is the table to cite.
+**Combined, spread 0.50.** Farm, then forage. The split table, which is the one to cite, is in "Resharpening as its own cost". The band-slot totals above are this pass. An earlier pass printed 4766, 4550 and 3862. The axe counts did not change. The kit was refit to split before the rescore, which moves a few non-axe slots.
 
 | Slot | From | To | Farm | Forage |
 | --- | --- | ---: | ---: | ---: |
@@ -335,7 +350,7 @@ At spread 1.00 the 16 copper, 27 iron and 26 stone are the 69 bands that cannot 
 
 More copper axes survive (331 held, against 113 at spread 0.50 and 16 at spread 1). Two foragers drop an iron axe to stone, and two take a flint knife over copper. Together with the bronze axe term sitting above iron, that is why 0.35 is not the default.
 
-Knives on the save, at the recommended spread, barely move (six bands). The nominal test is the one that used to reverse. `d3_metal_blades_outrank_stone_when_practised` builds a kit at chain depth 0. An iron knife beats an obsidian knife on both builds. A copper knife beats an obsidian knife only with the feature on; the default build still keeps the obsidian knife, because fresh `cut_q` is what it pays and the upkeep rate (0.02) does not charge the chip. A copper point beats an obsidian point on both builds. A flint knife beats a copper knife on both. A flint point beats a copper point only with the feature on. `working_edge_orders_knife_axe_and_point` is a normal (not ignored) test, compiled only with the feature. At depth 0, nominal weights, it requires the priced order steel, iron, bronze, flint, copper, obsidian for the knife and the point, and steel, iron, bronze, copper, stone, flint, obsidian for the axe. It also requires an iron spear over an obsidian spear and a steel spear over an iron spear.
+Knives on the save, on the combined account at spread 0.50, barely move (six bands). The nominal test is the one that used to reverse. `d3_metal_blades_outrank_stone_when_practised` builds a kit at chain depth 0. An iron knife beats an obsidian knife on both builds. A copper knife beats an obsidian knife only with the feature on; the default build still keeps the obsidian knife, because fresh `cut_q` is what it pays and the upkeep rate (0.02) does not charge the chip. A copper point beats an obsidian point on both builds. A flint knife beats a copper knife on both. A flint point beats a copper point only with the feature on. `working_edge_orders_knife_axe_and_point` is a normal (not ignored) test, compiled only with the feature. At depth 0, nominal weights, it requires the priced order steel, iron, bronze, flint, copper, obsidian for the knife and the point, and steel, iron, bronze, copper, stone, flint, obsidian for the axe. It also requires an iron spear over an obsidian spear and a steel spear over an iron spear.
 
 Points now have a material term, and steel still takes most of them. At spread 0.50, 1723 copper points and 1015 iron points go to steel, plus 6 bone points, and 3 copper points go to iron instead. The old "2841 flips on wear alone" was 1828 copper and 1013 iron at a scoring pass that ignored the edge. The new count is not wear alone: a steel point's working edge is 0.765 against copper 0.324 and iron 0.565, so the food agrees with the wear. What did change, and is easy to miss, is the scale. Today's point multiplies fish by 1. A steel point now multiplies it by 0.765, a copper point by 0.324. Every band's fish yield shrinks, including bands that were already on steel. Renormalizing by steel's quality would put steel back at 1 and copper at about 0.42. That is not what the code does. See the questions.
 
@@ -373,9 +388,19 @@ Read against the raw formula, which this pass did not re-break-even (the flip ce
 
 Bronze still does not appear in the held census. Its axe term sits on iron's (0.721 and 0.721 at three decimals; iron higher before rounding, and iron wears 0.254 against bronze 0.262). Availability and chain depth, not the cap, are why this save has no bronze axes. At spread 0.35 that near-tie flips the wrong way, which is the reason not to recommend 0.35.
 
+Feature on, split account, the same diagnostic reloaded under that account, this pass:
+
+- Axe score: copper 0.486, bronze 0.554, iron 0.557, steel 0.629. Working cut 0.073 / 0.208 / 0.215 / 0.359. Hone labour 0.254 / 0.148 / 0.141 / 0.106. Break labour 0.060 for all four.
+- Held axes among the 3234 who can make steel: copper 29, iron 8, steel 3197. Bronze 0. All 29 copper holders and all 8 iron holders are foragers.
+- Those 29 keep copper. Rank 29 / 0 / 0, `cur = +0.0042`. Food gain of steel over copper is +0.0123. The priced labour gap is 0.0166. `cur` at maker skill 1 is +0.0016. The probe prefers steel (100%, true value +0.0435) and the same probe at the band's plant and farm weights does not (re +0.0018, re% 0). `mis%` is 0.
+- The 8 iron holders keep iron. `cur = +0.0176`, food gain of steel +0.0136. Probe preference 62.5%.
+- Bands already on steel prefer steel. n=3196, `cur = -0.1679` (farms -0.2112, foragers -0.0587). `mis%` is 0.
+
+The split margin is thinner than the combined one (+0.004 against +0.014) because the food line barely moves, not because the hone is small. Copper's hone is 1.8 times iron's. The plants coefficient is what keeps those 29 foragers on copper.
+
 ## Risks, and what to re-check
 
-This is still a large balance change, not a 0.979-versus-1.0 rounding fix. At the recommended spread, copper's axe score falls from 0.740 to 0.555 (it was 0.470 before compression). Its edge wear rises from 0.150 to 0.310 (it was 0.411). Most steel-capable bands still leave copper. Not all of them.
+This is still a large balance change, not a 0.979-versus-1.0 rounding fix. The recommended account is now the split one, not spread 0.50. Under split, copper's axe score falls from 0.740 to 0.486 and its edge wear rises from 0.150 to 0.314, of which 0.254 is the hone. Steel's wear falls slightly, from 0.171 to 0.166. Of 3234 steel-capable bands, 3197 take steel, 29 foragers keep copper and 8 keep iron. The bullets that quote 0.555, 0.200 and 3150 are the combined account at spread 0.50, kept so that comparison stays in the note. They are not the recommendation.
 
 - **Population.** Bands that stay on copper pay more labour for the edge (0.310 against today's 0.150). Bands that move to steel do not get a cheaper edge than today: steel wear goes from 0.171 to 0.200, because compression pulls steel down toward the anchor and the repair factor does not give it back. They do get a better axe score relative to copper (0.832 against 0.555, where today is 0.880 against 0.740), and the break-even says that food gain wins for 3150 of 3234 steel-capable bands. It does not say what population does over 300 years. Not run locally. See below.
 - **Chain depth.** Steel's depth penalty matters less once copper is this expensive. Bands have a stronger reason to climb to steel, and to climb sooner. Guard rails that watch the year steel appears, and the share of bands on it, will move. That is the point of the change, and it is also how a bad constant would show up. Spread 0.50 leaves a thin set of foragers on copper. A guard rail that expects zero copper among steel-capable bands will fail, and that failure is the compression working.
@@ -396,42 +421,347 @@ Durability is not saved. `save.rs` does not mention it. It is derived from the m
 
 The kit is saved. `after_load` (`world.rs:1112`) rebuilds toolkits and calls `refresh_toolkit` (`world.rs:1693`), which calls `fit_kit` (`world.rs:1686`) when the toolkit cache misses or the kit is marked dirty. `fit_kit` calls `make_kit_for_view`. Measured on this save: with the feature off, the loaded kit matches the default scorer and the held axes are the file's own (copper 772 among steel-capable bands, and the full-census v1 argmax is copper 806, iron 264, steel 2209, stone 24). With the feature on at spread 0.50, the same bytes load, the kit is re-chosen, and the steel-capable census is copper 81, iron 3, steel 3150. No format version change. A save written under one model loads under the other. The kit may change on load when the feature differs from the build that wrote the file. The bytes do not.
 
+## Resharpening as its own cost
+
+Two accounts, both behind the feature, selected by `WEAR_ACCOUNT`. The sim uses `Split`. A diagnostic can score `Combined` without a second build (`with_durability_model` / `with_split_model`). Neither account adds a per-band, per-tick loop. Both are pure functions of the material, called from the upkeep and food paths that already existed.
+
+Split, for an edge only:
+
+```text
+keep        = (0.65 * hard + 0.35 * sharp) / 10
+retention   = keep * keep                         malleability is not here
+interval    = max(0.02, retention)                seasons of keenness, relative
+hone cost   = (1 - fracture/10) * repair + (fracture/10) * 1
+resharpen   = 0.07 / interval * hone cost         RESHARPEN_USE = 0.07
+toughness   = chip_tough / 10                     same knap discount as the combined edge
+break       = (1 - toughness) * 0.60              BREAK_SCALE = 0.60
+wear        = resharpen + break
+working cut = cut_q * retention * (0.25 + 0.75 * toughness)
+axe score   = 0.5 * working cut + 0.5 * toughness
+```
+
+`0.07` and `0.60` put the labour on the same scale as today's wear (about 0.15 to 1.0), not on a scale of hours. The `0.25` floor is so a knapped edge's food does not go to zero; without it flint would lose the knife to soft copper. A fracture of 10 makes the hone cost 1, which is a new edge, not a hammered one. Malleability enters only through `repair` (`1 - 0.045 * malleable`).
+
+Combined is unchanged from the previous pass. One compressed edge life. Wear is `(1.15 - life) * repair`. The axe is half fresh cut, half that life. The knife and the point are `working_edge_q = cut_q * (0.40 + 0.60 * raw life)`. Spread 0.50 is that account's knob. The split account does not compress.
+
+### Every material, split account
+
+Printed by `diag_durability_table` (feature on; the functions do not read the flag, so the feature-off binary prints the same columns). `fresh` is `cut_q`. `work` and `knife` are the average cut between hones. `plants` is `0.1 * axe`, `farm` is `0.2 * axe`, the coefficients the yield already uses. Brine, meat, grain and the other non-tools sit on the interval floor (0.02). They are not edges. The floor only keeps the division finite.
+
+| material | fresh | work | interval | resh | brk | wear | axe | knife | plants | farm |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| wood | 0.200 | 0.006 | 0.040 | 1.750 | 0.240 | 1.990 | 0.303 | 0.006 | 0.030 | 0.061 |
+| stone | 0.420 | 0.070 | 0.245 | 0.286 | 0.254 | 0.539 | 0.324 | 0.070 | 0.032 | 0.065 |
+| flint | 0.760 | 0.162 | 0.540 | 0.130 | 0.485 | 0.614 | 0.177 | 0.162 | 0.018 | 0.035 |
+| obsidian | 0.820 | 0.126 | 0.501 | 0.140 | 0.555 | 0.695 | 0.100 | 0.126 | 0.010 | 0.020 |
+| clay | 0.040 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| copper ore | 0.152 | 0.004 | 0.061 | 1.147 | 0.429 | 1.576 | 0.145 | 0.004 | 0.014 | 0.029 |
+| tin ore | 0.260 | 0.025 | 0.179 | 0.392 | 0.372 | 0.764 | 0.202 | 0.025 | 0.020 | 0.040 |
+| plant fibre | 0.020 | 0.000 | 0.020 | 3.500 | 0.420 | 3.920 | 0.150 | 0.000 | 0.015 | 0.030 |
+| hide | 0.040 | 0.000 | 0.020 | 3.500 | 0.240 | 3.740 | 0.300 | 0.000 | 0.030 | 0.060 |
+| bone | 0.430 | 0.043 | 0.174 | 0.402 | 0.338 | 0.739 | 0.240 | 0.043 | 0.024 | 0.048 |
+| meat | 0.008 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| wild plants | 0.020 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| fish | 0.008 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| charcoal | 0.040 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| ceramic | 0.280 | 0.017 | 0.154 | 0.454 | 0.480 | 0.934 | 0.109 | 0.017 | 0.011 | 0.022 |
+| copper | 0.480 | 0.073 | 0.164 | 0.254 | 0.060 | 0.314 | 0.486 | 0.073 | 0.049 | 0.097 |
+| tin | 0.150 | 0.002 | 0.023 | 1.991 | 0.300 | 2.291 | 0.251 | 0.002 | 0.025 | 0.050 |
+| bronze | 0.650 | 0.208 | 0.345 | 0.148 | 0.060 | 0.208 | 0.554 | 0.208 | 0.055 | 0.111 |
+| grain | 0.040 | 0.000 | 0.020 | 3.500 | 0.540 | 4.040 | 0.050 | 0.000 | 0.005 | 0.010 |
+| flax | 0.020 | 0.000 | 0.020 | 3.500 | 0.330 | 3.830 | 0.225 | 0.000 | 0.023 | 0.045 |
+| wool | 0.012 | 0.000 | 0.020 | 3.500 | 0.360 | 3.860 | 0.200 | 0.000 | 0.020 | 0.040 |
+| iron ore | 0.200 | 0.011 | 0.106 | 0.663 | 0.372 | 1.035 | 0.196 | 0.011 | 0.020 | 0.039 |
+| iron | 0.640 | 0.215 | 0.363 | 0.141 | 0.060 | 0.201 | 0.557 | 0.215 | 0.056 | 0.111 |
+| brine | 0.000 | 0.000 | 0.020 | 3.500 | 0.600 | 4.100 | 0.000 | 0.000 | 0.000 | 0.000 |
+| salt | 0.100 | 0.001 | 0.026 | 2.651 | 0.540 | 3.191 | 0.050 | 0.001 | 0.005 | 0.010 |
+| pitch | 0.020 | 0.000 | 0.020 | 3.500 | 0.480 | 3.980 | 0.100 | 0.000 | 0.010 | 0.020 |
+| steel | 0.780 | 0.359 | 0.497 | 0.106 | 0.060 | 0.166 | 0.629 | 0.359 | 0.063 | 0.126 |
+| gold | 0.160 | 0.004 | 0.039 | 0.987 | 0.300 | 1.287 | 0.252 | 0.004 | 0.025 | 0.050 |
+| resinous wood | 0.080 | 0.001 | 0.020 | 3.500 | 0.360 | 3.860 | 0.200 | 0.001 | 0.020 | 0.040 |
+
+Tool edges, read off that table. Working cut, highest first: steel 0.359, iron 0.215, bronze 0.208, flint 0.162, obsidian 0.126, copper 0.073, stone 0.070, bone 0.043, gold 0.004. Axe score, highest first: steel 0.629, iron 0.557, bronze 0.554, copper 0.486, stone 0.324, gold 0.252, bone 0.240, flint 0.177, obsidian 0.100. Iron is just above bronze on both. Stone outlasts copper between hones (interval 0.245 against 0.164) and then loses the axe, because it breaks (0.254 against 0.060) and its fresh cut is poor. Flint and obsidian stay keen on paper and lose the axe because the edge is gone. Their wear is mostly breakage (flint 0.485 of 0.614, obsidian 0.555 of 0.695). Copper's wear is mostly the hone (0.254 of 0.314).
+
+The knife column is the food term, not the priced slot. On food alone, obsidian (0.126) still beats copper (0.073): a glass edge, while it lasts, cuts more than dull copper. The priced slot does the opposite, because obsidian wear is 0.695 against copper 0.314. The unit test locks the priced order, not this column.
+
+### Combined account, the tool edges
+
+Same diagnostic. `work` here is `working_edge_q`. It does not move with the spread. `life` and `wear` and `axe` do.
+
+Spread 1.00 (raw life):
+
+| material | fresh | work | life | wear | axe | knife | plants | farm |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| obsidian | 0.820 | 0.397 | 0.140 | 1.010 | 0.480 | 0.397 | 0.048 | 0.096 |
+| flint | 0.760 | 0.460 | 0.342 | 0.808 | 0.551 | 0.460 | 0.055 | 0.110 |
+| stone | 0.420 | 0.334 | 0.659 | 0.491 | 0.540 | 0.334 | 0.054 | 0.108 |
+| copper | 0.480 | 0.324 | 0.460 | 0.411 | 0.470 | 0.324 | 0.047 | 0.094 |
+| bronze | 0.650 | 0.565 | 0.783 | 0.268 | 0.716 | 0.565 | 0.072 | 0.143 |
+| iron | 0.640 | 0.565 | 0.804 | 0.252 | 0.722 | 0.565 | 0.072 | 0.144 |
+| steel | 0.780 | 0.765 | 0.967 | 0.138 | 0.874 | 0.765 | 0.087 | 0.175 |
+| bone | 0.430 | 0.281 | 0.422 | 0.728 | 0.426 | 0.281 | 0.043 | 0.085 |
+| gold | 0.160 | 0.076 | 0.125 | 0.563 | 0.143 | 0.076 | 0.014 | 0.029 |
+
+Spread 0.50 (what this account would charge):
+
+| material | fresh | work | life | wear | axe | knife | plants | farm |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| obsidian | 0.820 | 0.397 | 0.470 | 0.680 | 0.645 | 0.397 | 0.064 | 0.129 |
+| flint | 0.760 | 0.460 | 0.571 | 0.579 | 0.666 | 0.460 | 0.067 | 0.133 |
+| stone | 0.420 | 0.334 | 0.730 | 0.420 | 0.575 | 0.334 | 0.057 | 0.115 |
+| copper | 0.480 | 0.324 | 0.630 | 0.310 | 0.555 | 0.324 | 0.055 | 0.111 |
+| bronze | 0.650 | 0.565 | 0.791 | 0.262 | 0.721 | 0.565 | 0.072 | 0.144 |
+| iron | 0.640 | 0.565 | 0.802 | 0.254 | 0.721 | 0.565 | 0.072 | 0.144 |
+| steel | 0.780 | 0.765 | 0.884 | 0.200 | 0.832 | 0.765 | 0.083 | 0.166 |
+| bone | 0.430 | 0.281 | 0.611 | 0.539 | 0.520 | 0.281 | 0.052 | 0.104 |
+| gold | 0.160 | 0.076 | 0.463 | 0.378 | 0.311 | 0.076 | 0.031 | 0.062 |
+
+At spread 0.50 the axe term puts stone (0.575) above copper (0.555), and flint (0.666) above both. The priced axe still prefers copper, because stone wears at 0.420 against copper 0.310. The split axe term does not need that rescue: copper 0.486 already beats stone 0.324, flint 0.177 and obsidian 0.100.
+
+### Orders, priced, both accounts
+
+At chain depth 0, nominal band, `slot_score`. Required, and passing, for combined at spread 0.50 and for split:
+
+- Knife and point: steel, iron, bronze, flint, copper, obsidian.
+- Axe: steel, iron, bronze, copper, stone, flint, obsidian.
+- Iron spear over obsidian. Steel spear over iron. Flint knife over stone. Copper knife over obsidian. Copper point over obsidian.
+
+Bronze does not appear in the held axe census on this save. The score puts it just under iron (split axe 0.554 against 0.557; combined 0.721 against 0.721 before the last digit, iron higher). Availability and chain depth are why the census is empty of bronze, not the cap.
+
+The food term and the priced slot disagree in one place under split, and the same place under combined. Obsidian's working cut is above copper's (split 0.126 against 0.073; combined 0.397 against 0.324). Wear is what hands the priced knife and the priced point to copper. I am leaving that as it is. A glass point really is sharper. It also really is the one you replace.
+
+### What the save does
+
+`diag_durability_flips` and `diag_axe_breakeven`, this pass. Save `/workspace/bots/build-bot/step3-saves/main_seed6_y350_256x160.civsave`, format 16, year 350, 3354 bands, population 67836, 2308 farms and 1046 foragers. Feature on, the scorer matched `slot_score_m` on 0 of 103022, and the loaded kit matched the live split pick on 0 of 31774 (load refits). Feature off, the same two checks were 0, and the loaded kit is the file's own. The feature-off binary does not score the new accounts. Its "split" census column is a copy of v1, not a measurement.
+
+Axe argmax, all bands that take an axe (3303 of 3354):
+
+| account | copper | iron | steel | stone |
+| --- | ---: | ---: | ---: | ---: |
+| v1, feature off or the v1 column | 806 | 264 | 2209 | 24 |
+| combined, spread 1.00 | 16 | 27 | 3234 | 26 |
+| combined, spread 0.50 | 113 | 15 | 3150 | 25 |
+| combined, spread 0.35 | 331 | 16 | 2926 | 30 |
+| split | 56 | 26 | 3197 | 24 |
+
+Among the 3234 who can make steel (`diag_axe_breakeven`, which reloads under the account it is scoring):
+
+| account | copper | iron | steel |
+| --- | ---: | ---: | ---: |
+| v1, feature off | 772 | 253 | 2209 |
+| combined, spread 0.50 | 81 | 3 | 3150 |
+| split | 29 | 8 | 3197 |
+
+The 69 bands that cannot make steel are, under split, 27 copper, 18 iron and 24 stone. None of them moved onto a stone axe they did not already hold. Combined at spread 0.50 moves one copper axe to stone. Split does not.
+
+`cur` is the holder's margin over steel at chain skill. Positive means they keep what they have.
+
+- Feature off. All 772 copper holders keep copper, `cur = +0.0453` (farms +0.0220, foragers +0.0484). All 253 iron holders keep iron, `cur = +0.0175`. Bands on steel prefer steel, n=2208, `cur = -0.1337`.
+- Combined, spread 0.50. The 81 copper holders are all foragers, `cur = +0.0136`, food gain of steel only +0.0295 against a labour gap of 0.0430. The 3 iron holders are foragers, `cur = +0.0322`. Steel holders, n=3149, `cur = -0.1912` (farms -0.2376, foragers -0.0679).
+- Split. The 29 copper holders are all foragers, `cur = +0.0042`, food gain of steel only +0.0123 against a labour gap of 0.0166. Depth of the copper chain averages 3.2; steel's averages 10.5. The 8 iron holders are foragers, `cur = +0.0176`, food gain of steel +0.0136. Steel holders, n=3196, `cur = -0.1679` (farms -0.2112, foragers -0.0587). `mis%` is 0 on these rows. One steel band has no alternative, which is why 3196 and not 3197.
+
+Flips from the v1 pick, farm then forage. Feature on. Nets, marks and traps do not read the edge account, so those rows are the same at every column (hide net to flax, 168 farm and 58 forage; hide net to fibre, 63 and 327; fibre net to flax, 64 and 12; tally stick to bone, 35 and 73; the snare rows). They are not repeated here.
+
+Axes, knives, points, hunt. Split:
+
+| slot | from | to | farm | forage |
+| --- | --- | --- | --- | ---: |
+| axe | copper axe | iron axe | 0 | 13 |
+| axe | copper axe | steel axe | 90 | 647 |
+| axe | iron axe | steel axe | 81 | 170 |
+| knife | flint blade | copper knife | 0 | 10 |
+| knife | flint blade | stone blade | 2 | 0 |
+| knife | obsidian blade | copper knife | 0 | 1 |
+| knife | obsidian blade | stone blade | 0 | 1 |
+| point | bone point | flint point | 1 | 1 |
+| point | bone point | steel point | 2 | 4 |
+| point | copper point | iron point | 0 | 3 |
+| point | copper point | steel point | 1113 | 712 |
+| point | iron point | steel point | 819 | 196 |
+| hunt | bone point | stone blade | 0 | 9 |
+| hunt | copper point | copper knife | 0 | 6 |
+| hunt | flint point | copper knife | 0 | 3 |
+| hunt | flint point | copper point | 0 | 1 |
+| hunt | flint point | stone blade | 0 | 3 |
+| hunt | sharpened-stick spear | steel point | 1 | 0 |
+| hunt | sharpened-stick spear | stone blade | 2 | 2 |
+
+No iron, bronze or steel knife moves to obsidian. The ten foragers who drop a flint knife for copper are a chain-depth case. At depth 0 the test still has flint ahead of copper. Combined at spread 0.50 does not make those ten moves; spread 1.00 makes nine of the same kind. Split behaves like the raw combined life on that knife, not like the compressed one.
+
+Combined, spread 0.50, the edge rows only (the census above is the summary): copper axe to steel 90 farm and 599 forage, copper axe to iron 0 and 3, copper axe to stone 0 and 1, iron axe to steel 81 and 171. Points: copper to steel 1064 and 658, iron to steel 819 and 196, copper to iron 0 and 3. Knives barely move (one farm's copper knife to stone, two flint to stone, two obsidian leaving). Hunt: one bone point to stone, five flint points to copper. Spread 1.00 moves more axes (copper to steel 90 and 682, and 16 foragers' copper axes to iron) and nine foragers' flint knives to copper. Spread 0.35 is the one that puts two foragers' iron axes onto stone and two flint knives over copper, and it puts the bronze axe term above iron. That is still why 0.35 is not a combined-account setting.
+
+Band-slot totals, v1 to the new score: spread 1.00 is 4780, spread 0.50 is 4563, spread 0.35 is 3876, split is 4752. An earlier pass printed 4766, 4550 and 3862 for the three spreads. The axe argmax is the same numbers as that pass. The small difference is the kit context: this run loads once, under the live split account, and then rescores. The break-even reloads under the account it is reporting, and its combined census matches the earlier pass exactly (81, 3, 3150).
+
+Points, the scale. Today's point multiplies fish by 1. Combined, a steel point multiplies it by 0.765 and a copper point by 0.324. Split, a steel point multiplies it by 0.359 and a copper point by 0.073. Ranking still moves almost every copper and iron point to steel (1825 copper and 1015 iron under split). The yield shrink is larger than the combined account's, and it hits bands that were already on steel. Not renormalized. Still a question.
+
+### How this plugs into step 4
+
+Step 4 prices a food slot from a belief once the table is non-empty. Labour is the stored belief when the band has one. When it does not, labour is `tool_upkeep`, which is `upkeep_wear` times the seal and the chain depth. The food side of the belief is a learned yield, not a copy of the formula.
+
+Both accounts use that one door. There is nothing extra for step 4 to call, and nothing that runs per tick.
+
+- Split. The prior, and every band with an empty table, pays `resharpen + break`. A copper axe's prior labour is the hone (0.254) plus a small break (0.060), times rate, seal and depth. A flint axe's prior is mostly the break. After the band has learned, the belief stores that experienced labour and stops reading the formula until the belief moves. The yield the belief learns, for a knife, a hunt weapon and a point, is `split_working_cut`. For the axe it is the plants and farm lines on `split_axe_score`. Maker skill and chain depth stay outside the material term, where step 4 already put them.
+- Combined. The same door pays `(1.15 - compressed life) * repair`. One number. The belief cannot later tell a hone from a breakage, because the formula never did. The yield it learns is `working_edge_q` on the knife and the point (copper 0.324, not 0.073) and the combined axe score on the farm lines.
+
+A stored labour belief freezes the upkeep. It does not freeze the yield. Turning the feature on after beliefs exist will move food slots through the yield even where the labour number is already learned. The flip tables in this note are the empty-table price. They are an upper bound on how fast the labour term alone moves an axe. They are not an upper bound on the yield.
+
+### Recommendation, and the spread
+
+Use the split account. Four reasons.
+
+Realism of the mechanism. You asked whether re-sharpening should be its own cost. It should. Copper's measured hone is 1.8 times iron's and 2.4 times steel's, and its working cut is a third of iron's and 15% of its own fresh cut. Malleability cheapens that hone (copper's hone cost is 0.595, iron's 0.730, steel's 0.752) and does not buy a longer interval. A knapped edge is replaced rather than hammered. The combined account can only say "copper wears 1.55 times steel" at spread 0.50, or "three times" at spread 1, and both of those are the same kind of number as a snapped obsidian edge.
+
+Emergence. A forager with a short copper chain and no fields can still keep the soft axe, because the food line barely moves and the steel chain is deep. Twenty-nine do, by 0.004. Everyone else who can make steel drops copper. That is "useless as an axe next to steel, unless you are paying for it and you have no fields," which is as close as this food formula can get without retuning the 0.1 and 0.2. The combined account at 0.50 keeps 81 such foragers, and their working cut is still 57% of iron's, which is not the sentence you wrote.
+
+Cost. Both accounts are a few arithmetic operations on the material, inlined into `upkeep_wear`, `food_edge_q` and `axe_food_score`. No per-band sharpening state. No per-tick pass. The split numbers are not compressed, so there is no spread to evaluate on the hot path either.
+
+The knife. Both accounts keep iron, bronze and steel ahead of obsidian at depth 0, and the tests cover both. Split does not bring the reversal back.
+
+I do not recommend the combined account, and I no longer recommend spread 0.50 as the way to run the sim.
+
+Pass 2 compressed edge life toward wrought iron because the raw combined formula made copper about three times as costly as steel and put a steel axe on every steel-capable band (the census at spread 1.00, re-measured this pass: 16 copper, all of them unable to make steel). The 0.50 spread was a patch so that swing would shrink. Your note cuts the other way. Soft copper should look nearly useless as an axe beside iron unless it is resharpened constantly. Pulling the life toward 0.80 hides that. It leaves copper's working cut at 57% of iron's and makes the hone invisible. The ratio section says the same thing: the stone-to-steel chopping gap in the trials is several times, and a quenched edge against soft copper is wider than these props can say. Compression makes those gaps smaller on purpose. That was the wrong direction.
+
+The constant stays at 0.50. The feature-on sim does not read it. If the const is later switched to `Combined`, 0.50 is still the only measured spread that keeps iron's axe term above bronze. Spread 0.35 does not (bronze 0.722, iron 0.721) and it moves two iron axes to stone. I would not raise the spread back to 1 inside the combined account either: that census is the empty-copper result, and it still is not a hone. Changing the constant now would only change a comparison I am not recommending. The sizing pass is the place to retune, and the candidates are listed under the ratios, not applied here.
+
+What I am not claiming. Twenty-nine foragers keeping copper is not a calibrated "right" count. The food coefficients mute the dull-time, so more copper survives than a felling-time ratio alone would suggest. Steel's split wear (0.166) is a little below today's 0.171, where the combined account made steel more expensive than today (0.200). Copper's split wear (0.314) is about today's 0.150 doubled. I have not run a 300-year sim. The population effect is unmeasured.
+
+## Ratios between materials
+
+Before is today's formula. Fresh cut is `cut_q` and does not change. "Life" before is `durability` (the capped sum of toughness and malleability). Wear before is `1.15 - durability`. The axe before is half fresh cut, half that durability. The knife before is fresh cut. Combined is spread 0.50. Split uses the split functions. A ratio is the first material divided by the second. For wear and for the hone and the break, a ratio below 1 means the first material costs less to keep. For life, interval, cut and the axe, above 1 means the first is better.
+
+The plants ratio and the farm ratio are the axe ratio. `0.1 * axe` and `0.2 * axe` do not change a ratio. They change the absolute gap, which is the column that has to beat chain labour. That absolute gap is under the table, not in it.
+
+Fresh cut (before = after; the props did not move):
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| fresh | 1.625 | 1.219 | 0.985 | 1.354 | 1.143 | 1.333 | 0.927 | 1.857 | 1.548 |
+
+Edge life, or the split resharpen interval. Before, steel is *worse* than copper (0.979), because of the cap.
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before, life | 0.979 | 0.979 | 1.000 | 1.000 | 1.714 | 1.000 | 2.333 | 1.679 | 1.714 |
+| combined, life | 1.403 | 1.101 | 1.014 | 1.257 | 0.863 | 1.274 | 1.215 | 1.211 | 1.085 |
+| split, interval | 3.030 | 1.369 | 1.052 | 2.104 | 0.669 | 2.213 | 1.079 | 2.028 | 1.409 |
+
+Break and hone. The before and combined rows are total wear, because those accounts have no separate break. Split break is the same for steel, iron, bronze and copper (ratio 1), which is the props: toughness 9 for all four.
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before, wear | 1.139 | 1.139 | 1.000 | 1.000 | 0.265 | 1.000 | 0.837 | 0.301 | 0.265 |
+| combined, wear | 0.648 | 0.790 | 0.970 | 0.845 | 0.736 | 0.820 | 0.851 | 0.477 | 0.623 |
+| split, break | 1.000 | 1.000 | 1.000 | 1.000 | 0.237 | 1.000 | 0.873 | 0.237 | 0.237 |
+| split, hone | 0.417 | 0.753 | 0.951 | 0.583 | 0.889 | 0.554 | 0.927 | 0.371 | 0.518 |
+
+Working cut. This is where the two accounts separate. Combined steel:copper is 2.36. Split is 4.92. Iron:copper is 1.74 combined and 2.95 split.
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 1.625 | 1.219 | 0.985 | 1.354 | 1.143 | 1.333 | 0.927 | 1.857 | 1.548 |
+| combined | 2.357 | 1.354 | 0.999 | 1.743 | 0.971 | 1.742 | 1.160 | 2.288 | 1.692 |
+| split | 4.924 | 1.669 | 1.036 | 2.850 | 1.036 | 2.951 | 1.288 | 5.101 | 2.952 |
+
+Total upkeep. Below 1 means the first material is cheaper to keep. Split steel costs about half of copper (0.529). Combined steel costs about two thirds (0.648). Today steel costs *more* than copper (1.139).
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 1.139 | 1.139 | 1.000 | 1.000 | 0.265 | 1.000 | 0.837 | 0.301 | 0.265 |
+| combined | 0.648 | 0.790 | 0.970 | 0.845 | 0.736 | 0.820 | 0.851 | 0.477 | 0.623 |
+| split | 0.529 | 0.827 | 0.965 | 0.663 | 0.582 | 0.640 | 0.884 | 0.308 | 0.386 |
+
+Axe score. The plants ratio and the farm ratio are this row, before and after. Split steel:copper is 1.29. The working-cut ratio on the row above is 4.92. The axe blend throws most of that away.
+
+| | st/cu | st/fe | fe/br | br/cu | cu/sn | fe/cu | fl/ob | st/sn | br/sn |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 1.189 | 1.073 | 0.994 | 1.115 | 1.475 | 1.108 | 1.113 | 1.753 | 1.645 |
+| combined | 1.499 | 1.153 | 1.001 | 1.299 | 0.965 | 1.300 | 1.032 | 1.447 | 1.254 |
+| split | 1.294 | 1.129 | 1.007 | 1.138 | 1.502 | 1.146 | 1.766 | 1.943 | 1.710 |
+
+Knife score, the food term (fresh cut before, `working_edge_q` combined, `split_working_cut` split). Same numbers as the working-cut table. The priced knife is not this row: upkeep moves copper ahead of obsidian even where this row does not.
+
+Absolute food, so the mute is visible. Delta is steel minus copper.
+
+| | steel | iron | bronze | copper | stone | flint | obsidian | steel−copper |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| split axe | 0.629 | 0.557 | 0.554 | 0.486 | 0.324 | 0.177 | 0.100 | 0.143 |
+| split plants, 0.1× | 0.063 | 0.056 | 0.055 | 0.049 | 0.032 | 0.018 | 0.010 | 0.014 |
+| split farm, 0.2× | 0.126 | 0.111 | 0.111 | 0.097 | 0.065 | 0.035 | 0.020 | 0.029 |
+| combined axe, 0.50 | 0.832 | 0.721 | 0.721 | 0.555 | 0.575 | 0.666 | 0.645 | 0.277 |
+| combined plants | 0.083 | 0.072 | 0.072 | 0.055 | 0.057 | 0.067 | 0.064 | 0.028 |
+| combined farm | 0.166 | 0.144 | 0.144 | 0.111 | 0.115 | 0.133 | 0.129 | 0.055 |
+| before, axe | 0.880 | 0.820 | 0.825 | 0.740 | 0.502 | 0.526 | 0.472 | 0.140 |
+| before, plants | 0.088 | 0.082 | 0.083 | 0.074 | 0.050 | 0.053 | 0.047 | 0.014 |
+| before, farm | 0.176 | 0.164 | 0.165 | 0.148 | 0.100 | 0.105 | 0.094 | 0.028 |
+
+Today's plants gap between steel and copper is already only 0.014. Split does not widen it. The axe scores both fell (steel 0.880 to 0.629, copper 0.740 to 0.486), so the ratio went from 1.19 to 1.29 while the absolute gap stayed 0.014. The farm gap goes from 0.028 to 0.029. A working-cut gap of 0.286 (0.359 against 0.073) arrives at the farm line as 0.029. That is the mute. It is why 29 foragers can prefer copper by 0.004: steel's food gain on their weights is +0.012, and the chain is several steps deeper.
+
+### Against the real numbers
+
+Felling time, steel against stone. Saraydar and Shimada, American Antiquity 36 (1971), pp. 216–217: one steel axe against one ground stone axe, same chopper, about 6.4 times faster and about 5.1 times less energy per inch of wood. The same pair of axes, clearing plots, came out about 3.6 times faster and 3.3 times less energy (Saraydar and Shimada, American Antiquity 38 (1973), pp. 344–350). Mathieu and Meyer, Journal of Field Archaeology 24 (1997), pp. 333–351, put the chopping studies they reviewed at roughly two to four and a half times, and they say tree species, diameter and the axe itself move the result as much as the material. Carneiro's plot-clearing figures, which they cite, run much higher (tens of times) and mix axes with adzes. I use 3 to 6 times as the band, and I do not use the clearing extremes. Confidence: medium. Small trials, modern steel, ground stone rather than a flake.
+
+The sim, steel against stone. Fresh cut 1.86. Split working cut 5.10, which sits in that 3-to-6 band. Split axe score 1.94, which is the bottom of the band. Split farm coefficient, same 1.94, absolute gap 0.061. Combined at spread 0.50: working cut 2.29, axe score 1.45. So the split working cut is the one that looks like the chopping trials, and the food coefficient then compresses it to the low end. The trials were maintained edges, closer in spirit to fresh cut than to a season of not honing. Matching them with the dull-time term is partly luck. I am not retuning to chase 6.4.
+
+Bronze against steel, felling. Mathieu and Meyer's own trial found bronze not significantly slower than steel. Confidence: medium, and they say so. The sim does not say that. Split working cut steel:bronze is 1.73 (0.359 against 0.208). Split axe score is 1.14 (0.629 against 0.554). Combined working cut is 1.35 and the axe scores are 0.832 against 0.721. The axe score is closer to "about the same" than the working cut is. The working cut exaggerates steel against bronze relative to that trial. A quench-hardened edge against work-hardened bronze would exaggerate the other way, and these props cannot say it, because steel's hardness is 6 and iron's is 5.5.
+
+Copper against bronze, edge holding. Kienlin and Ottaway, in *L'Atelier du bronzier* vol. 2 (1998), pp. 271–286, found tin bronze better at keeping an edge than copper. I do not have their wear rates, so this is a direction, reported again by the 2023 Journal of Archaeological Science axe-efficiency paper. Confidence: medium on the direction, none on a number. Soriano and Gutiérrez Sáez, 2009, table 2 of their experimental axes (use-wear on metal; the copy I could read): pure copper about 79–104 HV, about 5% tin about 97–134 HV, about 15% tin about 125–189 HV. That is one set of replicas, not a survey of ancient edges. Confidence: medium for those replicas. The 15% tin bronze is roughly one and a half to two times the copper. The split interval bronze:copper is 2.10, and the hone labour bronze:copper is 0.58 (copper takes about 1.7 times the hone). Same neighbourhood as that hardness ratio, for bronze against copper only. Iron:bronze interval is 1.05. The sim treats wrought iron and tin bronze as nearly the same, which is defensible for unhardened iron against work-hardened bronze and too close if the iron is steeled.
+
+Copper and steel hardness, the gap the props cannot say. Modern C11000 copper is often quoted around 50 HV annealed and around 100 HV hard. I am treating that as a commercial range, not an archaeological measurement. Confidence: low to medium. A quench-hardened carbon-steel edge is several hundred HV. I am not pinning a number I did not read off a table in this pass. Confidence that the gap is several times, and can be an order of magnitude against annealed copper: medium. Confidence in any single ratio: low. The sim's hardness ranks are copper 3, bronze 5, iron 5.5, steel 6. The split interval then comes out steel:copper 3.03, steel:iron only 1.37, iron:copper 2.21. The 3.0 is in the range of work-hardened copper against a modest steel, and it is small if the comparison is annealed copper against a file-hard edge. The 1.37 is the compressed one. It is the props. Raising steel's hardness would widen it, and would also change `cut_q` in the default build. Not in this proposal.
+
+Where the sim is compressed. Steel against iron, on every term except the knife's working cut. Interval 1.37, axe 1.13, upkeep 0.83. A reader who wants hardened steel to hold an edge several times longer than wrought iron will not get it from these props, and the combined spread makes it worse (life 1.10). Split at least does not pull steel down toward the anchor. Steel's own wear goes from today's 0.171 to 0.166, not up to the combined account's 0.200.
+
+Where the sim is exaggerated. The split working cut, steel against copper (4.92) and steel against bronze (1.73), relative to felling trials on maintained axes. The mechanism is the second use of retention: it is already `keep` squared, and the working cut multiplies by it again, so copper keeps 15% of its fresh cut (0.073 against 0.480) and steel keeps 46% (0.359 against 0.780). That is the "spends its time dull" term, and it is harsher than a smith who hones when the edge rolls. The hone labour is the other half of the same idea. Using both at full strength double-counts the dull season. I am not turning either down now. It is the first sizing candidate that is actually inside this feature.
+
+Where the sim is muted, which is the one that changes the census. The axe score gives half its weight to toughness. The four tool metals share toughness 9, so they share break labour 0.060 and they share the 0.45 that half of the axe score is made of. The plants and farm coefficients then multiply by 0.1 and 0.2. A 4.9-times working cut becomes a 1.29-times axe and a plants gap of 0.014, the same plants gap the capped formula already had. The order of the axes is right. The size of the food effect is not, if the reference is felling time. The 0.1 and 0.2 are outside this feature. The 0.5/0.5 blend is inside it, and I am not changing it in this pass: it would move every axe score, and the census with it, and the instruction was to flag candidates rather than retune.
+
+Candidates for the later sizing pass. Not changed here.
+
+1. `PROPS` hardness, steel against iron most of all, copper against both. Biggest lever on the interval. Touches the default build's `cut_q`. Out of scope.
+2. The second use of retention inside `split_working_cut`. The knob if copper's average cut (15% of fresh) is too harsh once the hone is already being charged. Inside this feature.
+3. The 0.5/0.5 weights in `split_axe_score`. The knob if the food line should hear the dull-time. Inside this feature. This is the one that would change the 29 foragers.
+4. The plants coefficient 0.1 and the farm coefficient 0.2. Outside this feature. They set the absolute gap (0.014 and 0.029) that a deep steel chain has to beat.
+5. `RESHARPEN_USE` (0.07) and `BREAK_SCALE` (0.60). They set the labour units so the orders hold and the wear sits near today's 0.15 to 0.7. Not fitted to hours.
+6. Point fish left in absolute `working cut` (steel 0.359 under split, 0.765 under combined, 1.0 today). A ranking fix that is also a yield cut. Question below, not a silent renormalization.
+7. One edge class for a ground celt and a flake. Stone's interval beating copper is right for the celt and generous for the flake.
+
 ## How this lands relative to skills step 4
 
-PR #12, branch `origin/skills-step4`, head `3521366`, is open and not merged. `git diff origin/main origin/skills-step4` on `effects.rs`, `band.rs` and `probe_diffusion.rs`:
+Decided. This wear fix lands on main **before** PR #12 (`skills-step4`, head `3521366`). #12 then merges main into `skills-step4`. A merge, not a rebase, and no force-push. The feature stays off in that merge. The default build does not move the pre-step-4 hashes, so it does not block #12's own hash update. Do not turn the feature on until the flip table has been re-run on a build that has both.
 
-Step 4 does not add a new call of the `durability` function. The old sites are still there, still written as `durability(...)` or `1.15 - durability(...)`:
+`git diff origin/main origin/skills-step4 -- civ-core/src` touches `band.rs`, `beliefs.rs` (new), `effects.rs`, `lib.rs`, `probe_diffusion.rs`, `tests.rs`, `tests_skills.rs` and `world.rs`. This branch touches `band.rs`, `effects.rs`, `lib.rs`, `materials.rs` (new code), `probe_diffusion.rs`, `tests.rs`, `tests_skills.rs`, `tests_diffusion.rs` and the diagnostics. `materials.rs` and the diagnostics are only on this branch. `beliefs.rs` and `world.rs` are only on step 4. Those four should come across whole.
 
-- `band.rs:716` and `band.rs:742`, the axe fight term and `edge_q`. The diff does not touch these lines. It only changes the comment on the beliefs field.
-- `effects.rs` on that branch: `tool_upkeep` (around line 449), `axe_term` (592), `cand_new` (740), the fight axe term (912), `apply_base` (940), `nonfood_scores` (1126), the mark (1557). Same expressions as main.
-- `probe_diffusion.rs:161`, `KIT_UPKEEP * (1.15 - durability) * depth`, unchanged as an expression.
+Step 4 does not add a new `durability(` or `1.15 - durability` expression. Confirmed by searching that diff. The old expressions are still on main, at the sites this branch already replaced. Step 4's new food path calls `tool_upkeep` for the labour prior (`choose_food_belief`, `belief_slot_price`). It does not paste the old formula. `world.rs` calls `make_kit_beliefs` and does not mention durability.
 
-What step 4 does add is a new way of *reaching* that wear. Food slots, once the belief table is non-empty, are priced by `choose_food_belief` and `belief_slot_price`. Labour is the stored belief when the band has one. When it does not, labour is `tool_upkeep`, which is the durability wear. So a belief that has already learned a labour cost stops reading durability for that slot. A prior, and every band with an empty table, still reads it. Non-food slots stay on `slot_score_m` and `KIT_UPKEEP`. The probe's own-valuation (`slot_own`) now calls `belief_slot_price` instead of `slot_score_m`. Empty table, and every non-food slot, still `KIT_UPKEEP`.
+Hunks that will conflict, and how to resolve them so the helpers survive:
 
-That is the interaction. This proposal changes the number inside `tool_upkeep` and inside the `KIT_UPKEEP` wear factor. Step 4 decides *whether the food rank looks at that number or at a remembered labour*. It does not freeze the yield. Knife, hunt and point food change inside the yield (`food_edge_q`, `point_food_scale`), so a band with a stored labour belief still sees the new working edge. The flips in this note are the empty-table price. They are an upper bound on how fast the *labour* term moves axes once beliefs exist. They are not an upper bound on the yield change.
+- `effects.rs`, the module comment at main lines 10–16. Both branches rewrite it. Keep step 4's paragraph on beliefs, and keep this branch's sentences on `durability-v2`. Keep `use crate::beliefs`. The wear sites themselves are not in step 4's hunks (`tool_upkeep`, `hunt_q_of`, `cut_term`, `axe_term`, `cand_new`, `fight_of`, `apply_base`, `nonfood_scores`, the mark) and should merge. After the merge, `tool_upkeep` must still call `upkeep_wear`, and `cut_term` / `hunt_q_of` / `axe_term` / `cand_new` must still call `food_edge_q` and `axe_food_score`. `choose_food_belief` is inserted after `choose_food` and already calls `tool_upkeep`. Do not paste `1.15 - durability` back into any of those.
+- `tests.rs`, `v10_fixture_loads_and_runs`, main around line 1122. This branch wraps the hash asserts in `#[cfg(not(feature = "durability-v2"))]` and allows the constant to be dead under the feature. Step 4 changes the run-on hash from `0x5cef0617c34457c6` to `0x4c41b83c2c81e1f5`, because beliefs change the run, and it extends the skills-counter tests. Keep step 4's new hashes. Keep the `cfg` gate and the `allow(dead_code)` around them. Do not restore the pre-step-4 run-on hash, and do not let a feature-on build be required to match either hash. The v9 hash assert is only on this branch; leave its `cfg` gate in place.
+- `tests_skills.rs`. This branch's `wear()` (main line 78), `slow_score`, the mark, and the `food_edge_q` checks are not inside step 4's hunks (imports, the v16 fixture, and the new belief tests at the bottom). They should merge. If a conflict shows `sealed * rate * (1.15 - durability(mat(it)))` on the feature-on side, that line stays only under `#[cfg(not(feature = "durability-v2"))]`. The feature-on side is `upkeep_wear`. Step 4's new tests do not contain a durability expression. Do not add one while resolving them.
+- `probe_diffusion.rs` line 159, `fn upkeep`, sits between step 4's hunks (the `ItemAgg` field at line 139 and `own_value` at line 210). It should merge. Keep `upkeep_wear(it)`. Step 4's `slot_own` now calls `belief_slot_price`, which calls `tool_upkeep`. Both doors stay on the helpers. Do not restore `1.15 - durability(mat(it))` in `upkeep`.
 
-Expected conflicts if the two branches meet:
+Hunks that should not conflict. `band.rs`: step 4 changes the beliefs-field comment (main line 174); this branch changes `weapon_q` and `edge_q` (main lines 704–742). Keep `axe_food_score` and `score_durability`. `lib.rs`: step 4 adds `pub mod beliefs` next to `band`; this branch adds the diag modules further down. Keep both. `tests_diffusion.rs` is only this branch. `world.rs` is only step 4.
 
-- `effects.rs` will conflict. Both edits sit in the kit choice. This branch replaces `durability(...)` with `score_durability`, `record_durability` and `upkeep_wear` at the sites listed above. Step 4 inserts `choose_food_belief`, `belief_slot_price` and `make_kit_beliefs` around `choose_food`. The new belief path already calls `tool_upkeep`, so once `tool_upkeep` uses `upkeep_wear` the belief fallback inherits the feature with no extra edit. The conflict is the surrounding functions, not a missed formula.
-- `probe_diffusion.rs` will conflict. Step 4 rewrites `slot_own`, the imports, and the adoption counters. This branch changes line 159 from `1.15 - durability(mat(it))` to `upkeep_wear(it)`.
-- `band.rs` should merge. Step 4's hunk is the beliefs comment. This branch's hunks are `weapon_q` and `edge_q`.
+After the merge, search `civ-core/src` for `1.15 - durability`. The only hits should be the feature-off body of `upkeep_wear`, the diagnostic that compares against the old expression, the feature-off branch of the skills-test `wear()`, and comments. A hit in `choose_food`, `cand_new`, `nonfood_scores`, `edge_q`, the probe, or `world.rs` is the cap coming back. Delete it in favour of the helper.
 
-Recommendation. Land this proposal with the feature **off** either before or after step 4. The default build does not move, so it does not block step 4's hashes. Do not turn the feature on, and do not trust the flip table in this document as the step-4 answer, until both are measured together. A band with a stored labour belief will not re-rank a food slot when only the wear changes; the belief has replaced `tool_upkeep`. The yield change (working edge on the knife, the hunt and the point) still re-ranks those slots. The axe's food is half cut and half life, so its move is mostly the wear and the life, which a belief can freeze.
+What to re-measure, on the merged `skills-step4` tree, feature off and feature on (`WEAR_ACCOUNT` still Split):
 
-If this merges first, step 4's rebase must keep the helpers. Pasting `1.15 - durability(mat)` back into `nonfood_scores`, the probe, `cand_new` or `edge_q` would restore the cap on those paths while `tool_upkeep` stayed on the new model.
-
-If step 4 merges first, re-apply the helpers at the sites above (the belief path needs nothing beyond `tool_upkeep`), then re-run `diag_durability_flips`, `diag_axe_breakeven`, and the step-4 "believed wrong" share. The food-slot price will not be the one in this document.
+- `diag_durability_flips` and `diag_axe_breakeven` on `DIAG_SAVE`. The empty-table numbers in this note will not match once beliefs price food slots. The feature-off run is the control.
+- The step-4 "believed wrong" share. Food beliefs will learn the split working cut, and labour beliefs will learn `resharpen + break` instead of `1.15 - durability`.
+- The ordering tests, `working_edge_orders_knife_axe_and_point` and `split_model_orders_retention_break_and_price`.
+- Default-build golden hashes. They should be step 4's pair (`0x1845e2690330d59` and `0x4c41b83c2c81e1f5`), not the pair this proposal froze. A feature-on mismatch with either pair is expected and is not a reason to edit the constants.
 
 ## Questions for Michael
 
-1. Are the constants acceptable? Edge keep is `0.65 * hard + 0.35 * sharp`, roll is `0.09 * malleable`, chip discount is `0.50 * fracture / 10`, the scale is `/ 45`, the pitch-versus-clay split is `0.004 * hard`, repair is `0.045 * malleable`, and the working-edge floor is `0.40`. They were chosen to hit the order above and to avoid a shared cap. They are not fitted to a dataset.
-2. Which edge-life spread? The sim currently uses **0.50**, and that is my recommendation. Spread 1.00 is the raw formula: copper wear about 3 times steel, and all 3234 steel-capable bands take a steel axe (4766 band-slots flip). Spread 0.50: copper wear about 1.55 times steel, 3150 of those bands take steel, 81 keep copper, 3 keep iron (4550 band-slots flip). Spread 0.35 keeps more copper (331 axes, 3862 band-slots flip) but puts the bronze axe term just above iron, and two foragers drop an iron axe to stone. I would not go to 0.35 to save copper if it costs the iron-over-bronze order. 0.50 keeps the order and still abandons most copper. If that remaining swing is too big, the next knob is a higher anchor or a still gentler spread that is checked against the bronze/iron axe term, not 0.35 as printed.
-3. Should a steel point's fish factor stay at `working_edge_q` (0.765), or be renormalized so a steel point matches today's flat 1 and poorer points are a fraction of that? The code does the first. Ranking is the part that was wrong. Shrinking everyone's fish is an extra swing. I would renormalize if the fish drop is unwanted, and I have not done it, so the flip table above is the un-normalized one.
-4. Stone's edge life beats copper (0.730 against 0.630). One class covers a ground axe and a flake knife. Split them, or leave it? The priced axe still prefers copper in almost every band.
-5. There is no rot. Flax nets beat hide. Add a property later, or accept it?
-6. Steel's hardness (6 against iron's 5.5) still understates edge retention. Leave `PROPS` alone, as this proposal does?
-7. Ship the feature-off code before step 4, or rebase onto step 4 first? Either way the feature should stay off until the flip table is re-run with beliefs. My recommendation is: merge the off code whenever it is convenient, and do not enable it until that re-measure. Beliefs freeze labour, not the new knife and point yields.
-8. Wear has no floor. If a later material's life exceeds 1.15, upkeep goes negative. Floor it at 0?
+The landing order is decided (this branch first, then #12 merges main in). These are still open.
+
+1. Turn the feature on at all? My recommendation is to land the code with the feature off, and to use the split account when it is turned on. The default build stays byte-identical until that decision.
+2. Are the constants acceptable? Combined edge: keep `0.65 * hard + 0.35 * sharp`, roll `0.09 * malleable`, chip `0.50 * fracture / 10`, scale `/ 45`, the pitch-versus-clay term `0.004 * hard`, repair `0.045 * malleable`, working-edge floor `0.40`, spread `0.50` (combined only; the sim does not read it while the account is Split). Split edge: retention is that keep, squared; hone scale `RESHARPEN_USE` 0.07; break scale `0.60`; chip floor on the working cut `0.25`; interval floor `0.02`. They were chosen to hit the orders and to sit on today's wear scale. They are not fitted to the felling trials. The sizing candidates are listed above and are not questions for this pass except where one of them is also a constant you might reject outright.
+3. Leave `EDGE_LIFE_SPREAD` at 0.50? I recommend yes, as a dormant combined-account knob. I do not recommend using the combined account, and I do not recommend 0.35 (bronze's axe term then sits above iron) or 1.00 (every steel-capable band drops copper, and there is still no hone). Say if you want the constant deleted instead of left dormant.
+4. Should a steel point's fish factor stay at the working cut (split 0.359, combined 0.765), or be renormalized so a steel point matches today's flat 1 and poorer points are a fraction of that? The code does the first. Under split the shrink is the larger one. I would renormalize if the fish drop is unwanted, and I have not done it.
+5. One edge class covers a ground axe and a flake. Split them, or leave it? Under split, stone's interval beats copper and the priced axe still prefers copper. The flake is the one that number flatters.
+6. There is no rot. Flax nets beat hide. Add a property later, or accept it?
+7. Steel's hardness (6 against iron's 5.5) still understates a quenched edge. Leave `PROPS` alone, as this proposal does? It is the main sizing candidate, and it would change the default build.
+8. Wear has no floor. If a later material's life exceeds 1.15, combined upkeep goes negative. The split edge wear is a sum of two positive terms, so this only bites the non-edge classes and the combined account. Floor it at 0?
 9. The `kindling` crate forwards the feature (`durability-v2 = ["civ-core/durability-v2"]`) even though `civ-core` is a target-specific dependency. The native build accepts it. Say if you would rather the flag live only on `civ-core`.
 10. The bow's fight term is still a flat 0.3 whenever any point exists (`fight_of` slot 14). The audit suggests `0.3 * edge_q` of the point. Left unchanged. Say if that should be in this feature or left for the audit.
 
@@ -451,4 +781,4 @@ cargo test --release -p civ-core --features durability-v2 diag_durability -- --i
 cargo test --release -p civ-core --features durability-v2 diag_axe_breakeven -- --ignored --nocapture
 ```
 
-`DIAG_SAVE` selects the snapshot. One feature-on `diag_durability_flips` prints all three spreads. The feature-off flips run prints the v1 axe census and does not pretend to score v2. The ordering tests `durability_v2_orders_edges_and_v1_formula_stays` and, with the feature on, `working_edge_orders_knife_axe_and_point` are not ignored and run in the normal suite.
+`DIAG_SAVE` selects the snapshot. One feature-on `diag_durability_flips` prints v1, the three combined spreads, and the split account. One feature-on `diag_axe_breakeven` reloads under combined (spread 0.50) and under split. The feature-off runs print the v1 census only. The ordering tests `durability_v2_orders_edges_and_v1_formula_stays` and, with the feature on, `working_edge_orders_knife_axe_and_point` and `split_model_orders_retention_break_and_price` are not ignored and run in the normal suite.
