@@ -1,11 +1,14 @@
 //! Diagnostic only. Not part of the simulation and not run by `cargo test`.
 //! Prints material-quality formulas and nominal slot scores so caps and ties
-//! are visible. It asserts nothing and does not touch a golden hash.
+//! are visible, and (`audit_material_ratios`) the size of each gap: raw
+//! property, quality score, and the food, fight or survival figure the sim
+//! actually applies. It asserts nothing and does not touch a golden hash.
 //!
 //! `cargo test --release -p civ-core audit_ -- --ignored --nocapture`
 
 use crate::band::{edge_q, weapon_q, Kit, KIT_UPKEEP};
-use crate::effects::{slot_score, BandView};
+use crate::effects::{kit_yields, slot_score, tool_upkeep, BandView};
+use crate::physics::BELLOWS_HEAT;
 use crate::map::Map;
 use crate::materials::*;
 use crate::world::farming::{cultivated, wild_plant_cap, CROP_K};
@@ -1181,4 +1184,385 @@ fn audit_bounds_in_play() {
         );
     }
     println!("--- end ---");
+}
+
+fn sz_ratio(a: f32, b: f32) -> f32 {
+    if b.abs() < 1e-8 { f32::NAN } else { a / b }
+}
+
+/// `label` is `first/second`. Ratio is first ÷ second. Nothing is asserted.
+fn sz(pair: &str, layer: &str, what: &str, a: f32, b: f32) {
+    println!("SZ {pair:<18} {layer:<8} {what:<28} {a:10.4} {b:10.4} {:8.3}", sz_ratio(a, b));
+}
+
+fn yld(k: Kit) -> Kit {
+    let user = [1.0f32; NFORM];
+    kit_yields(&k, &|_| (1.0, 0.0, 0u8), &user)
+}
+
+fn axe_of(m: Mat) -> f32 {
+    0.5 * cut_q(m) + 0.5 * durability(m)
+}
+
+/// Plants, with a digging stick and a hammer, and an axe of `m`.
+fn plants_kit(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.dig = item(Form::Shaft, Mat::Wood);
+    k.hammer = item(Form::Hammer, Mat::Stone);
+    k.axe = item(Form::Axe, m);
+    yld(k).plants_m
+}
+
+/// Plants with only an axe. The 0.1 coefficient is the whole material term.
+fn plants_axe_only(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.axe = item(Form::Axe, m);
+    yld(k).plants_m
+}
+
+/// Farm yield: digging stick, a knife of `m`, an axe of `m`.
+fn farm_kit(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.dig = item(Form::Shaft, Mat::Wood);
+    k.cut = item(Form::Edge, m);
+    k.axe = item(Form::Axe, m);
+    yld(k).farm_m
+}
+
+/// Game from a spear only. No knife, no bow.
+fn game_spear(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.hunt = item(Form::Spear, m);
+    yld(k).game_m
+}
+
+/// Game from a spear and a knife of the same material.
+fn game_spear_knife(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.hunt = item(Form::Spear, m);
+    k.cut = item(Form::Edge, m);
+    yld(k).game_m
+}
+
+fn fish_spear(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.hunt = item(Form::Spear, m);
+    yld(k).fish_m
+}
+
+fn fish_net(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.net = item(Form::Net, m);
+    yld(k).fish_m
+}
+
+fn small_trap(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.trap = item(Form::Trap, m);
+    yld(k).small_m
+}
+
+fn plants_vessel(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.vessel = item(Form::Vessel, m);
+    yld(k).plants_m
+}
+
+/// Cooked meat digest. Ceramic is the only vessel that adds the 0.15.
+fn digest_meat(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.vessel = item(Form::Vessel, m);
+    k.cooked[1] = item(Form::Cooked, Mat::Meat);
+    yld(k).digest[1]
+}
+
+fn digest_grain(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.vessel = item(Form::Vessel, m);
+    k.cooked_grain = item(Form::Cooked, Mat::Grain);
+    yld(k).digest[4]
+}
+
+fn spear_wq(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.hunt = item(Form::Spear, m);
+    weapon_q(&k)
+}
+
+fn spear_axe_wq(m: Mat) -> f32 {
+    let mut k = Kit::default();
+    k.hunt = item(Form::Spear, m);
+    k.axe = item(Form::Axe, m);
+    weapon_q(&k)
+}
+
+fn power_of(wq: f32) -> f32 {
+    1.0 + 1.5 * wq
+}
+
+fn kill_of(wq: f32) -> f32 {
+    0.6 + wq
+}
+
+/// Cold-season food need, `cold_scale` 1, mirroring `World::economy`.
+fn need_at(protect: f32, t: f32) -> f32 {
+    1.0 + ((8.0 - t) / 14.0).max(0.0) * (1.0 - protect)
+}
+
+fn protect_kit(m: Mat, fire: bool, kiln: bool, axe: bool) -> f32 {
+    let mut k = Kit::default();
+    k.garment = item(Form::Garment, m);
+    if fire {
+        k.fire = item(Form::Fire, Mat::Wood);
+    }
+    if kiln {
+        k.kiln = item(Form::Kiln, Mat::Ceramic);
+    }
+    if axe {
+        k.axe = item(Form::Axe, Mat::Stone);
+    }
+    yld(k).protect
+}
+
+fn hull(boat: Option<Mat>, outrigger: bool, plank: bool, ship: bool) -> Kit {
+    let mut k = Kit::default();
+    if let Some(m) = boat {
+        k.boat = item(Form::Boat, m);
+    }
+    if outrigger {
+        k.outrigger = item(Form::Outrigger, Mat::Wood);
+    }
+    if plank {
+        k.plank = item(Form::Plank, Mat::Wood);
+    }
+    if ship {
+        k.ship = item(Form::Ship, Mat::Wood);
+    }
+    yld(k)
+}
+
+fn hazard(q: f32) -> f32 {
+    (1.4 - q).max(0.3)
+}
+
+fn fish_radius(q: f32) -> f32 {
+    1.0 + (2.0 * q).round()
+}
+
+fn fish_cap(q: f32) -> f32 {
+    0.6 + 1.2 * q
+}
+
+fn axe_score(view: &BandView, m: Mat, depth: u8) -> f32 {
+    let it = item(Form::Axe, m);
+    slot_score(view, &Kit::default(), 4, it, &|_| (1.0, 0.0, depth)).0
+}
+
+fn hunt_score(view: &BandView, m: Mat, depth: u8) -> f32 {
+    let it = item(Form::Spear, m);
+    slot_score(view, &Kit::default(), 0, it, &|_| (1.0, 0.0, depth)).0
+}
+
+/// Ratios of material gaps at three layers: the 0..10 property, the quality
+/// score, and the multiplier or hazard the simulation applies. Diagnostic only.
+#[test]
+#[ignore]
+fn audit_material_ratios() {
+    println!("=== material ratios (first/second). SZ layer is prop, quality, or applied ===");
+    println!("SZ {0:<18} {1:<8} {2:<28} {3:>10} {4:>10} {5:>8}", "pair", "layer", "what", "first", "second", "ratio");
+
+    let pairs: &[( &str, Mat, Mat)] = &[
+        ("steel/copper", Mat::Steel, Mat::Copper),
+        ("steel/iron", Mat::Steel, Mat::Iron),
+        ("iron/bronze", Mat::Iron, Mat::Bronze),
+        ("bronze/copper", Mat::Bronze, Mat::Copper),
+        ("copper/stone", Mat::Copper, Mat::Stone),
+        ("steel/stone", Mat::Steel, Mat::Stone),
+        ("flint/obsidian", Mat::Flint, Mat::Obsidian),
+        ("flax/fibre", Mat::Flax, Mat::Fibre),
+        ("wool/hide", Mat::Wool, Mat::Hide),
+        ("ceramic/hide", Mat::Ceramic, Mat::Hide),
+    ];
+
+    for &(name, a, b) in pairs {
+        let pa = a.props();
+        let pb = b.props();
+        sz(name, "prop", "hard", pa.hard, pb.hard);
+        sz(name, "prop", "sharp", pa.sharp, pb.sharp);
+        sz(name, "prop", "tough", pa.tough, pb.tough);
+        sz(name, "prop", "malleable", pa.malleable, pb.malleable);
+        sz(name, "prop", "fibrous", pa.fibrous, pb.fibrous);
+        sz(name, "quality", "cut_q", cut_q(a), cut_q(b));
+        sz(name, "quality", "dur_raw", raw_dur(pa), raw_dur(pb));
+        sz(name, "quality", "durability", durability(a), durability(b));
+        sz(name, "quality", "wear 1.15-dur", 1.15 - durability(a), 1.15 - durability(b));
+        sz(name, "quality", "edge_q", edge_q(a), edge_q(b));
+        sz(name, "quality", "axe 0.5cut+0.5dur", axe_of(a), axe_of(b));
+        sz(name, "quality", "mesh_q", mesh_q(a), mesh_q(b));
+        sz(name, "quality", "garment_q", garment_q(a), garment_q(b));
+        sz(name, "quality", "vessel_q", vessel_q(a), vessel_q(b));
+        sz(name, "quality", "boat_q", boat_q(a), boat_q(b));
+        sz(name, "applied", "plants dig+hammer+axe", plants_kit(a), plants_kit(b));
+        sz(name, "applied", "plants axe only", plants_axe_only(a), plants_axe_only(b));
+        sz(name, "applied", "farm dig+knife+axe", farm_kit(a), farm_kit(b));
+        sz(name, "applied", "game spear", game_spear(a), game_spear(b));
+        sz(name, "applied", "game spear+knife", game_spear_knife(a), game_spear_knife(b));
+        sz(name, "applied", "fish spear", fish_spear(a), fish_spear(b));
+        sz(name, "applied", "fish net only", fish_net(a), fish_net(b));
+        sz(name, "applied", "small trap only", small_trap(a), small_trap(b));
+        sz(name, "applied", "plants vessel only", plants_vessel(a), plants_vessel(b));
+        sz(name, "applied", "digest meat cooked", digest_meat(a), digest_meat(b));
+        sz(name, "applied", "digest grain cooked", digest_grain(a), digest_grain(b));
+        let wa = spear_wq(a);
+        let wb = spear_wq(b);
+        sz(name, "applied", "weapon_q spear", wa, wb);
+        sz(name, "applied", "power 1+1.5*spear", power_of(wa), power_of(wb));
+        sz(name, "applied", "kill 0.6+spear", kill_of(wa), kill_of(wb));
+        let wa = spear_axe_wq(a);
+        let wb = spear_axe_wq(b);
+        sz(name, "applied", "weapon_q spear+axe", wa, wb);
+        sz(name, "applied", "power 1+1.5*spear+axe", power_of(wa), power_of(wb));
+        sz(name, "applied", "kill 0.6+spear+axe", kill_of(wa), kill_of(wb));
+        let pa = protect_kit(a, true, false, false);
+        let pb = protect_kit(b, true, false, false);
+        sz(name, "applied", "protect fire+garment", pa, pb);
+        sz(name, "applied", "need t=-6 fire+garment", need_at(pa, -6.0), need_at(pb, -6.0));
+        let pa = protect_kit(a, true, true, true);
+        let pb = protect_kit(b, true, true, true);
+        sz(name, "applied", "protect fire+kiln+axe", pa, pb);
+        sz(name, "applied", "need t=-6 full kit", need_at(pa, -6.0), need_at(pb, -6.0));
+        sz(name, "applied", "upkeep axe d0", tool_upkeep(0.02, item(Form::Axe, a), 0, 1.0), tool_upkeep(0.02, item(Form::Axe, b), 0, 1.0));
+        sz(name, "applied", "upkeep axe d8", tool_upkeep(0.02, item(Form::Axe, a), 8, 1.0), tool_upkeep(0.02, item(Form::Axe, b), 8, 1.0));
+    }
+
+    println!("\n=== hulls: dugout, skin, plank (+0.25), ship (same q, range later) ===");
+    let dug = hull(Some(Mat::Wood), false, false, false);
+    let skin = hull(Some(Mat::Hide), false, false, false);
+    let reed = hull(Some(Mat::Fibre), false, false, false);
+    let plank = hull(Some(Mat::Wood), false, true, false);
+    let ship = hull(Some(Mat::Wood), false, false, true);
+    let dug_o = hull(Some(Mat::Wood), true, false, false);
+    let pl_o = hull(Some(Mat::Wood), true, true, false);
+    let rows = [
+        ("wood dugout", dug),
+        ("hide skin", skin),
+        ("fibre bundle", reed),
+        ("wood plank", plank),
+        ("wood ship", ship),
+        ("dugout+outrigger", dug_o),
+        ("plank+outrigger", pl_o),
+    ];
+    println!(
+        "{:<18} {:>7} {:>7} {:>7} {:>8} {:>8} {:>8} {:>8} {:>6}",
+        "hull", "boat_q", "safety", "hazard", "surv10", "range0", "range1", "fishcap", "rad"
+    );
+    for (name, k) in rows {
+        let q = k.boat_q;
+        let safe = World::boat_safety(&k);
+        println!(
+            "{:<18} {:7.3} {:7.3} {:7.3} {:8.4} {:8.3} {:8.3} {:8.3} {:6.0}",
+            name,
+            q,
+            safe,
+            hazard(safe),
+            World::sea_survival_x(safe, 0.0, 0.0, 10.0),
+            World::sea_range(q, 0.0),
+            World::sea_range(q, 1.0),
+            fish_cap(q),
+            fish_radius(q)
+        );
+    }
+    sz("plank/dugout", "quality", "boat_q on kit", plank.boat_q, dug.boat_q);
+    sz("plank/dugout", "applied", "sea_range xp0", World::sea_range(plank.boat_q, 0.0), World::sea_range(dug.boat_q, 0.0));
+    sz("plank/dugout", "applied", "sea_range xp1", World::sea_range(plank.boat_q, 1.0), World::sea_range(dug.boat_q, 1.0));
+    sz("plank/dugout", "applied", "survival sea10 xp0", World::sea_survival_x(plank.boat_q, 0.0, 0.0, 10.0), World::sea_survival_x(dug.boat_q, 0.0, 0.0, 10.0));
+    sz("plank/dugout", "applied", "fish weight cap", fish_cap(plank.boat_q), fish_cap(dug.boat_q));
+    sz("plank/dugout", "applied", "fish radius", fish_radius(plank.boat_q), fish_radius(dug.boat_q));
+    sz("hide/dugout", "quality", "boat_q on kit", skin.boat_q, dug.boat_q);
+    sz("outrigger/hull", "applied", "safety plank+out vs dug", World::boat_safety(&pl_o), dug.boat_q);
+    sz("outrigger/hull", "applied", "hazard plank+out vs dug+out", hazard(World::boat_safety(&pl_o)), hazard(World::boat_safety(&dug_o)));
+    sz("ship/dugout", "quality", "boat_q on kit", ship.boat_q, dug.boat_q);
+    // A ship under sail is 1.6 * SHIP_RANGE on top of sea_range. Print the factors, not a new formula.
+    println!("sail factor 1.6, ship factor 1.25, both multiply sea_range (world.rs boat_range). Hull q does not.");
+
+    println!("\n=== depth factor against the axe's food ===");
+    println!("depth factor is 1+0.3*depth for every material. KIT_UPKEEP is the non-food ranking penalty, not the economy.");
+    println!(
+        "{:<10} {:>7} {:>7} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "mat", "axe", "wear", "up0", "up8", "kitUp0", "kitUp8", "df8"
+    );
+    for &m in [Mat::Stone, Mat::Flint, Mat::Obsidian, Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel].iter() {
+        let wear = 1.15 - durability(m);
+        let df8 = 1.0 + 0.3 * 8.0;
+        println!(
+            "{:<10} {:7.3} {:7.3} {:8.5} {:8.5} {:8.4} {:8.4} {:8.2}",
+            m.name(),
+            axe_of(m),
+            wear,
+            tool_upkeep(0.02, item(Form::Axe, m), 0, 1.0),
+            tool_upkeep(0.02, item(Form::Axe, m), 8, 1.0),
+            KIT_UPKEEP * wear,
+            KIT_UPKEEP * wear * df8,
+            df8
+        );
+    }
+    let view = BandView::nominal();
+    let mut crops = BandView::nominal();
+    crops.harvest = [0.0, 0.0, 0.0, 0.0, 25.0];
+    crops.food = 25.0;
+    println!("slot_score axe, empty kit. nominal mix has no crops. crops view is harvest [0,0,0,0,25], food 25.");
+    println!("{:<10} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}", "mat", "nom d0", "nom d3", "nom d8", "crop d0", "crop d8", "hunt d0");
+    for &m in [Mat::Stone, Mat::Flint, Mat::Obsidian, Mat::Copper, Mat::Bronze, Mat::Iron, Mat::Steel].iter() {
+        println!(
+            "{:<10} {:8.4} {:8.4} {:8.4} {:8.4} {:8.4} {:8.4}",
+            m.name(),
+            axe_score(&view, m, 0),
+            axe_score(&view, m, 3),
+            axe_score(&view, m, 8),
+            axe_score(&crops, m, 0),
+            axe_score(&crops, m, 8),
+            hunt_score(&view, m, 0)
+        );
+    }
+    sz("steel/copper", "applied", "axe score nominal d0", axe_score(&view, Mat::Steel, 0), axe_score(&view, Mat::Copper, 0));
+    sz("steel/copper", "applied", "axe score nominal d8", axe_score(&view, Mat::Steel, 8), axe_score(&view, Mat::Copper, 8));
+    sz("steel/copper", "applied", "axe score crops d0", axe_score(&crops, Mat::Steel, 0), axe_score(&crops, Mat::Copper, 0));
+    sz("steel/bronze", "applied", "axe score nominal d8", axe_score(&view, Mat::Steel, 8), axe_score(&view, Mat::Bronze, 8));
+    sz("d8/d0", "applied", "steel axe upkeep", tool_upkeep(0.02, item(Form::Axe, Mat::Steel), 8, 1.0), tool_upkeep(0.02, item(Form::Axe, Mat::Steel), 0, 1.0));
+    let gap_food = plants_axe_only(Mat::Steel) - plants_axe_only(Mat::Copper);
+    let gap_farm = farm_kit(Mat::Steel) - farm_kit(Mat::Copper);
+    println!("plants axe-only steel-copper gap {gap_food:.4} (absolute multiplier). farm kit gap {gap_farm:.4}.");
+    println!("depth 8 multiplies every upkeep by 3.4. That factor does not depend on the material.");
+
+    println!("\n=== fire_temp and the reduction gates ===");
+    println!("lining adds 40*refractory. Bellows add {BELLOWS_HEAT:.0} only in a reducing charcoal furnace (fuel_t>=900, lining present).");
+    let fuels = [Mat::Wood, Mat::Fibre, Mat::Charcoal];
+    let linings = [None, Some(Mat::Stone), Some(Mat::Clay), Some(Mat::Ceramic)];
+    println!("{:<12} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10} {:>10}", "fuel", "open", "stone", "clay", "ceramic", "cer+bell", "vs Cu", "vs Fe");
+    for f in fuels {
+        let bell = if f.props().fuel_t >= 900.0 { BELLOWS_HEAT } else { 0.0 };
+        print!("{:<12}", f.name());
+        let mut last = 0.0;
+        for lin in linings {
+            let t = fire_temp(f, lin);
+            last = t;
+            print!(" {:8.0}", t);
+        }
+        let with = last + bell;
+        let cu = Mat::CopperOre.props().reduce_t;
+        let fe = Mat::IronOre.props().reduce_t;
+        println!(" {:10.0} {:10.0} {:10.0}", with, with - cu, with - fe);
+    }
+    sz("ceramic/stone", "prop", "refractory", Mat::Ceramic.props().refractory, Mat::Stone.props().refractory);
+    sz("ceramic/clay", "prop", "refractory", Mat::Ceramic.props().refractory, Mat::Clay.props().refractory);
+    sz("ceramic/stone", "applied", "charcoal fire_temp", fire_temp(Mat::Charcoal, Some(Mat::Ceramic)), fire_temp(Mat::Charcoal, Some(Mat::Stone)));
+    sz("charcoal/wood", "applied", "open fire_temp", fire_temp(Mat::Charcoal, None), fire_temp(Mat::Wood, None));
+    sz("clay/stone", "applied", "charcoal fire_temp", fire_temp(Mat::Charcoal, Some(Mat::Clay)), fire_temp(Mat::Charcoal, Some(Mat::Stone)));
+    println!("copper ore reduces at {:.0}, tin at {:.0}, iron at {:.0}", Mat::CopperOre.props().reduce_t, Mat::TinOre.props().reduce_t, Mat::IronOre.props().reduce_t);
+    println!(
+        "charcoal+stone minus copper gate: {:.0} C. charcoal+ceramic minus iron gate: {:.0} C. charcoal+ceramic+bellows minus iron: {:.0} C.",
+        fire_temp(Mat::Charcoal, Some(Mat::Stone)) - Mat::CopperOre.props().reduce_t,
+        fire_temp(Mat::Charcoal, Some(Mat::Ceramic)) - Mat::IronOre.props().reduce_t,
+        fire_temp(Mat::Charcoal, Some(Mat::Ceramic)) + BELLOWS_HEAT - Mat::IronOre.props().reduce_t
+    );
 }
