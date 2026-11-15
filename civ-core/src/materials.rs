@@ -4,6 +4,8 @@
 //! decided by `physics::apply` (what happens when a primitive action is applied to things) and by
 //! which materials a band can reach.
 use serde::{Deserialize, Serialize};
+#[cfg(all(test, feature = "durability-v2"))]
+use std::cell::Cell;
 
 pub const NMAT: usize = 29;
 /// Materials that can be gathered from the world (indices below this). The rest only exist as
@@ -534,9 +536,375 @@ pub fn cut_q(m: Mat) -> f32 {
     ((0.6 * p.sharp + 0.4 * p.hard) / 10.0).clamp(0.0, 1.0)
 }
 /// Durability 0..1: tough or re-sharpenable (malleable) materials last longer.
+///
+/// Default build. The `/ 12` then `.clamp(0.05, 1.0)` puts copper, bronze and
+/// iron on the same cap, and steel (less malleable) just under it, so a steel
+/// edge wears faster than a copper one. `durability-v2` does not change this
+/// function. The sim calls `score_durability` / `upkeep_wear` / `record_durability`,
+/// which are this function when the feature is off.
 pub fn durability(m: Mat) -> f32 {
     let p = m.props();
     ((p.tough + 0.5 * p.malleable) / 12.0).clamp(0.05, 1.0)
+}
+
+/// What is wearing. Proposal (`durability-v2`); the default build does not read it.
+/// Malleability is not a bonus here. It is `repair_factor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WearClass {
+    /// Knife, axe, adze, sickle, spear, point: dulling and chipping.
+    Edge,
+    /// Hammer, and a shield face: impact. Toughness dominates; a brittle face shatters.
+    Impact,
+    /// Pot, basket, bag, jar, frame, bellows.
+    Vessel,
+    /// Cord, net, snare, garment, bowstring, sail, cloth.
+    Cordage,
+    /// Boat, outrigger, plank hull, ship.
+    Hull,
+    /// Kiln lining, mould, and the clay body of a crucible.
+    Thermal,
+    /// A tally or token: weathering, not an edge.
+    Record,
+    /// Shaft, loom: it breaks, it does not dull.
+    Structure,
+    /// Raw stock, bloom, and forms whose upkeep is not this model (fire, cooked, ornament).
+    Stock,
+}
+
+/// Which wear formula an item's form uses. Ornaments, fires and cooked meals never
+/// reach it: `tool_upkeep` returns before the wear term.
+pub fn wear_class(f: Form) -> WearClass {
+    match f {
+        Form::Edge | Form::Point | Form::Spear | Form::Axe => WearClass::Edge,
+        Form::Hammer | Form::Shield => WearClass::Impact,
+        Form::Vessel | Form::Jar | Form::Frame | Form::Bellows => WearClass::Vessel,
+        Form::Cord | Form::Net | Form::Trap | Form::Garment | Form::Bow | Form::Sail | Form::Cloth => WearClass::Cordage,
+        Form::Boat | Form::Outrigger | Form::Plank | Form::Ship => WearClass::Hull,
+        Form::Kiln | Form::Mould | Form::Crucible => WearClass::Thermal,
+        Form::Mark => WearClass::Record,
+        Form::Shaft | Form::Loom => WearClass::Structure,
+        Form::Raw | Form::Bloom | Form::Cooked | Form::Fire | Form::Ornament => WearClass::Stock,
+    }
+}
+
+/// PROPOSAL (`durability-v2`). Working life of `m` used as `class`. Higher lasts
+/// longer. No shared cap: a result is equal only when the properties this class
+/// reads are equal. Inputs are the existing 0..10 props. Nothing here is saved.
+///
+/// An edge is not one of these lives. The feature-on sim prices an edge as
+/// resharpen labour plus breakage (`split_edge_wear`). The `Edge` arm is not read.
+pub fn class_durability(class: WearClass, m: Mat) -> f32 {
+    let p = m.props();
+    match class {
+        WearClass::Edge => 0.0,
+        WearClass::Impact => impact_life(p),
+        WearClass::Vessel => vessel_life(p),
+        WearClass::Cordage => cord_life(p),
+        WearClass::Hull => hull_life(p),
+        WearClass::Thermal => thermal_life(p),
+        WearClass::Record => record_life(p),
+        WearClass::Structure => structure_life(p),
+        WearClass::Stock => p.tough / 12.0,
+    }
+}
+
+/// Toughness left after the knap discount. Malleability is not in it. A high
+/// `fracture` spends toughness; it is not a brittleness column, and it is only
+/// applied here as "this edge was knapped".
+fn chip_tough(p: &Props) -> f32 {
+    p.tough * (1.0 - 0.50 * p.fracture / 10.0)
+}
+
+/// Which model the feature-on sim is scoring. `"v1"` when a test forces the old
+/// formula. The default build always reports `"v1"`. The sim binary (not a test)
+/// reports `"split"` and does not read an override.
+pub fn durability_account_name() -> &'static str {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        "v1"
+    }
+    #[cfg(all(feature = "durability-v2", not(test)))]
+    {
+        "split"
+    }
+    #[cfg(all(feature = "durability-v2", test))]
+    {
+        if dur_force_v1() { "v1" } else { "split" }
+    }
+}
+
+// Test-only. The sim binary does not compile this, and the scoring functions
+// do not read it unless this crate is built for tests.
+#[cfg(all(test, feature = "durability-v2"))]
+thread_local! {
+    static DUR_V1: Cell<bool> = Cell::new(false);
+}
+
+/// Score today's formula inside a feature-on test. Not in the sim binary.
+#[cfg(all(test, feature = "durability-v2"))]
+pub fn with_v1_model<T>(f: impl FnOnce() -> T) -> T {
+    DUR_V1.with(|v| {
+        let old = v.replace(true);
+        let out = f();
+        v.set(old);
+        out
+    })
+}
+
+#[cfg(all(test, feature = "durability-v2"))]
+#[inline]
+pub(crate) fn dur_force_v1() -> bool {
+    DUR_V1.with(|c| c.get())
+}
+
+/// Hardness and acuity, 0..1. Malleability is not read. Neither is toughness.
+fn keep_index(p: &Props) -> f32 {
+    (0.65 * p.hard + 0.35 * p.sharp) / 10.0
+}
+
+/// How long a working edge stays keen, as a 0..1 index. The square is Archard-shaped:
+/// the props hardness is a compressed rank, and a soft rank dulls much sooner than
+/// a linear reading of it. Malleability does not extend this. It does not enter it.
+pub fn edge_retention(m: Mat) -> f32 {
+    let k = keep_index(m.props());
+    k * k
+}
+
+/// Below this, resharpen labour would divide by zero. A material with no hardness
+/// and no acuity (brine) is not a tool; the floor only keeps the arithmetic finite.
+pub const SPLIT_INTERVAL_FLOOR: f32 = 0.02;
+
+/// Seasons of keenness relative to a perfect keep, before the use rate.
+/// Higher means you hone less often. Not compressed.
+pub fn resharpen_interval(m: Mat) -> f32 {
+    edge_retention(m).max(SPLIT_INTERVAL_FLOOR)
+}
+
+/// Share of toughness a chipped edge still contributes to the average cut.
+/// 0 would zero a knapped edge's food; flint would then lose to soft copper.
+pub const SPLIT_CHIP_FLOOR: f32 = 0.25;
+
+/// Toughness after the knap discount, 0..about 1. Breakage reads `1 - this`.
+/// Malleability is not in it.
+pub fn edge_toughness(m: Mat) -> f32 {
+    chip_tough(m.props()).max(0.0) / 10.0
+}
+
+/// Average cut between sharpenings. Fresh cut times how dull the edge gets
+/// (retention squared) times how much of that edge survives chipping.
+/// A soft edge spends the interval dull. A knapped edge spends it chipped.
+/// Malleability does not raise this.
+pub fn split_working_cut(m: Mat) -> f32 {
+    let chip = edge_toughness(m);
+    let body = SPLIT_CHIP_FLOOR + (1.0 - SPLIT_CHIP_FLOOR) * chip;
+    cut_q(m) * edge_retention(m) * body
+}
+
+/// Wear-scale of one resharpen per season at interval 1 and cost 1.
+/// `resharpen_labour = RESHARPEN_USE / interval * cost`. The existing upkeep
+/// rate is the "uses". There is no per-band sharpening loop.
+pub const RESHARPEN_USE: f32 = 0.07;
+
+/// Wear-scale of replacing the tool once a season. Times the break rate.
+/// Chain depth is the existing `(1 + 0.3 * depth)` outside this number, which
+/// is the sim's stand-in for the cost of a new tool.
+pub const BREAK_SCALE: f32 = 0.60;
+
+/// Cost of restoring the edge, 0.5..1. A hone scales down with malleability
+/// (`repair_factor`). A knapped edge is re-knapped, so the cost goes to 1
+/// (a new edge) as `fracture` goes to 10. Malleability does not buy a longer life.
+pub fn resharpen_cost(m: Mat) -> f32 {
+    let p = m.props();
+    let hone = 1.0 - (p.fracture / 10.0).clamp(0.0, 1.0);
+    let cheap = repair_factor(WearClass::Edge, m);
+    hone * cheap + (1.0 - hone) * 1.0
+}
+
+/// Resharpen labour in upkeep-wear units, for one season at the sim's use rate.
+pub fn resharpen_labour(m: Mat) -> f32 {
+    RESHARPEN_USE / resharpen_interval(m) * resharpen_cost(m)
+}
+
+/// Replacement labour in the same units. `1 - toughness`, times `BREAK_SCALE`.
+pub fn break_labour(m: Mat) -> f32 {
+    (1.0 - edge_toughness(m)).max(0.0) * BREAK_SCALE
+}
+
+/// Edge upkeep. Resharpen plus replacement. Not negative.
+/// Non-edge forms do not use this; they use the class life times repair.
+pub fn split_edge_wear(m: Mat) -> f32 {
+    resharpen_labour(m) + break_labour(m)
+}
+
+/// Axe food term under the split account. Half the season's average cut, half
+/// the chance the head is still in one piece. Same 0.5/0.5 shape as the
+/// combined axe, so `+0.1 * axe` and `+0.2 * axe` still multiply a number on
+/// that scale. Malleability is in neither half.
+pub fn split_axe_score(m: Mat) -> f32 {
+    0.5 * split_working_cut(m) + 0.5 * edge_toughness(m)
+}
+
+/// Keenness a food slot pays. Feature off: `cut_q`, the same bits as before.
+/// Feature on: `split_working_cut`. A test can force the old model; the sim
+/// binary does not branch.
+#[inline(always)]
+pub fn food_edge_q(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        cut_q(m)
+    }
+    #[cfg(all(feature = "durability-v2", not(test)))]
+    {
+        split_working_cut(m)
+    }
+    #[cfg(all(feature = "durability-v2", test))]
+    {
+        if dur_force_v1() { cut_q(m) } else { split_working_cut(m) }
+    }
+}
+
+/// The number an axe contributes to food and to the fight blend.
+/// Feature off: `0.5 * cut_q + 0.5 * durability`, the same operations as the
+/// inlined expression this replaced. Feature on: `split_axe_score`.
+#[inline(always)]
+pub fn axe_food_score(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        0.5 * cut_q(m) + 0.5 * durability(m)
+    }
+    #[cfg(all(feature = "durability-v2", not(test)))]
+    {
+        split_axe_score(m)
+    }
+    #[cfg(all(feature = "durability-v2", test))]
+    {
+        if dur_force_v1() { 0.5 * cut_q(m) + 0.5 * durability(m) } else { split_axe_score(m) }
+    }
+}
+
+/// A striking face. Toughness is the life; flaking shatters it. Hardness keeps
+/// the face from dishing, malleability mushrooms it.
+fn impact_life(p: &Props) -> f32 {
+    let face = p.tough * (1.0 - 0.65 * p.fracture / 10.0);
+    let dish = p.hard / (p.hard + 0.30 * p.malleable + 0.5);
+    (face / 10.0) * (0.45 + 0.55 * dish)
+}
+
+/// A wall. Fibre is a basket (rot and fray, from toughness and fibrousness).
+/// Anything else is a pot: it cracks (low toughness, flaking) and abrades.
+fn vessel_life(p: &Props) -> f32 {
+    let organic = p.fibrous / 10.0;
+    let crack = (p.tough / 10.0) * (1.0 - 0.55 * p.fracture / 10.0);
+    let abrasion = p.hard / (p.hard + 2.0);
+    let pot = crack * (0.35 + 0.65 * abrasion);
+    let fibre = (p.tough / 12.0) * (0.35 + 0.65 * organic);
+    fibre * organic + pot * (1.0 - organic)
+}
+
+/// Cord, cloth, net, clothing, a bowstring. Fibre toughness. There is no rot
+/// property; nothing here is immortal because tough and fibrous are not 10.
+fn cord_life(p: &Props) -> f32 {
+    (0.55 * p.tough + 0.45 * p.fibrous) / 12.0
+}
+
+/// A hull breaking up. Float and seal are `boat_q`, not life. Hardness separates
+/// a dugout from a skin boat that the old formula tied (both tough 6).
+fn hull_life(p: &Props) -> f32 {
+    (p.tough / 10.0) * (0.55 + 0.45 * p.hard / (p.hard + 3.0))
+}
+
+/// Heat. A kiln or a mould uses its own refractory and toughness. A crucible's
+/// material is the metal charge, whose refractory is 0; the body is fired clay
+/// (refractory 9, tough 2), stressed by how hot that charge has to be.
+fn thermal_life(p: &Props) -> f32 {
+    let (refr, tough, shock) = if p.refractory > 0.0 {
+        (p.refractory, p.tough, 1.0)
+    } else if p.melt > 0.0 {
+        (9.0, 2.0, 1.0 - 0.35 * (p.melt / 2000.0))
+    } else {
+        (0.0, p.tough, 1.0)
+    };
+    ((0.65 * refr + 0.35 * tough) / 12.0) * shock
+}
+
+/// Weathering of a mark. Not an edge. The ceramic +1 stays in the kit choice.
+fn record_life(p: &Props) -> f32 {
+    (0.55 * p.hard + 0.45 * p.tough) / 10.0
+}
+
+/// A shaft or a loom. Toughness, helped a little by hardness, hurt by flaking.
+fn structure_life(p: &Props) -> f32 {
+    let chip = p.tough * (1.0 - 0.40 * p.fracture / 10.0);
+    (chip / 10.0) * (0.60 + 0.40 * p.hard / (p.hard + 2.0))
+}
+
+/// Labour per unit of wear. 1 when `malleable` is 0 (knap another edge, or
+/// throw it out). Copper (9) is about 0.60; steel (5.5) about 0.75. A crucible's
+/// charge is not the body that cracks, so it does not get the metal's discount.
+/// Malleable is at most 10 on these props, so this stays above 0.5 with no clamp.
+pub fn repair_factor(class: WearClass, m: Mat) -> f32 {
+    let p = m.props();
+    if class == WearClass::Thermal && p.refractory <= 0.0 {
+        return 1.0;
+    }
+    1.0 - 0.045 * p.malleable
+}
+
+/// The `(1.15 - durability)` piece of upkeep. Feature off: that expression.
+/// Feature on, and the form is an edge: `split_edge_wear` (resharpen plus
+/// replacement). Other forms: `(1.15 - class life) * repair_factor`. No per-use loop.
+#[inline]
+pub fn upkeep_wear(it: Item) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        1.15 - durability(mat(it))
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        #[cfg(test)]
+        if dur_force_v1() {
+            return 1.15 - durability(mat(it));
+        }
+        let class = wear_class(form(it));
+        let m = mat(it);
+        if class == WearClass::Edge {
+            split_edge_wear(m)
+        } else {
+            (1.15 - class_durability(class, m)) * repair_factor(class, m)
+        }
+    }
+}
+
+/// Durability mixed into an edge's fight score (`edge_q`, and the old axe half).
+/// Feature off: `durability`. Feature on: toughness after the knap discount.
+/// Malleability is not added.
+#[inline]
+pub fn score_durability(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        durability(m)
+    }
+    #[cfg(all(feature = "durability-v2", not(test)))]
+    {
+        edge_toughness(m)
+    }
+    #[cfg(all(feature = "durability-v2", test))]
+    {
+        if dur_force_v1() { durability(m) } else { edge_toughness(m) }
+    }
+}
+
+/// Durability the mark slot ranks by. Feature off: `durability`.
+#[inline]
+pub fn record_durability(m: Mat) -> f32 {
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        durability(m)
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        class_durability(WearClass::Record, m)
+    }
 }
 /// Container quality (storage / carrying) by material.
 pub fn vessel_q(m: Mat) -> f32 {

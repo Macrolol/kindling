@@ -8,8 +8,11 @@
 //! Food slots are ranked by food gained minus the food the tool's upkeep labour would have
 //! grown. Recipe skill no longer discounts that decision (skills step 2): the user factor
 //! scales the material term, and recipe skill still sets quality. `edge_q` is not used for
-//! food. Non-food payoff slots keep the old `KIT_UPKEEP` ranking, with the user factor in
-//! place of the recipe-skill discount.
+//! food. Under `durability-v2`, knife and hunt food use `food_edge_q` (the split
+//! average cut) instead of bare `cut_q`. A point still fishes on presence, on
+//! both builds. The axe uses `axe_food_score`. The default build does not change
+//! knife, hunt or axe. Non-food payoff slots keep the old
+//! `KIT_UPKEEP` ranking, with the user factor in place of the recipe-skill discount.
 use crate::band::{edge_q, Kit, KIT_UPKEEP, QUALITY_BOAT, QUALITY_PROTECT, QUALITY_YIELD};
 use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
@@ -359,7 +362,8 @@ pub fn sealed_factor(it: Item, kit: &Kit, pitch: bool) -> f32 {
 
 /// One item's upkeep in the economy's units (a fraction of the labour pool, before
 /// `* LABOUR_SHARE * pop`). Ornaments are kept for show. A fire or a cooked meal is the
-/// flat 0.01. Anything else is `sealed * rate * (1.15 - durability) * (1 + 0.3 * depth)`.
+/// flat 0.01. Anything else is `sealed * rate * upkeep_wear(it) * (1 + 0.3 * depth)`.
+/// `upkeep_wear` is `1.15 - durability` unless `durability-v2` is on.
 ///
 /// Trials call this with `sealed = 1`. They never got the pitch discount, and a given kit's
 /// trial wear stays what it was.
@@ -370,7 +374,7 @@ pub fn tool_upkeep(rate: f32, it: Item, depth: u8, sealed: f32) -> f32 {
     if matches!(form(it), Form::Fire | Form::Cooked) {
         return 0.01;
     }
-    sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32)
+    sealed * rate * upkeep_wear(it) * (1.0 + 0.3 * depth as f32)
 }
 
 fn is_food_slot(slot: usize) -> bool {
@@ -495,26 +499,21 @@ fn hunt_q_of(it: Item) -> f32 {
     if it == NONE {
         0.0
     } else {
-        let m = mat(it);
+        let q = food_edge_q(mat(it));
         match form(it) {
-            Form::Spear => 0.35 + 0.65 * cut_q(m),
-            Form::Point => 0.35 * cut_q(m),
-            _ => 0.2 * cut_q(m),
+            Form::Spear => 0.35 + 0.65 * q,
+            Form::Point => 0.35 * q,
+            _ => 0.2 * q,
         }
     }
 }
 
 fn cut_term(it: Item) -> f32 {
-    if it == NONE { 0.0 } else { cut_q(mat(it)) }
+    if it == NONE { 0.0 } else { food_edge_q(mat(it)) }
 }
 
 fn axe_term(it: Item) -> f32 {
-    if it == NONE {
-        0.0
-    } else {
-        let m = mat(it);
-        0.5 * cut_q(m) + 0.5 * durability(m)
-    }
+    if it == NONE { 0.0 } else { axe_food_score(mat(it)) }
 }
 
 fn mesh_term(it: Item) -> f32 {
@@ -629,6 +628,7 @@ where
         axe: axe_term(axe) * scale(user, axe, 4, noise),
         cord: if k.cord == NONE { 0.0 } else { 1.0 },
         hammer: if k.hammer == NONE { 0.0 } else { 1.0 },
+        // Presence only. The material does not change the fish term, on either build.
         point: if point == NONE { 0.0 } else { scale(user, point, 10, noise) },
         netq: mesh_term(net) * scale(user, net, 12, noise),
         trapq: mesh_term(trap) * scale(user, trap, 13, noise),
@@ -661,19 +661,18 @@ struct Cand {
 
 fn cand_new(it: Item, sk: f32, ql: f32, d: u8, maker: f32) -> Cand {
     let m = mat(it);
-    let dur = durability(m);
-    let cq = cut_q(m);
+    let fq = food_edge_q(m);
     let (hunt_q, term) = match form(it) {
-        Form::Spear => (0.35 + 0.65 * cq, 0.0),
-        Form::Point => (0.35 * cq, 0.0),
-        Form::Edge => (0.2 * cq, cq),
-        Form::Axe => (0.0, 0.5 * cq + 0.5 * dur),
+        Form::Spear => (0.35 + 0.65 * fq, 0.0),
+        Form::Point => (0.35 * fq, 0.0),
+        Form::Edge => (0.2 * fq, fq),
+        Form::Axe => (0.0, axe_food_score(m)),
         Form::Net | Form::Trap => (0.0, mesh_q(m)),
         Form::Boat | Form::Outrigger | Form::Plank | Form::Ship => (0.0, boat_q(m)),
         Form::Bow | Form::Shield => (0.0, m.props().tough + 1.0),
         _ => (0.0, 0.0),
     };
-    Cand { it, d, sk, ql, hunt_q, term, dur_term: 1.15 - dur, depth_f: 1.0 + 0.3 * d as f32, m: maker }
+    Cand { it, d, sk, ql, hunt_q, term, dur_term: upkeep_wear(it), depth_f: 1.0 + 0.3 * d as f32, m: maker }
 }
 
 #[inline(always)]
@@ -689,7 +688,7 @@ fn yields_with<N: Fn(usize) -> f32>(slot: usize, base: &YArgs, c: &Cand, bow_ite
             a.cut = c.term * s;
             a.q_cut = c.ql;
         }
-        // every point fills the slot the same way: the multiplier is presence, not material
+        // Every point fills the slot the same way: presence, not material.
         10 => {
             a.point = s;
             a.bow = bow_item;
@@ -833,7 +832,7 @@ fn fight_of(slot: usize, it: Item, kit: &Kit) -> f32 {
             }
         }
         1 => 0.0,
-        4 => 0.3 * (0.5 * cut_q(mat(it)) + 0.5 * durability(mat(it))),
+        4 => 0.3 * axe_food_score(mat(it)),
         // points already chosen: a bow without them does not keep anyone back
         14 => {
             if kit.point != NONE {
@@ -861,7 +860,7 @@ pub fn kit_yields<F: Fn(Item) -> (f32, f32, u8)>(k: &Kit, info: &F, user: &[f32;
 /// and protection stay unscaled; the axe inside protection is the material term, not `uf`.
 pub(crate) fn apply_base(k: &mut Kit, user: &[f32; NFORM]) {
     let q = |it: Item, f: &dyn Fn(Mat) -> f32| if it == NONE { 0.0 } else { f(mat(it)) };
-    let axe = q(k.axe, &|m| 0.5 * cut_q(m) + 0.5 * durability(m));
+    let axe = q(k.axe, &axe_food_score);
     let hammer = if k.hammer == NONE { 0.0 } else { 1.0 };
     let fire = if k.fire == NONE { 0.0 } else { 1.0 };
     let kiln = if k.kiln == NONE { 0.0 } else { 1.0 };
@@ -1047,7 +1046,7 @@ fn nonfood_qv(slot: usize, m: Mat) -> f32 {
 /// Not the real upkeep (a hull is not ranked by caulking).
 fn nonfood_scores(slot: usize, it: Item, u_eff: f32, ql: f32, d: u8) -> (f32, f32) {
     let m = mat(it);
-    nonfood_from(nonfood_qv(slot, m), u_eff, ql, 1.15 - durability(m), 1.0 + 0.3 * d as f32)
+    nonfood_from(nonfood_qv(slot, m), u_eff, ql, upkeep_wear(it), 1.0 + 0.3 * d as f32)
 }
 
 fn nonfood_from(term: f32, u_eff: f32, ql: f32, dur_term: f32, depth_f: f32) -> (f32, f32) {
@@ -1128,7 +1127,7 @@ fn choose_nonfood(k: &mut Kit, slot: usize, list: &[Cand], record_trial: bool) {
 
 /// Food-slot choice. `lists` are the candidate forms in item-id order (an edge before a point
 /// before a spear). Empty-slot multipliers are computed once. A point's food does not depend
-/// on which point it is, so that food is computed once too.
+/// on which point it is, so that food is computed once.
 fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &[&[Cand]], info: &F, view: &BandView, w: &[f32; 5], record_trial: bool) {
     let mut best_cur = f32::NEG_INFINITY;
     let mut best_it = NONE;
@@ -1145,9 +1144,10 @@ fn choose_food<F: Fn(Item) -> (f32, f32, u8)>(k: &mut Kit, slot: usize, lists: &
     let base_f = yargs_rescaled(k, slot, &USER_FULL, &quiet, quals_of(&base));
     let m0_f = yields(&base_f);
     let pitch = pitch_in_use(k, view.wet);
-    // one food for every point: presence changes the multipliers, the material does not,
-    // and every point is the same form so it has the same user factor
-    let point_food = if slot == 10 {
+    // One food for every point. Presence changes the multipliers, the material does
+    // not, and every point is the same form so it has the same user factor.
+    let point_uniform = slot == 10;
+    let point_food = if point_uniform {
         let mut a = base;
         a.point = user_factor(view.user[Form::Point as usize]);
         a.bow = k.bow != NONE;
@@ -1260,7 +1260,7 @@ where
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
             // the mark that lasts: fired token, bone, stick, raw clay
-            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
+            Form::Mark => upd(23, record_durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,

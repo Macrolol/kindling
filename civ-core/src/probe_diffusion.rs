@@ -156,7 +156,7 @@ fn info(tk: &Toolkit, known: &[Known], it: Item) -> (f32, f32, u8) {
 }
 
 fn upkeep(it: Item, d: u8) -> f32 {
-    KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32)
+    KIT_UPKEEP * upkeep_wear(it) * (1.0 + 0.3 * d as f32)
 }
 
 /// food part of a (refined) kit's payoff

@@ -13,7 +13,7 @@ use crate::materials::*;
 use crate::physics::{canonical, Action};
 use crate::rng::{hash3, Rng};
 use crate::world::fx::{Fx, Pair};
-use crate::world::{inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
+use crate::world::{band_user, inherit_use, practise_use, Event, EventKind, CLOSE_TIE, PITCH_GLUE};
 use crate::{Config, Params, World};
 
 /// Last season's harvest shrunk halfway toward `NOMINAL_MIX` at the same total.
@@ -75,7 +75,14 @@ fn wear(rate: f32, it: Item, depth: u8, sealed: f32) -> f32 {
     if matches!(form(it), Form::Fire | Form::Cooked) {
         return 0.01;
     }
-    sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32)
+    #[cfg(not(feature = "durability-v2"))]
+    {
+        return sealed * rate * (1.15 - durability(mat(it))) * (1.0 + 0.3 * depth as f32);
+    }
+    #[cfg(feature = "durability-v2")]
+    {
+        sealed * rate * upkeep_wear(it) * (1.0 + 0.3 * depth as f32)
+    }
 }
 
 /// Which payoff slot already holds `it`, so `tool_effects` does not move it.
@@ -142,7 +149,34 @@ fn payout_invariant() {
         ];
         b.d.harvest.iter().sum::<f32>() > 1.0 && kit.iter().any(|&it| it != NONE)
     };
-    let b = w.bands.iter().find(|b| food_tool(b)).expect("a band harvesting with a food tool");
+    // The kit is fitted before this season's lesson. Food multipliers scale with
+    // the user factor and stay at the kit-time factor until the next refit. That
+    // lag is on both builds. The feature used to reapply the multipliers in the
+    // season of the lesson, which is the only reason a taught band passed this
+    // comparison. Skip a band taught this season: its stored multipliers are the
+    // kit-time user, not `band_user` at the end of the step.
+    let kit_still_matches = |b: &Band| {
+        let user = band_user(b);
+        let info = |it: Item| recipe_info(&b.d.tk, &b.known, it);
+        let y = kit_yields(&b.d.kit, &info, &user);
+        let k = &b.d.kit;
+        y.plants_m.to_bits() == k.plants_m.to_bits()
+            && y.game_m.to_bits() == k.game_m.to_bits()
+            && y.fish_m.to_bits() == k.fish_m.to_bits()
+            && y.small_m.to_bits() == k.small_m.to_bits()
+            && y.farm_m.to_bits() == k.farm_m.to_bits()
+            && y.boat_q.to_bits() == k.boat_q.to_bits()
+            && y.protect.to_bits() == k.protect.to_bits()
+            && y.fine.to_bits() == k.fine.to_bits()
+            && y.ship_q.to_bits() == k.ship_q.to_bits()
+            && y.digest.map(f32::to_bits) == k.digest.map(f32::to_bits)
+            && y.smoke == k.smoke
+    };
+    let b = w
+        .bands
+        .iter()
+        .find(|b| food_tool(b) && kit_still_matches(b))
+        .expect("a band harvesting with a food tool whose kit still matches the user factor");
     let s = w.season();
     let ec = w.economy(b, s);
     let view = w.band_view(b);
@@ -322,7 +356,8 @@ fn harvest_prior_smooths_mix() {
 
 /// No two of these share a `cut_q` (stone 0.42, bone 0.43, copper 0.48, iron 0.64, flint 0.76,
 /// steel 0.78, obsidian 0.82), so equal food cannot be asserted by pairing materials. Food per
-/// unit of `cut_q` is the same for all of them; labour follows durability and is not.
+/// unit of `food_edge_q` is the same for all of them (`cut_q` on the default build,
+/// `split_working_cut` under `durability-v2`); labour follows durability and is not.
 #[test]
 fn knife_food_is_cut_q_and_has_no_fight() {
     let view = BandView::nominal();
@@ -342,7 +377,7 @@ fn knife_food_is_cut_q_and_has_no_fight() {
         k.cut = it;
         let fx = tool_effects(&view, &k, 1, it, &info, 0);
         assert_eq!(fx.fight, 0.0, "{m:?} in the cut slot is not a weapon");
-        let r = fx.food / cut_q(m);
+        let r = fx.food / food_edge_q(m);
         match ratio {
             None => ratio = Some(r),
             Some(r0) => assert!((r - r0).abs() < 1e-4, "{m:?} food/cut_q {r} vs {r0}"),
@@ -394,7 +429,7 @@ fn lone_flint_edge_multipliers_and_mats() {
     s.add(flint);
     let k = make_kit(&s);
     assert_eq!((k.hunt, k.cut), (flint, flint));
-    let c = cut_q(Mat::Flint);
+    let c = food_edge_q(Mat::Flint);
     let game = (1.0 + 1.4 * 0.2 * c) * (1.0 + 0.35 * c);
     let farm = 0.5 + 0.35 * c;
     assert_eq!(k.game_m.to_bits(), game.to_bits());
@@ -497,7 +532,7 @@ fn slow_score<F: Fn(Item) -> (f32, f32, u8)>(view: &BandView, kit: &Kit, slot: u
         }
     } else {
         let m = mat(it);
-        let up = KIT_UPKEEP * (1.15 - durability(m)) * (1.0 + 0.3 * d as f32);
+        let up = KIT_UPKEEP * upkeep_wear(it) * (1.0 + 0.3 * d as f32);
         let qv = match slot {
             11 | 16 | 18 | 22 => boat_q(m),
             14 | 15 => m.props().tough + 1.0,
@@ -564,7 +599,7 @@ where
             Form::Ornament => upd(20, m.props().hard + 1.0 + 10.0 * m.props().prized, &mut k.ornament),
             Form::Jar if m == Mat::Grain => k.ale = it,
             Form::Jar => upd(21, vessel_q(m), &mut k.jar),
-            Form::Mark => upd(23, durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
+            Form::Mark => upd(23, record_durability(m) + if m == Mat::Ceramic { 1.0 } else { 0.0 }, &mut k.mark),
             Form::Raw if m == Mat::Pitch => k.pitch = it,
             Form::Cooked => match m {
                 Mat::Plants => k.cooked[0] = it,
@@ -1009,7 +1044,7 @@ fn low_edge_skill_lowers_cut_yield() {
     assert!(low.game_m < full.game_m, "game {} vs {}", low.game_m, full.game_m);
     assert!(low.farm_m < full.farm_m, "farm {} vs {}", low.farm_m, full.farm_m);
     assert_eq!(full.game_m.to_bits(), {
-        let c = cut_q(Mat::Flint);
+        let c = food_edge_q(Mat::Flint);
         ((1.0 + 1.4 * 0.2 * c) * (1.0 + 0.35 * c)).to_bits()
     });
 }

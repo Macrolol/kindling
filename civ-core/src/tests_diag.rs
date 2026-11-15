@@ -4,7 +4,10 @@
 //! holds a copper axe while a steel axe is makeable. Numbers only — the test
 //! does not assert a ranking.
 //!
-//! `DIAG_SAVE` is the snapshot path. If it is unset, `DIAG_SAVE_DEFAULT` is used.
+//! `DIAG_SAVE` is the snapshot path. If it is unset or empty, the diagnostic
+//! prints a skip line and returns. There is no default path. The snapshot
+//! these notes were measured on was made from main `f8d80dd`, seed 6, 350
+//! years, map 256x160.
 
 use crate::band::{loss_guard, weapon_q, Kit, KIT_UPKEEP};
 use crate::effects::{
@@ -15,13 +18,23 @@ use crate::knowledge::{Known, Toolkit};
 use crate::materials::*;
 use crate::World;
 
-/// Seed 6, 256x160, year 350, main `f8d80dd`. Replaced only if that snapshot
-/// has too few copper-axe-over-steel bands to measure.
-const DIAG_SAVE_DEFAULT: &str = "/workspace/step3-saves/main_seed6_y350_256x160.civsave";
+/// `DIAG_SAVE`, or `None` after printing why the diagnostic is skipping.
+/// The measured snapshot was main `f8d80dd`, seed 6, 350 years, 256x160.
+pub(crate) fn diag_save_or_skip() -> Option<String> {
+    match std::env::var("DIAG_SAVE") {
+        Ok(path) if !path.is_empty() => Some(path),
+        _ => {
+            println!(
+                "DIAG_SAVE is unset; skipping this diagnostic. Set DIAG_SAVE to a .civsave. The measured snapshot was main f8d80dd, seed 6, 350 years, 256x160."
+            );
+            None
+        }
+    }
+}
 
 /// Probe tie and fight weight, copied from `probe_diffusion` so this test does
 /// not reach into that module. A gap within `PROBE_TIE` is a tie there.
-const PROBE_TIE: f32 = 0.02;
+pub(crate) const PROBE_TIE: f32 = 0.02;
 const PROBE_FIGHT_W: f32 = 0.1;
 
 /// Axe is best[] slot 4 (`CHOOSE_ORDER`), payoff index 3.
@@ -182,23 +195,23 @@ fn pct(k: u64, n: u64) -> f64 {
 /// times the worst food-slot keep `1 - p_fail`. `upkeep` is `KIT_UPKEEP` times
 /// `maker_waste` at each distinct payoff tool's chain skill. At chain skill 1
 /// both factors are 1. `other` is boat soundness plus fine work.
-struct Tv {
-    food: f32,
-    plants: f32,
-    farm: f32,
-    protect: f32,
-    other: f32,
-    upkeep: f32,
-    fight: f32,
+pub(crate) struct Tv {
+    pub(crate) food: f32,
+    pub(crate) plants: f32,
+    pub(crate) farm: f32,
+    pub(crate) protect: f32,
+    pub(crate) other: f32,
+    pub(crate) upkeep: f32,
+    pub(crate) fight: f32,
 }
 
 impl Tv {
-    fn value(&self) -> f32 {
+    pub(crate) fn value(&self) -> f32 {
         self.food + self.protect + self.other - self.upkeep + self.fight
     }
 }
 
-fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
+pub(crate) fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     let mut up = 0.0;
     let mut seen: [Item; 12] = [NONE; 12];
     let mut keep = 1.0;
@@ -219,7 +232,7 @@ fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
         }
         seen[j] = it;
         let d = recipe_info(tk, known, it).2;
-        let base = KIT_UPKEEP * (1.15 - durability(mat(it))) * (1.0 + 0.3 * d as f32);
+        let base = KIT_UPKEEP * upkeep_wear(it) * (1.0 + 0.3 * d as f32);
         up += base * maker_waste(tk.chain_m(it));
     }
     let mults = k.plants_m + k.game_m + k.fish_m + k.small_m + k.farm_m;
@@ -235,7 +248,7 @@ fn tv_of(k: &Kit, tk: &Toolkit, known: &[Known]) -> Tv {
     }
 }
 
-fn with_axe(k: &Kit, axe: Item) -> Kit {
+pub(crate) fn with_axe(k: &Kit, axe: Item) -> Kit {
     let mut c = *k;
     c.axe = axe;
     c
@@ -352,12 +365,14 @@ fn print_agg(name: &str, a: &Agg) {
 #[test]
 #[ignore]
 fn diag_copper_over_steel_axe() {
-    let path = std::env::var("DIAG_SAVE").unwrap_or_else(|_| DIAG_SAVE_DEFAULT.to_string());
+    let Some(path) = diag_save_or_skip() else {
+        return;
+    };
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let (w, _, info) = World::load_bytes(&bytes).unwrap_or_else(|e| panic!("load {path}: {e}"));
     let copper = item(Form::Axe, Mat::Copper);
     let steel = item(Form::Axe, Mat::Steel);
-    let term = |m: Mat| 0.5 * cut_q(m) + 0.5 * durability(m);
+    let term = |m: Mat| axe_food_score(m);
     println!(
         "save {path} format v{} year {:.0} bands {} pop {}",
         info.format_version,
@@ -368,10 +383,10 @@ fn diag_copper_over_steel_axe() {
     println!(
         "copper cut_q {:.3} dur {:.3} axe_term {:.3} | steel cut_q {:.3} dur {:.3} axe_term {:.3}",
         cut_q(Mat::Copper),
-        durability(Mat::Copper),
+        score_durability(Mat::Copper),
         term(Mat::Copper),
         cut_q(Mat::Steel),
-        durability(Mat::Steel),
+        score_durability(Mat::Steel),
         term(Mat::Steel)
     );
     println!(

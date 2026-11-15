@@ -3862,6 +3862,8 @@ impl World {
                         nteach += 1;
                     }
                 }
+                // The kit was fitted before this lesson. Food multipliers stay at the
+                // kit-time user factor until the next refit. That lag is on both builds.
                 for &f in &teach[..nteach] {
                     if !rng.chance(USE_TEACH_P) {
                         continue;

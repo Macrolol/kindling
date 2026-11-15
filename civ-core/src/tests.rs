@@ -941,6 +941,8 @@ fn v9_fixture_loads_exactly() {
     let bytes = include_bytes!("../tests/fixtures/v9_seed9_y150_64x40.civsave");
     let (w, _, info) = World::load_bytes(bytes).expect("v9 save loads");
     assert_eq!(info.format_version, 9);
+    // Golden hash of the default build. `durability-v2` refits kits, so the hash moves.
+    #[cfg(not(feature = "durability-v2"))]
     assert_eq!(w.state_hash(), 0x1845e2690330d59);
     assert_eq!((w.tick, w.bands.len()), (600, 606));
     assert_eq!(w.bands.iter().map(|b| b.known.len()).sum::<usize>(), 17622);
@@ -1113,14 +1115,17 @@ fn v10_fixture_loads_and_runs() {
         assert_eq!((b.records, b.owed), (0.0, 0.0)); // (inventions step 8) likewise
     }
     assert_eq!((w.tick, w.bands.len()), (600, 606));
+    #[cfg(not(feature = "durability-v2"))]
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.0);
     assert_eq!(w.leg_record, 0.0);
     assert!(w.landfalls.iter().all(|r| r.leg == 0.0 && r.tech == 0));
     for _ in 0..40 {
         w.step();
     }
+    #[cfg(not(feature = "durability-v2"))]
     assert_eq!(w.state_hash(), FIXTURE_V10_HASH.1);
 }
+#[cfg_attr(feature = "durability-v2", allow(dead_code))]
 const FIXTURE_V10_HASH: (u64, u64) = (0x1845e2690330d59, 0x5cef0617c34457c6); // run-on changed by skills step 1 (layer-1 kit choice), step 8 (records, no partner cap), step 8b (close ties), step 10 (feasts, prestige from giving), step 10b (feast scale, ornaments seen), step 11 (gold: one more material), step 11b (moulds and crucibles; gold is cast), step 12 (recipe realism) and step 12b (experiments reach for tar pot, forge hammer, mast and sail) step 13 (resinous wood drawn like wood, pitch daubed on a pot) and the diffusion step (D1 hide and bone at hand for hunters, D2 worn ornaments practised, D3 kit by payoff with trials, D4 teaching what can be used, D5 recent recipes fade slower), skills step 1 pass 3 (harvest prior), skills step 2 pass 2, skills step 2 pass 3, skills step 3, skills step 3 kit choice
 
 /// (inventions step 0) The crossing ledger: a band that came ashore on another landmass over
